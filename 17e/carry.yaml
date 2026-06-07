@@ -18,17 +18,23 @@ rules:
       - config schema/version migration
       - hermes config check
       - hermes doctor
+      - doctor warning triage
       - config policy values such as curator.prune_builtins
-    activation_impact: host-local config gate; not a D7 runtime carry
+    activation_impact: host-local config and doctor triage gate; not a runtime carry
     rule:
       - back up default and named-profile configs before mutation
       - verify raw _config_version against the candidate DEFAULT_CONFIG version
       - run hermes config migrate/check and profile-specific migrations during the approved activation window
       - run hermes doctor before gateway restart
+      - classify remaining doctor warnings as actionable, optional-unused, or stale-local-state
+      - treat actionable warnings as activation blockers unless explicitly accepted by the owner
+      - do not add unused provider/tool API keys solely to silence optional doctor output
       - set policy-bearing config values explicitly rather than relying on stale defaults
     evidence:
       - command: read-only config audit on default and named profiles
         result: "43 config files at _config_version 27; curator.prune_builtins true observed in all checked profiles"
+      - command: read-only candidate hermes doctor smoke
+        result: "optional/unselected auth and tool warnings observed; classify under R1 before restart; product-code doctor output-policy changes require a D-item"
   R2:
     title: Bundled skill provenance and override policy
     status: operating-rule-not-runtime-diff
@@ -36,7 +42,7 @@ rules:
       - bundled/upstream skills
       - optional skills
       - local profile skill copies
-    activation_impact: host-local skills gate; not a D7 runtime carry
+    activation_impact: host-local skills gate; not a runtime carry
     rule:
       - preserve upstream bundled skill originals as upstream-owned artifacts
       - represent local behavior as custom skills or explicit override/extension layers
@@ -46,6 +52,27 @@ rules:
     evidence:
       - command: bundled skill diff and cron reference audit
         result: "v0.16.0 removed 16 bundled skills; 9 have same-slug optional-skills replacements; active cron references to removed bundled slugs were not observed"
+  R3:
+    title: Web dashboard and desktop activation gate
+    status: operating-rule-not-runtime-diff
+    scope:
+      - web dashboard server
+      - dashboard API/status endpoint
+      - dashboard frontend build artifacts
+      - dashboard PTY/WebSocket chat surface
+      - Hermes Desktop build, launch smoke, and logs
+    activation_impact: host-local GUI surface activation gate; not a runtime carry
+    rule:
+      - start dashboard from the candidate/live runtime with a safe local bind
+      - verify GET /api/status over HTTP without exposing secrets
+      - verify dashboard frontend build artifacts or rebuild success from the candidate checkout
+      - verify PTY/WebSocket chat prerequisites where in scope
+      - build Hermes Desktop at least once for the candidate checkout unless owner excludes desktop from activation
+      - inspect desktop.log and gui.log for launch-smoke errors from the same retry window when launch smoke is run
+      - keep dashboard/desktop readiness separate from messaging gateway restart/status checks
+    evidence:
+      - command: R3 ledger update only
+        result: "dashboard and desktop smoke not yet run for 17e/v0.16.0-re; required before declaring activation ready"
 entries:
   D1:
     title: Tool Search pair

@@ -62,8 +62,9 @@ R-items are durable 17번째 지구 operating rules that govern release activati
 
 | ID | Rule title | Scope | Activation impact | Next-release instruction |
 |---|---|---|---|---|
-| R1 | [Config/profile activation policy](#r1-configprofile-activation-policy) | Default/named profile configs, schema migration, `hermes config check`, `hermes doctor`, config policy values | Treat as host-local config activation gate, not a D7 runtime diff. | Verify raw config versions, run approved migrations/checks, and set activation policy values explicitly. |
-| R2 | [Bundled skill provenance and override policy](#r2-bundled-skill-provenance-and-override-policy) | Bundled/upstream skills, optional skills, local profile skill copies | Treat as host-local skills activation gate, not a D7 runtime diff. | Audit bundled skill removals and local mutations; preserve upstream originals and fork needed local variants into custom/override skills. |
+| R1 | [Config/profile activation policy](#r1-configprofile-activation-policy) | Default/named profile configs, schema migration, `hermes config check`, `hermes doctor`, config policy values | Treat as host-local config and doctor triage activation gate, not a runtime diff. | Verify raw config versions, run approved migrations/checks, set activation policy values explicitly, and classify remaining doctor warnings before restart. |
+| R2 | [Bundled skill provenance and override policy](#r2-bundled-skill-provenance-and-override-policy) | Bundled/upstream skills, optional skills, local profile skill copies | Treat as host-local skills activation gate, not a runtime diff. | Audit bundled skill removals and local mutations; preserve upstream originals and fork needed local variants into custom/override skills. |
+| R3 | [Web dashboard and desktop activation gate](#r3-web-dashboard-and-desktop-activation-gate) | Web dashboard, dashboard API/status, dashboard frontend build, PTY/WebSocket chat surface, Hermes Desktop build/launch/logs | Treat as host-local GUI surface activation gate, not a runtime diff. | Verify dashboard and desktop surfaces from the candidate/live runtime before declaring activation ready. |
 
 ## D1 Tool Search pair
 
@@ -629,7 +630,7 @@ Additional unit coverage should verify that a fake command returning `True` or `
 
 ### Rule
 
-Config/profile readiness is the first 17번째 지구 activation operating rule. It governs default and named profile `config.yaml` files, raw `_config_version`, profile migration, `hermes config check`, `hermes doctor`, and explicit config policy values such as `curator.prune_builtins`.
+Config/profile readiness is the first 17번째 지구 activation operating rule. It governs default and named profile `config.yaml` files, raw `_config_version`, profile migration, `hermes config check`, `hermes doctor`, doctor warning triage, and explicit config policy values such as `curator.prune_builtins`.
 
 Treat config/profile work as a host-local activation gate unless product code must change. Do not allocate a D-item for config migration/readiness alone.
 
@@ -639,15 +640,20 @@ During the approved activation window:
 2. Verify raw `_config_version` against the candidate runtime's `DEFAULT_CONFIG['_config_version']`.
 3. Run `hermes config migrate` for the default profile and `hermes --profile <name> config migrate` for active named profiles.
 4. Re-run `hermes config check` and `hermes doctor` before restarting gateways.
-5. Set policy-bearing config values explicitly rather than relying on stale defaults.
+5. Classify every remaining doctor warning as `actionable`, `optional-unused`, or `stale-local-state`.
+6. Treat actionable warnings as activation blockers unless the owner explicitly accepts the risk.
+7. Do not add unused provider/tool API keys solely to silence optional doctor output; disable unused features or classify them as optional-unused.
+8. Set policy-bearing config values explicitly rather than relying on stale defaults.
 
 ### Current local activation note
 
 Read-only config audit on `17e/v0.16.0-re` observed every default/named profile at `_config_version: 27`, but all 43 checked profile configs currently have `curator.prune_builtins: true`. That is host-local activation state, not a release diff. Before live activation, back up configs and set the intended policy explicitly for active profiles.
 
+Read-only `hermes doctor` smoke on the candidate runtime currently reports optional/unselected auth/tool warnings such as unused OAuth providers and disabled/missing optional tool dependencies. Those should be triaged under R1 before restart. If product code must change so doctor hides or downgrades unused provider/tool warnings by default while preserving warnings for enabled/selected features, allocate a D-item for that doctor output-policy change.
+
 ### Next-release instruction
 
-Re-check config schema/version, migration behavior, and profile-level policy values before activation. Keep config/profile readiness under R1 or a successor R-item unless a product-code change is actually required.
+Re-check config schema/version, migration behavior, profile-level policy values, and doctor warning classification before activation. Keep config/profile readiness and doctor triage under R1 or a successor R-item unless a product-code change is actually required.
 
 ## R2 Bundled skill provenance and override policy
 
@@ -674,13 +680,39 @@ Read-only skill audit comparing the pre-update live/freeze commit to `v2026.6.5`
 
 Re-check bundled and optional skill movement between the previous live release and the new upstream tag. Keep bundled skill provenance, optional repair/install, curator effects on skills, and local skill fork/override decisions under R2 or a successor R-item.
 
+## R3 Web dashboard and desktop activation gate
+
+### Rule
+
+Web dashboard and Hermes Desktop readiness are host-local activation surfaces, not release-scoped runtime diffs. They must be verified from the candidate/live runtime before declaring `17e/live` production-ready because CLI, gateway, dashboard, and desktop can fail independently after a release upgrade.
+
+Treat R3 as an activation gate unless product code must change. Do not allocate a D-item for dashboard/desktop smoke alone.
+
+During the approved activation window:
+
+1. Start the dashboard from the candidate/live runtime with a safe local bind, for example `hermes dashboard --no-open --host 127.0.0.1 --port <temp>`.
+2. Verify `GET /api/status` over HTTP and record the response shape/status without exposing secrets.
+3. Verify the dashboard frontend is present or successfully built from the candidate checkout (`hermes_cli/web_dist` or equivalent build artifact).
+4. Verify the chat surface prerequisites for PTY/WebSocket use where in scope (`ptyprocess`, Node.js, and `/api/pty` or `/api/ws` readiness), without sending live secrets through the smoke.
+5. Build Hermes Desktop at least once for the candidate checkout (`hermes desktop --build-only` or equivalent packaged Electron build path) unless the owner explicitly excludes desktop from this activation.
+6. If a launch smoke is run, inspect `~/.hermes/logs/desktop.log` and `~/.hermes/logs/gui.log` for errors from the same retry window.
+7. Distinguish dashboard backend readiness from gateway readiness; messaging gateway restart/status remains a separate activation check.
+
+### Current local activation note
+
+Dashboard and desktop smoke has not yet been run for `17e/v0.16.0-re` in this R3 update. Existing release-carry guidance already treats GUI surface verification as a live activation gate after config migration and before declaring production-ready.
+
+### Next-release instruction
+
+Re-check dashboard server startup, `/api/status`, frontend build artifacts, PTY/WebSocket chat readiness, and desktop build/launch/log evidence for every future release activation. Keep GUI surface verification under R3 or a successor R-item unless a product-code change is actually required.
+
 ## Current release-candidate baseline
 
 ```text
 release candidate branch: 17e/v0.16.0-re
 release base tag:         v2026.6.5
 release base commit:      3c231eb39
-ledger baseline purpose:  copy D1-D6 runtime-diff contracts plus R1/R2 operating-rule contracts into the release branch before per-delta code/decision commits
+ledger baseline purpose:  copy D1-D6 runtime-diff contracts plus R1/R2/R3 operating-rule contracts into the release branch before per-delta code/decision commits
 ```
 
 Initial preflight observations already collected, but not yet ledger-final decisions:
@@ -704,9 +736,9 @@ D4 old patch may conflict in plugins/platforms/discord/adapter.py; manual owner-
 Do not mark `17e/v0.16.0-re` ready until all applicable gates are complete:
 
 1. This ledger is committed on the release-candidate branch.
-2. `17e/carry.yaml` records D1-D6 status/smoke evidence and R1/R2 operating-rule metadata separately from runtime diffs.
+2. `17e/carry.yaml` records D1-D6 status/smoke evidence and R1/R2/R3 operating-rule metadata separately from runtime diffs.
 3. Each D1-D6 status is recorded only in its per-delta code/drop/retire commit.
-4. R1/R2 are treated as operating-rule/activation policies, not as D7 or product-code carries.
+4. R1/R2/R3 are treated as operating-rule/activation policies, not as product-code carries.
 5. No local D1 code patch is present unless D1 is proven not absorbed.
 6. D2/D3 are either patched minimally or explicitly replaced by proven upstream-native behavior.
 7. D4 has only the still-needed owner-thread seam, not duplicate absorbed config patches.
