@@ -41,7 +41,11 @@ Use these labels in per-delta commits only, not as final baseline markings:
 - `retired`: the behavior or strategy should not be recreated; keep only the ledger note.
 - `redesign`: upstream architecture changed enough that a straight patch is unsafe.
 
-## Delta index for v0.16.0 / `v2026.6.5`
+## Diff section: runtime deltas (D-items)
+
+D-items are release-scoped runtime/code differences between upstream Hermes and the 17번째 지구 carry branch. Do not allocate a D-ID for a pure operating rule unless it introduces, changes, drops, or retires a runtime diff.
+
+### Delta index for v0.16.0 / `v2026.6.5`
 
 | ID | Change title | Baseline state | Per-delta work to do | Preflight evidence to verify |
 |---|---|---|---|---|
@@ -51,6 +55,15 @@ Use these labels in per-delta commits only, not as final baseline markings:
 | D4 | [Discord gateway config and owner-thread routing seams](#d4-discord-gateway-config-and-owner-thread-routing-seams) | generic config fixes `upstream-absorbed`; owner-thread seam applied | Drop duplicate generic config carries; re-applied only owner-thread routing and `auto_thread_free_response` opt-in. | Generic config commits are ancestors; `ThreadOwnerTracker` / owner-thread seam absent before D4 patch. |
 | D5 | [Plugin strategy retirement](#d5-plugin-strategy-retirement) | `retired` / no-code | Do not recreate `kkachi-hermes-plugin`; carry only this ledger/skill knowledge. | Repo audit found no active config/plan/plugin dependency outside this ledger/carry manifest. |
 | D6 | [CLI return-code passthrough](#d6-cli-return-code-passthrough) | `keep-local-carry` | Applied bool-safe top-level integer return-code passthrough. | Missing Kanban task now exits `1`; usage error exits `2`; bool return values are ignored. |
+
+## Rule section: operating rules (R-items)
+
+R-items are durable 17번째 지구 operating rules that govern release activation, local profiles, skills, or other host-local state outside the release diff itself. R-items do not allocate D-IDs and must not be reported as runtime code carries.
+
+| ID | Rule title | Scope | Activation impact | Next-release instruction |
+|---|---|---|---|---|
+| R1 | [Config/profile activation policy](#r1-configprofile-activation-policy) | Default/named profile configs, schema migration, `hermes config check`, `hermes doctor`, config policy values | Treat as host-local config activation gate, not a D7 runtime diff. | Verify raw config versions, run approved migrations/checks, and set activation policy values explicitly. |
+| R2 | [Bundled skill provenance and override policy](#r2-bundled-skill-provenance-and-override-policy) | Bundled/upstream skills, optional skills, local profile skill copies | Treat as host-local skills activation gate, not a D7 runtime diff. | Audit bundled skill removals and local mutations; preserve upstream originals and fork needed local variants into custom/override skills. |
 
 ## D1 Tool Search pair
 
@@ -612,13 +625,62 @@ git diff --check
 
 Additional unit coverage should verify that a fake command returning `True` or `False` is not converted into `SystemExit(1)` or `SystemExit(0)` by the passthrough logic.
 
+## R1 Config/profile activation policy
+
+### Rule
+
+Config/profile readiness is the first 17번째 지구 activation operating rule. It governs default and named profile `config.yaml` files, raw `_config_version`, profile migration, `hermes config check`, `hermes doctor`, and explicit config policy values such as `curator.prune_builtins`.
+
+Treat config/profile work as a host-local activation gate unless product code must change. Do not allocate a D-item for config migration/readiness alone.
+
+During the approved activation window:
+
+1. Back up default and named-profile configs before mutation.
+2. Verify raw `_config_version` against the candidate runtime's `DEFAULT_CONFIG['_config_version']`.
+3. Run `hermes config migrate` for the default profile and `hermes --profile <name> config migrate` for active named profiles.
+4. Re-run `hermes config check` and `hermes doctor` before restarting gateways.
+5. Set policy-bearing config values explicitly rather than relying on stale defaults.
+
+### Current local activation note
+
+Read-only config audit on `17e/v0.16.0-re` observed every default/named profile at `_config_version: 27`, but all 43 checked profile configs currently have `curator.prune_builtins: true`. That is host-local activation state, not a release diff. Before live activation, back up configs and set the intended policy explicitly for active profiles.
+
+### Next-release instruction
+
+Re-check config schema/version, migration behavior, and profile-level policy values before activation. Keep config/profile readiness under R1 or a successor R-item unless a product-code change is actually required.
+
+## R2 Bundled skill provenance and override policy
+
+### Rule
+
+Bundled/upstream skills are not 17번째 지구 runtime diffs. Preserve upstream bundled skill originals as upstream-owned artifacts; do not mutate bundled copies to encode local operating preference.
+
+Local 17번째 지구 skill behavior should be represented as one of:
+
+- a custom/local skill with its own provenance, or
+- an explicit override/extension layer that applies on top of the bundled original without changing the upstream copy.
+
+If a future upstream release removes a bundled skill, do not recreate it as a D-item product-code carry. During activation/local-assets audit:
+
+1. If the removed bundled skill is unused and unmodified, remove the local copy or let the official sync/repair path retire it.
+2. If the removed bundled skill is actively used or locally modified, fork the needed behavior into a custom skill before removing the upstream-tracked copy.
+3. If an official optional skill replaces the removed bundled skill, install/repair it profile-locally through the official skill path instead of preserving a stale bundled copy.
+
+### Current local activation note
+
+Read-only skill audit comparing the pre-update live/freeze commit to `v2026.6.5` found 16 bundled skills removed from `skills/`; 9 have same-slug `optional-skills/` replacements and active cron `skills[]` references to removed bundled slugs were not observed. Profile-local stale copies still require activation-time classification.
+
+### Next-release instruction
+
+Re-check bundled and optional skill movement between the previous live release and the new upstream tag. Keep bundled skill provenance, optional repair/install, curator effects on skills, and local skill fork/override decisions under R2 or a successor R-item.
+
 ## Current release-candidate baseline
 
 ```text
 release candidate branch: 17e/v0.16.0-re
 release base tag:         v2026.6.5
 release base commit:      3c231eb39
-ledger baseline purpose:  copy D1-D6 contracts into the release branch before per-delta code/decision commits
+ledger baseline purpose:  copy D1-D6 runtime-diff contracts plus R1/R2 operating-rule contracts into the release branch before per-delta code/decision commits
 ```
 
 Initial preflight observations already collected, but not yet ledger-final decisions:
@@ -642,13 +704,14 @@ D4 old patch may conflict in plugins/platforms/discord/adapter.py; manual owner-
 Do not mark `17e/v0.16.0-re` ready until all applicable gates are complete:
 
 1. This ledger is committed on the release-candidate branch.
-2. `17e/carry.yaml` records D1-D6 status and smoke evidence.
+2. `17e/carry.yaml` records D1-D6 status/smoke evidence and R1/R2 operating-rule metadata separately from runtime diffs.
 3. Each D1-D6 status is recorded only in its per-delta code/drop/retire commit.
-4. No local D1 code patch is present unless D1 is proven not absorbed.
-5. D2/D3 are either patched minimally or explicitly replaced by proven upstream-native behavior.
-6. D4 has only the still-needed owner-thread seam, not duplicate absorbed config patches.
-7. D5 remains a no-code/process decision unless active references require cleanup.
-8. D6 CLI return-code passthrough is fixed and smoked if still broken.
-9. Host targeted smoke passes for touched files.
-10. Docker smoke passes with disposable `HERMES_HOME`.
-11. `17e/live` repoint/apply is separately approved and verified.
+4. R1/R2 are treated as operating-rule/activation policies, not as D7 or product-code carries.
+5. No local D1 code patch is present unless D1 is proven not absorbed.
+6. D2/D3 are either patched minimally or explicitly replaced by proven upstream-native behavior.
+7. D4 has only the still-needed owner-thread seam, not duplicate absorbed config patches.
+8. D5 remains a no-code/process decision unless active references require cleanup.
+9. D6 CLI return-code passthrough is fixed and smoked if still broken.
+10. Host targeted smoke passes for touched files.
+11. Docker smoke passes with disposable `HERMES_HOME`.
+12. `17e/live` repoint/apply is separately approved and verified.

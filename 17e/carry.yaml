@@ -8,6 +8,44 @@ policy:
   status_decisions_are_per_delta_commits: true
   drop_means_mark_absorbed_or_retired_not_delete: true
   verification_scope: targeted_smoke_not_full_macos_suite
+  d_items_are_runtime_diffs_only: true
+rules:
+  R1:
+    title: Config/profile activation policy
+    status: operating-rule-not-runtime-diff
+    scope:
+      - default and named profile config.yaml files
+      - config schema/version migration
+      - hermes config check
+      - hermes doctor
+      - config policy values such as curator.prune_builtins
+    activation_impact: host-local config gate; not a D7 runtime carry
+    rule:
+      - back up default and named-profile configs before mutation
+      - verify raw _config_version against the candidate DEFAULT_CONFIG version
+      - run hermes config migrate/check and profile-specific migrations during the approved activation window
+      - run hermes doctor before gateway restart
+      - set policy-bearing config values explicitly rather than relying on stale defaults
+    evidence:
+      - command: read-only config audit on default and named profiles
+        result: "43 config files at _config_version 27; curator.prune_builtins true observed in all checked profiles"
+  R2:
+    title: Bundled skill provenance and override policy
+    status: operating-rule-not-runtime-diff
+    scope:
+      - bundled/upstream skills
+      - optional skills
+      - local profile skill copies
+    activation_impact: host-local skills gate; not a D7 runtime carry
+    rule:
+      - preserve upstream bundled skill originals as upstream-owned artifacts
+      - represent local behavior as custom skills or explicit override/extension layers
+      - when upstream removes a bundled skill, remove unused/unmodified local copies
+      - fork actively used or locally modified removed bundled skills into custom skills before removing the upstream-tracked copy
+      - install or repair official optional replacements profile-locally instead of preserving stale bundled copies
+    evidence:
+      - command: bundled skill diff and cron reference audit
+        result: "v0.16.0 removed 16 bundled skills; 9 have same-slug optional-skills replacements; active cron references to removed bundled slugs were not observed"
 entries:
   D1:
     title: Tool Search pair
