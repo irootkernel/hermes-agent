@@ -49,7 +49,7 @@ Use these labels in per-delta commits only, not as final baseline markings:
 | D2 | [Kanban review and same-card handoff helpers](#d2-kanban-review-and-same-card-handoff-helpers) | D2-a audited: `partial-native`; D2-b/c/d applied | Keep native v0.16 review queue/dispatch; re-applied only missing same-card transition/tool seams in D2-b/c/d. | Native `review` claim/dispatch exists; `handoff_task`, `submit_task_for_review`, `request_changes`, and tool surfaces were absent at D2-a audit. |
 | D3 | [Kanban assignee alias resolution](#d3-kanban-assignee-alias-resolution) | `keep-local-carry` | Re-applied minimal dispatcher-only spawn-profile alias resolution. | v0.16.0 had no `kanban.assignee_aliases` / `resolve_assignee_profile` equivalent before this D3 commit. |
 | D4 | [Discord gateway config and owner-thread routing seams](#d4-discord-gateway-config-and-owner-thread-routing-seams) | generic config fixes `upstream-absorbed`; owner-thread seam applied | Drop duplicate generic config carries; re-applied only owner-thread routing and `auto_thread_free_response` opt-in. | Generic config commits are ancestors; `ThreadOwnerTracker` / owner-thread seam absent before D4 patch. |
-| D5 | [Plugin strategy retirement](#d5-plugin-strategy-retirement) | pending per-delta decision | Reconfirm the support-only plugin strategy remains non-actionable; record the decision in the D5 commit. | Process decision; no runtime patch expected unless references/config still point to plugin behavior. |
+| D5 | [Plugin strategy retirement](#d5-plugin-strategy-retirement) | `retired` / no-code | Do not recreate `kkachi-hermes-plugin`; carry only this ledger/skill knowledge. | Repo audit found no active config/plan/plugin dependency outside this ledger/carry manifest. |
 | D6 | [CLI return-code passthrough](#d6-cli-return-code-passthrough) | `keep-local-carry` | Applied bool-safe top-level integer return-code passthrough. | Missing Kanban task now exits `1`; usage error exits `2`; bool return values are ignored. |
 
 ## D1 Tool Search pair
@@ -509,9 +509,31 @@ Manual/live smoke only after explicit restart approval:
 
 ## D5 Plugin strategy retirement
 
-### Decision background
+### v0.16.0 decision
 
-The v0.15 plugin experiment did not move actual Kanban or Discord behavior out of the local runtime branch. It only provided diagnostics, migration audit, and transition-contract support. That did not materially reduce runtime update cost.
+Decision: `retired` / no-code.
+
+Do not recreate `kkachi-hermes-plugin` or any support-only update-management plugin for this release branch. The v0.15 experiment only provided diagnostics, migration audit, and transition-contract support; it did not carry runtime Kanban or Discord behavior and did not reduce the v0.16.0 update cost enough to justify preserving a separate plugin.
+
+No product-code patch is required. Operational knowledge stays in this ledger and the `release-carry-ledgers` skill.
+
+Audit evidence:
+
+```bash
+git grep -n "kkachi-hermes-plugin" -- . ':!for_17th_earth.md' ':!17e/carry.yaml'
+# no matches outside ledger/carry manifest
+
+git grep -n "support-only plugin\|transition-contract\|migration audit" -- . ':!for_17th_earth.md' ':!17e/carry.yaml'
+# no matches
+
+git grep -n "kkachi\|17th.*plugin\|plugins:.*kkachi\|kkachi-hermes" -- '*.yaml' '*.yml' '*.toml' '*.json' ':!17e/carry.yaml'
+# no matches
+
+git ls-files | grep -Ei '(^|/)17e|kkachi|plugin' | grep -Ei 'kkachi|17e/.+plugin|plugin.+17e'
+# no matches
+```
+
+Docker/read-only audit used the same repository-only dependency checks with a disposable `HERMES_HOME`; no live secrets, live profile config, production Kanban DB, or gateways were mounted.
 
 ### Current rule
 
@@ -520,9 +542,9 @@ The v0.15 plugin experiment did not move actual Kanban or Discord behavior out o
 - Keep update knowledge in this ledger and in active skills/SOUL where operators will actually read it.
 - A future plugin is acceptable only if it carries real behavior without broad new runtime hooks and demonstrably reduces the next update burden.
 
-### Per-delta decision procedure
+### Next-release instruction
 
-In the D5 commit, verify no active v0.16.0 plan/config depends on the retired support-only plugin. Then record the retirement decision there. Do not mark it in this baseline.
+Re-check for active references to `kkachi-hermes-plugin` or any successor support-only update plugin. If no runtime behavior depends on it, keep D5 retired and do not add product-code patches.
 
 ## D6 CLI return-code passthrough
 

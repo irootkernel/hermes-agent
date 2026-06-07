@@ -195,7 +195,24 @@ entries:
           result: "owned thread accepted; foreign-owned participated thread rejected; free-response auto-thread opt-in created owned thread; no live secrets or production DB mounted"
   D5:
     title: Plugin strategy retirement
-    status: pending
+    status: retired-no-code
+    code_patch_required: false
+    local_action: do-not-recreate-support-only-update-plugin
+    decision:
+      - kkachi-hermes-plugin is not carried for runtime behavior
+      - support-only migration-audit / transition-contract plugin strategy is retired
+      - update knowledge remains in for_17th_earth.md and release-carry-ledgers skill
+    evidence:
+      - command: git grep -n "kkachi-hermes-plugin" -- . ':!for_17th_earth.md' ':!17e/carry.yaml'
+        result: no matches outside ledger/carry manifest
+      - command: git grep -n "support-only plugin\\|transition-contract\\|migration audit" -- . ':!for_17th_earth.md' ':!17e/carry.yaml'
+        result: no matches
+      - command: git grep -n "kkachi\\|17th.*plugin\\|plugins:.*kkachi\\|kkachi-hermes" -- '*.yaml' '*.yml' '*.toml' '*.json' ':!17e/carry.yaml'
+        result: no matches
+      - command: git ls-files | grep -Ei '(^|/)17e|kkachi|plugin' | grep -Ei 'kkachi|17e/.+plugin|plugin.+17e'
+        result: no matches
+      - command: docker run --rm -i -v "$PWD:/repo:ro" -w /repo -e HERMES_HOME=/tmp/hermes-d5-docker-audit hermes-17e-d3-checkpoint-smoke:py311 python - <<'PY'
+        result: "no active support-only plugin dependency outside ledger/carry manifest; read-only repo; disposable HERMES_HOME"
   D6:
     title: CLI return-code passthrough
     status: keep-local-carry
