@@ -50,7 +50,7 @@ Use these labels in per-delta commits only, not as final baseline markings:
 | D3 | [Kanban assignee alias resolution](#d3-kanban-assignee-alias-resolution) | `keep-local-carry` | Re-applied minimal dispatcher-only spawn-profile alias resolution. | v0.16.0 had no `kanban.assignee_aliases` / `resolve_assignee_profile` equivalent before this D3 commit. |
 | D4 | [Discord gateway config and owner-thread routing seams](#d4-discord-gateway-config-and-owner-thread-routing-seams) | pending per-delta decision | Separate absorbed generic config fixes from any still-needed owner-thread seam in the D4 commit. | Check `0bfe19ba1`, `44f3e5186`, `6d2727ef1`; inspect Discord owner tracking. |
 | D5 | [Plugin strategy retirement](#d5-plugin-strategy-retirement) | pending per-delta decision | Reconfirm the support-only plugin strategy remains non-actionable; record the decision in the D5 commit. | Process decision; no runtime patch expected unless references/config still point to plugin behavior. |
-| D6 | [CLI return-code passthrough](#d6-cli-return-code-passthrough) | pending per-delta decision | Verify top-level CLI return-code behavior; patch with `type(rc) is int` only if still broken. | `kanban show definitely_missing_task` should return non-zero after fix. |
+| D6 | [CLI return-code passthrough](#d6-cli-return-code-passthrough) | `keep-local-carry` | Applied bool-safe top-level integer return-code passthrough. | Missing Kanban task now exits `1`; usage error exits `2`; bool return values are ignored. |
 
 ## D1 Tool Search pair
 
@@ -330,6 +330,19 @@ In the D5 commit, verify no active v0.16.0 plan/config depends on the retired su
 
 ## D6 CLI return-code passthrough
 
+### v0.16.0 decision
+
+`keep-local-carry` for `17e/v0.16.0-re`.
+
+The release-candidate branch still ignored integer return codes from command handlers at the top-level CLI dispatch boundary. This commit patches only the final dispatch point and uses `type(rc) is int`, not `isinstance(rc, int)`, so `True`/`False` are not converted into shell exit codes.
+
+Pre-patch reproduction:
+
+```bash
+PYTHONPATH=$PWD /Users/draccoon/.local/bin/hermes-python -m hermes_cli.main kanban show definitely_missing_task
+# rc 0; stderr: no such task: definitely_missing_task
+```
+
 ### Observed risk to verify
 
 The top-level CLI command dispatcher may ignore integer return codes from subcommand handlers.
@@ -363,11 +376,20 @@ Do **not** use `isinstance(rc, int)`: Python `bool` is an `int` subclass, so `Tr
 ### Targeted smoke
 
 ```bash
-PYTHONPATH=$PWD python -m hermes_cli.main kanban show definitely_missing_task
-# expected rc: 1
+PYTHONPATH=$PWD /Users/draccoon/.local/bin/hermes-python -m hermes_cli.main kanban show definitely_missing_task
+# rc 1; stderr: no such task: definitely_missing_task
 
-PYTHONPATH=$PWD python -m hermes_cli.main kanban list --json
-# expected rc: 0
+PYTHONPATH=$PWD /Users/draccoon/.local/bin/hermes-python -m hermes_cli.main kanban boards switch ""
+# rc 2; stderr: kanban boards switch: slug is required
+
+PYTHONPATH=$PWD /Users/draccoon/.local/bin/hermes-python -m pytest -q tests/hermes_cli/test_main_exit_codes.py tests/hermes_cli/test_kanban_db.py
+# 224 passed
+
+PYTHONPATH=$PWD /Users/draccoon/.local/bin/hermes-python -m py_compile hermes_cli/main.py tests/hermes_cli/test_main_exit_codes.py
+# passed
+
+git diff --check
+# passed
 ```
 
 Additional unit coverage should verify that a fake command returning `True` or `False` is not converted into `SystemExit(1)` or `SystemExit(0)` by the passthrough logic.

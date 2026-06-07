@@ -65,4 +65,21 @@ entries:
     status: pending
   D6:
     title: CLI return-code passthrough
-    status: pending
+    status: keep-local-carry
+    local_action: reapply-bool-safe-top-level-rc-passthrough
+    code_patch_required: true
+    evidence:
+      pre_patch_reproduction:
+        - command: PYTHONPATH=$PWD /Users/draccoon/.local/bin/hermes-python -m hermes_cli.main kanban show definitely_missing_task
+          result: "rc 0; stderr no such task: definitely_missing_task"
+      smoke:
+        - command: PYTHONPATH=$PWD /Users/draccoon/.local/bin/hermes-python -m hermes_cli.main kanban show definitely_missing_task
+          result: "rc 1; stderr no such task: definitely_missing_task"
+        - command: PYTHONPATH=$PWD /Users/draccoon/.local/bin/hermes-python -m hermes_cli.main kanban boards switch ""
+          result: "rc 2; stderr kanban boards switch: slug is required"
+        - command: PYTHONPATH=$PWD /Users/draccoon/.local/bin/hermes-python -m pytest -q tests/hermes_cli/test_main_exit_codes.py tests/hermes_cli/test_kanban_db.py
+          result: 224 passed
+        - command: PYTHONPATH=$PWD /Users/draccoon/.local/bin/hermes-python -m py_compile hermes_cli/main.py tests/hermes_cli/test_main_exit_codes.py
+          result: passed
+        - command: git diff --check
+          result: passed
