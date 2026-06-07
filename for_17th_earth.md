@@ -64,8 +64,9 @@ R-items are durable 17번째 지구 operating rules that govern release activati
 | ID | Rule title | Scope | Activation impact | Next-release instruction |
 |---|---|---|---|---|
 | R1 | [Config/profile activation policy](#r1-configprofile-activation-policy) | Default/named profile configs, schema migration, `hermes config check`, `hermes doctor`, config policy values | Treat as host-local config and doctor triage activation gate, not a runtime diff. | Verify raw config versions, run approved migrations/checks, set activation policy values explicitly, and classify remaining doctor warnings before restart. |
-| R2 | [Bundled skill provenance and override policy](#r2-bundled-skill-provenance-and-override-policy) | Bundled/upstream skills, optional skills, local profile skill copies | Treat as host-local skills activation gate, not a runtime diff. | Audit bundled skill removals and local mutations; preserve upstream originals and fork needed local variants into custom/override skills. |
+| R2 | [Skill provenance, overrides, and compatibility policy](#r2-skill-provenance-overrides-and-compatibility-policy) | Bundled/upstream skills, optional skills, custom/local skills, hub-installed skills, profile-local skill copies, override/fork skills | Treat as host-local skill compatibility gate, not a runtime diff. | Audit bundled skill removals, custom/local skill validity, duplicate names, and active cron skill references; preserve upstream originals and fork needed local variants into custom/override skills. |
 | R3 | [Web dashboard and desktop activation gate](#r3-web-dashboard-and-desktop-activation-gate) | Web dashboard, dashboard API/status, dashboard frontend build, PTY/WebSocket chat surface, Hermes Desktop build/launch/logs | Treat as host-local GUI surface activation gate, not a runtime diff. | Verify dashboard and desktop surfaces from the candidate/live runtime before declaring activation ready. |
+| R4 | [Cron and local automation assets activation gate](#r4-cron-and-local-automation-assets-activation-gate) | Active cron jobs, cron `skills[]`, cron scripts, `~/.hermes/scripts`, profile-local scripts, watcher jobs, hardcoded automation paths | Treat as host-local automation activation gate, not a runtime diff. | Verify active cron jobs, script existence/syntax, profile-relative script resolution, and hardcoded path compatibility before activation. |
 
 ## D1 Tool Search pair
 
@@ -698,30 +699,35 @@ D7 now narrows Tool Availability output so disabled/unselected optional toolsets
 
 Re-check config schema/version, migration behavior, profile-level policy values, and doctor warning classification before activation. Keep config/profile readiness and doctor triage under R1 or a successor R-item unless a product-code change is actually required.
 
-## R2 Bundled skill provenance and override policy
+## R2 Skill provenance, overrides, and compatibility policy
 
 ### Rule
 
-Bundled/upstream skills are not 17번째 지구 runtime diffs. Preserve upstream bundled skill originals as upstream-owned artifacts; do not mutate bundled copies to encode local operating preference.
+Skill assets are not 17번째 지구 runtime diffs by themselves. Preserve upstream bundled skill originals as upstream-owned artifacts; do not mutate bundled copies to encode local operating preference. Treat custom/local skills, hub-installed skills, profile-local copies, and explicit override/fork skills as host-local compatibility assets that must be checked before activation.
 
 Local 17번째 지구 skill behavior should be represented as one of:
 
 - a custom/local skill with its own provenance, or
 - an explicit override/extension layer that applies on top of the bundled original without changing the upstream copy.
 
-If a future upstream release removes a bundled skill, do not recreate it as a D-item product-code carry. During activation/local-assets audit:
+During activation/local-assets audit:
 
-1. If the removed bundled skill is unused and unmodified, remove the local copy or let the official sync/repair path retire it.
-2. If the removed bundled skill is actively used or locally modified, fork the needed behavior into a custom skill before removing the upstream-tracked copy.
-3. If an official optional skill replaces the removed bundled skill, install/repair it profile-locally through the official skill path instead of preserving a stale bundled copy.
+1. If a future upstream release removes a bundled skill, do not recreate it as a D-item product-code carry.
+2. If the removed bundled skill is unused and unmodified, remove the local copy or let the official sync/repair path retire it.
+3. If the removed bundled skill is actively used or locally modified, fork the needed behavior into a custom skill before removing the upstream-tracked copy.
+4. If an official optional skill replaces the removed bundled skill, install/repair it profile-locally through the official skill path instead of preserving a stale bundled copy.
+5. Check every runtime-visible local/custom/profile skill `SKILL.md` for valid frontmatter, name consistency, and duplicate runtime-visible skill names.
+6. Check that every active cron `skills[]` entry resolves in the profile that will run the cron job; unresolved active cron skill references are activation blockers unless explicitly retired or accepted.
 
 ### Current local activation note
 
 Read-only skill audit comparing the pre-update live/freeze commit to `v2026.6.5` found 16 bundled skills removed from `skills/`; 9 have same-slug `optional-skills/` replacements and active cron `skills[]` references to removed bundled slugs were not observed. Profile-local stale copies still require activation-time classification.
 
+Follow-up read-only local-assets audit on the default plus named profiles observed runtime-visible skill frontmatter errors `0` and runtime-visible duplicate skill profiles `0`. This does not replace activation-time skill update/repair decisions; it only records that the current visible skill inventory parses cleanly.
+
 ### Next-release instruction
 
-Re-check bundled and optional skill movement between the previous live release and the new upstream tag. Keep bundled skill provenance, optional repair/install, curator effects on skills, and local skill fork/override decisions under R2 or a successor R-item.
+Re-check bundled and optional skill movement between the previous live release and the new upstream tag. Also re-check custom/local/hub/profile skill frontmatter, duplicate runtime-visible skill names, and active cron `skills[]` resolution. Keep bundled skill provenance, optional repair/install, curator effects on skills, and local skill fork/override decisions under R2 or a successor R-item.
 
 ## R3 Web dashboard and desktop activation gate
 
@@ -749,13 +755,44 @@ Dashboard and desktop smoke has not yet been run for `17e/v0.16.0-re` in this R3
 
 Re-check dashboard server startup, `/api/status`, frontend build artifacts, PTY/WebSocket chat readiness, and desktop build/launch/log evidence for every future release activation. Keep GUI surface verification under R3 or a successor R-item unless a product-code change is actually required.
 
+## R4 Cron and local automation assets activation gate
+
+### Rule
+
+Cron jobs, watcher jobs, `~/.hermes/scripts`, profile-local scripts, the shared 17번째 지구 automation script root, and cron prompt automation are host-local activation assets, not release-scoped runtime diffs. They can still break or create side effects immediately after activation, so they must be verified before declaring the release ready.
+
+Treat R4 as an activation gate unless product code must change. Do not allocate a D-item for cron/script readiness alone.
+
+During the approved activation window:
+
+1. List active cron jobs for the default profile and every named profile that will remain active after activation.
+2. Verify every active cron `skills[]` entry resolves in that cron job's execution profile.
+3. Verify every active cron `script` exists. For the default profile, relative script paths resolve under `~/.hermes/scripts/`; for named profiles, check that profile's own `scripts/` before falling back to the default profile script directory. Also verify shared 17번째 지구 automation scripts referenced from cron prompts or wrappers under `/Users/draccoon/Workspace/Hermes/ops/scripts/`.
+4. Parse every Python script with `ast.parse` or an equivalent no-write syntax check; in read-only Docker, avoid `py_compile` because `__pycache__` writes can create false failures.
+5. Run `bash -n` on every shell script used by active cron/local automation.
+6. Classify hardcoded checkout, Python, workdir, and vault paths in active scripts/prompts as `active-blocker`, `benign-after-in-place-activation`, or `stale-watcher-warning`.
+7. Explicitly retire or pause stale watchers before activation instead of letting them fail under the new runtime.
+8. Keep cron/script readiness separate from R2 skill provenance and from product-code D-items.
+
+### Current local activation note
+
+Read-only local-assets audit observed 20 cron jobs total, 17 active, 2 cron `skills[]` references, no missing active cron scripts, 71 Python scripts with parse errors `0`, and 26 shell scripts with `bash -n` failures `0`. The observed cron-owning profiles were `default`, `hwangchung`, `masok`, `mibang`, `songeon`, `wangpyeong`, and `wolyeong`.
+
+Shared 17번째 지구 automation scripts are currently under `/Users/draccoon/Workspace/Hermes/ops/scripts/`; `/Users/draccoon/Workspace/Hermes/opt/` was checked and was not present in this snapshot. Treat cron wrappers in `~/.hermes/scripts/` and profile-local `scripts/` as runtime entrypoints, and the shared `ops/scripts/` tree as the durable common script source where applicable.
+
+This audit is a readiness snapshot only. Before live activation, re-run it against the candidate/live runtime and explicitly classify stale watchers, disabled jobs, hardcoded paths, and any KSCQ/KAC/retention/diary jobs that should be kept, paused, or retired.
+
+### Next-release instruction
+
+Re-check active cron jobs, cron `skills[]`, cron scripts, profile-local script resolution, shared `/Users/draccoon/Workspace/Hermes/ops/scripts/` references, script syntax, hardcoded paths, and watcher retirement state for every future release activation. Keep cron/script/local automation readiness under R4 or a successor R-item unless a product-code change is actually required.
+
 ## Current release-candidate baseline
 
 ```text
 release candidate branch: 17e/v0.16.0-re
 release base tag:         v2026.6.5
 release base commit:      3c231eb39
-ledger baseline purpose:  copy D1-D7 runtime-diff contracts plus R1/R2/R3 operating-rule contracts into the release branch before per-delta code/decision commits
+ledger baseline purpose:  copy D1-D7 runtime-diff contracts plus R1/R2/R3/R4 operating-rule contracts into the release branch before per-delta code/decision commits
 ```
 
 Initial preflight observations already collected, but not yet ledger-final decisions:
@@ -779,9 +816,9 @@ D4 old patch may conflict in plugins/platforms/discord/adapter.py; manual owner-
 Do not mark `17e/v0.16.0-re` ready until all applicable gates are complete:
 
 1. This ledger is committed on the release-candidate branch.
-2. `17e/carry.yaml` records D1-D7 status/smoke evidence and R1/R2/R3 operating-rule metadata separately from runtime diffs.
+2. `17e/carry.yaml` records D1-D7 status/smoke evidence and R1/R2/R3/R4 operating-rule metadata separately from runtime diffs.
 3. Each D1-D7 status is recorded only in its per-delta code/drop/retire commit.
-4. R1/R2/R3 are treated as operating-rule/activation policies, not as product-code carries.
+4. R1/R2/R3/R4 are treated as operating-rule/activation policies, not as product-code carries.
 5. No local D1 code patch is present unless D1 is proven not absorbed.
 6. D2/D3 are either patched minimally or explicitly replaced by proven upstream-native behavior.
 7. D4 has only the still-needed owner-thread seam, not duplicate absorbed config patches.

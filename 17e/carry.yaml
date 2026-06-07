@@ -34,24 +34,32 @@ rules:
       - command: read-only config audit on default and named profiles
         result: "43 config files at _config_version 27; curator.prune_builtins true observed in all checked profiles"
       - command: read-only candidate hermes doctor smoke
-        result: "optional/unselected auth and tool warnings observed; classify under R1 before restart; product-code doctor output-policy changes require a D-item"
+        result: "D7 filters unselected Tool Availability warnings; remaining doctor warnings still require R1 classification before restart"
   R2:
-    title: Bundled skill provenance and override policy
+    title: Skill provenance, overrides, and compatibility policy
     status: operating-rule-not-runtime-diff
     scope:
       - bundled/upstream skills
       - optional skills
+      - custom/local skills
+      - hub-installed skills
       - local profile skill copies
-    activation_impact: host-local skills gate; not a runtime carry
+      - explicit override/fork skills
+      - active cron skills references
+    activation_impact: host-local skill compatibility gate; not a runtime carry
     rule:
       - preserve upstream bundled skill originals as upstream-owned artifacts
       - represent local behavior as custom skills or explicit override/extension layers
       - when upstream removes a bundled skill, remove unused/unmodified local copies
       - fork actively used or locally modified removed bundled skills into custom skills before removing the upstream-tracked copy
       - install or repair official optional replacements profile-locally instead of preserving stale bundled copies
+      - verify local/custom/profile skill frontmatter, names, and runtime-visible duplicates
+      - verify active cron skills entries resolve in the profile that will run the job
     evidence:
       - command: bundled skill diff and cron reference audit
         result: "v0.16.0 removed 16 bundled skills; 9 have same-slug optional-skills replacements; active cron references to removed bundled slugs were not observed"
+      - command: runtime-visible skill inventory audit across default and named profiles
+        result: "runtime-visible skill frontmatter errors 0; runtime-visible duplicate skill profiles 0"
   R3:
     title: Web dashboard and desktop activation gate
     status: operating-rule-not-runtime-diff
@@ -73,6 +81,32 @@ rules:
     evidence:
       - command: R3 ledger update only
         result: "dashboard and desktop smoke not yet run for 17e/v0.16.0-re; required before declaring activation ready"
+  R4:
+    title: Cron and local automation assets activation gate
+    status: operating-rule-not-runtime-diff
+    scope:
+      - active cron jobs
+      - cron skills entries
+      - cron scripts
+      - default profile scripts directory
+      - named profile scripts directories
+      - shared /Users/draccoon/Workspace/Hermes/ops/scripts automation tree
+      - watcher jobs
+      - hardcoded automation paths
+    activation_impact: host-local cron/script automation gate; not a runtime carry
+    rule:
+      - list active cron jobs for default and active named profiles
+      - verify every active cron skills entry resolves in that job's execution profile
+      - verify active cron scripts exist, resolving named-profile relative paths before default-profile fallback
+      - verify shared /Users/draccoon/Workspace/Hermes/ops/scripts references used by cron prompts or wrappers
+      - parse Python scripts with ast.parse or another no-write syntax check
+      - run bash -n for shell scripts used by active cron/local automation
+      - classify hardcoded checkout, Python, workdir, and vault paths before activation
+      - pause or retire stale watchers explicitly instead of allowing activation-time failures
+      - keep cron/script readiness separate from R2 skill provenance and product-code D-items
+    evidence:
+      - command: read-only cron and scripts audit across default and named profiles
+        result: "20 cron jobs total; 17 active; 2 cron skills references; missing active cron scripts 0; 71 Python scripts parse errors 0; 26 shell scripts bash -n failures 0; shared script source /Users/draccoon/Workspace/Hermes/ops/scripts present; /Users/draccoon/Workspace/Hermes/opt absent"
 entries:
   D1:
     title: Tool Search pair
