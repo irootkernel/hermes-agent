@@ -35,7 +35,30 @@ entries:
           result: passed
   D2:
     title: Kanban review and same-card handoff helpers
-    status: pending
+    status: partial-native-audited
+    code_patch_required: true
+    d2a_audit:
+      native_present:
+        - claim_review_task
+        - review status dispatch
+        - has_spawnable_review
+        - review agent sdlc-review skill injection
+      still_missing:
+        - handoff_task
+        - submit_task_for_review
+        - request_changes
+        - kanban_reassign tool surface
+        - kanban_submit_review tool surface
+        - kanban_request_changes tool surface
+      next_subitems:
+        D2-b: cooperative same-card handoff/reassign
+        D2-c: same-card submit-for-review
+        D2-d: request-changes/rework loop and final same-task-id smoke
+      evidence:
+        - command: git grep for old D2 helper/tool seams in current branch
+          result: absent
+        - command: targeted native review pytest selection
+          result: 10 passed
   D3:
     title: Kanban assignee alias resolution
     status: keep-local-carry

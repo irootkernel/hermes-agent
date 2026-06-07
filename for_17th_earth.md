@@ -46,7 +46,7 @@ Use these labels in per-delta commits only, not as final baseline markings:
 | ID | Change title | Baseline state | Per-delta work to do | Preflight evidence to verify |
 |---|---|---|---|---|
 | D1 | [Tool Search pair](#d1-tool-search-pair) | `upstream-absorbed` by `v2026.6.5` | Drop local D1 carry; do not apply Tool Search code patches on this release branch. | `git merge-base --is-ancestor` returned `0` for both `369075dc9` and `7427b9d58` against this branch. |
-| D2 | [Kanban review and same-card handoff helpers](#d2-kanban-review-and-same-card-handoff-helpers) | pending per-delta decision | Compare native v0.16 review dispatch with the same-card handoff/review contract; patch only missing behavior. | v0.16 appears to have `review` status dispatch; verify missing `kanban_reassign`, `kanban_submit_review`, and `kanban_request_changes`. |
+| D2 | [Kanban review and same-card handoff helpers](#d2-kanban-review-and-same-card-handoff-helpers) | D2-a audited: `partial-native`, implementation pending | Keep native v0.16 review queue/dispatch; re-apply only missing same-card transition/tool seams in D2-b/c/d. | Native `review` claim/dispatch exists; `handoff_task`, `submit_task_for_review`, `request_changes`, and tool surfaces are absent. |
 | D3 | [Kanban assignee alias resolution](#d3-kanban-assignee-alias-resolution) | `keep-local-carry` | Re-applied minimal dispatcher-only spawn-profile alias resolution. | v0.16.0 had no `kanban.assignee_aliases` / `resolve_assignee_profile` equivalent before this D3 commit. |
 | D4 | [Discord gateway config and owner-thread routing seams](#d4-discord-gateway-config-and-owner-thread-routing-seams) | pending per-delta decision | Separate absorbed generic config fixes from any still-needed owner-thread seam in the D4 commit. | Check `0bfe19ba1`, `44f3e5186`, `6d2727ef1`; inspect Discord owner tracking. |
 | D5 | [Plugin strategy retirement](#d5-plugin-strategy-retirement) | pending per-delta decision | Reconfirm the support-only plugin strategy remains non-actionable; record the decision in the D5 commit. | Process decision; no runtime patch expected unless references/config still point to plugin behavior. |
@@ -112,6 +112,43 @@ PYTHONPATH=$PWD /Users/draccoon/.local/bin/hermes-python -m py_compile \
 ```
 
 ## D2 Kanban review and same-card handoff helpers
+
+### D2-a v0.16.0 audit decision
+
+Decision: `partial-native`; do not replace v0.16.0's native review queue/dispatcher.
+
+Re-apply D2 as smaller local-minimize subitems:
+
+- D2-b: cooperative same-card handoff/reassign (`handoff_task`, `kanban_reassign`).
+- D2-c: same-card submit-for-review (`submit_task_for_review`, `kanban_submit_review`).
+- D2-d: request-changes/rework loop (`request_changes`, `kanban_request_changes`) plus final same-task-id synthetic smoke.
+
+Audit evidence:
+
+```bash
+# Native v0.16 surfaces present in this branch:
+git grep -n "def claim_review_task" -- hermes_cli/kanban_db.py
+git grep -n "status = 'review'\|sdlc-review\|has_spawnable_review" -- hermes_cli/kanban_db.py tests/hermes_cli/test_kanban_db.py
+
+# Old D2 local seams still absent after v0.16.0 + D3/D6:
+git grep -n "def handoff_task\|def submit_task_for_review\|def request_changes" -- hermes_cli tools toolsets.py tests
+# no matches
+git grep -n "kanban_reassign\|kanban_submit_review\|kanban_request_changes" -- tools toolsets.py tests
+# no matches
+
+PYTHONPATH=$PWD /Users/draccoon/.local/bin/hermes-python -m pytest -q \
+  tests/hermes_cli/test_kanban_db.py::test_claim_review_task_transitions_to_running \
+  tests/hermes_cli/test_kanban_db.py::test_claim_review_task_fails_on_non_review \
+  tests/hermes_cli/test_kanban_db.py::test_claim_review_task_fails_when_already_claimed \
+  tests/hermes_cli/test_kanban_db.py::test_dispatch_review_dry_run \
+  tests/hermes_cli/test_kanban_db.py::test_dispatch_review_spawns_with_correct_skills \
+  tests/hermes_cli/test_kanban_db.py::test_dispatch_review_skips_unassigned \
+  tests/hermes_cli/test_kanban_db.py::test_dispatch_review_skips_nonspawnable \
+  tests/hermes_cli/test_kanban_db.py::test_has_spawnable_review_true \
+  tests/hermes_cli/test_kanban_db.py::test_has_spawnable_review_false_on_empty \
+  tests/hermes_cli/test_kanban_db.py::test_review_status_in_valid_statuses
+# 10 passed
+```
 
 ### Purpose
 
