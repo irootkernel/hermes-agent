@@ -1,0 +1,361 @@
+# 17th Earth Local Change Ledger
+
+This file is the operational source of truth for the 17번째 지구 local Hermes runtime carry set. It is agent-facing: use it as a runbook, not as background reading.
+
+The current release-candidate branch is `17e/v0.16.0-re`, based on upstream Hermes Agent tag `v2026.6.5` (`v0.16.0`, commit `3c231eb39`). The pre-update live/freeze branch was `for_17e_earth` / `for_17th_earth` at commit `ca5432664` with D1-D6 recorded.
+
+## Hard rules
+
+1. Do not touch the live runtime checkout, live `.env`, production Kanban DB, or running gateways while preparing this release candidate.
+2. Prefer upstream-native behavior over preserving old local APIs.
+3. Do not mark a delta `absorbed`, `keep`, or `retired` in this baseline commit. Record that decision only in the same per-delta commit that applies, drops, or retires the related runtime change.
+4. A future `drop` decision means: **do not delete the ledger entry**. Mark the delta as absorbed/retired with the upstream version or decision evidence in that per-delta commit, then keep it available for the next release audit.
+5. Apply only the smallest generic runtime seam still required after classifying each delta.
+6. Do not recreate support-only plugins. A plugin is acceptable only if it carries real behavior without broad new runtime hooks.
+7. Use targeted smoke for touched deltas plus `git diff --check`; do not run the full macOS suite by default.
+8. Update this ledger in the same commit as any retained, absorbed, or retired runtime delta.
+9. Never report the update complete until code, smoke evidence, this ledger, and any workflow/skill wording are consistent.
+
+## v0.16.0 update workflow
+
+Use this order for the `17e/v0.16.0-re` worktree:
+
+1. Copy this ledger into the release-candidate worktree and commit the ledger baseline first.
+2. Produce or update `17e/carry.yaml` from the Delta index below.
+3. For D1-D6, evaluate against the exact release base (`v2026.6.5`) before changing runtime code.
+4. Do not write final delta status into this ledger until the per-delta code/drop/retire commit.
+5. For future `upstream-absorbed` entries, mark the absorbed version/evidence and do not carry code.
+6. For future `still-local seam` entries, re-apply the minimal patch and tests.
+7. For future `partial-native` entries, use upstream-native code where sufficient and patch only the missing 17번째 지구 contract.
+8. Run targeted host smoke for touched areas.
+9. Run Docker smoke only with a disposable `HERMES_HOME` and read-only candidate assumptions.
+10. Only after explicit approval, repoint/apply `17e/live` to the prepared release branch.
+
+## Classification vocabulary
+
+Use these labels in per-delta commits only, not as final baseline markings:
+
+- `upstream-absorbed`: exact or equivalent upstream behavior is present in the release base; no local code carry.
+- `partial-native`: upstream provides a useful base, but a smaller local seam is still required for the 17번째 지구 contract.
+- `still-local seam`: no upstream equivalent; re-apply the minimal generic seam and tests.
+- `retired`: the behavior or strategy should not be recreated; keep only the ledger note.
+- `redesign`: upstream architecture changed enough that a straight patch is unsafe.
+
+## Delta index for v0.16.0 / `v2026.6.5`
+
+| ID | Change title | Baseline state | Per-delta work to do | Preflight evidence to verify |
+|---|---|---|---|---|
+| D1 | [Tool Search pair](#d1-tool-search-pair) | pending per-delta decision | Verify whether the pair is absorbed by `v2026.6.5`; mark/drop only in the D1 commit. | Check whether `369075dc9` and `7427b9d58` are ancestors of the release base. |
+| D2 | [Kanban review and same-card handoff helpers](#d2-kanban-review-and-same-card-handoff-helpers) | pending per-delta decision | Compare native v0.16 review dispatch with the same-card handoff/review contract; patch only missing behavior. | v0.16 appears to have `review` status dispatch; verify missing `kanban_reassign`, `kanban_submit_review`, and `kanban_request_changes`. |
+| D3 | [Kanban assignee alias resolution](#d3-kanban-assignee-alias-resolution) | pending per-delta decision | Verify whether upstream has spawn-profile aliasing; patch only if absent. | Search for `kanban.assignee_aliases` / `resolve_assignee_profile` equivalents. |
+| D4 | [Discord gateway config and owner-thread routing seams](#d4-discord-gateway-config-and-owner-thread-routing-seams) | pending per-delta decision | Separate absorbed generic config fixes from any still-needed owner-thread seam in the D4 commit. | Check `0bfe19ba1`, `44f3e5186`, `6d2727ef1`; inspect Discord owner tracking. |
+| D5 | [Plugin strategy retirement](#d5-plugin-strategy-retirement) | pending per-delta decision | Reconfirm the support-only plugin strategy remains non-actionable; record the decision in the D5 commit. | Process decision; no runtime patch expected unless references/config still point to plugin behavior. |
+| D6 | [CLI return-code passthrough](#d6-cli-return-code-passthrough) | pending per-delta decision | Verify top-level CLI return-code behavior; patch with `type(rc) is int` only if still broken. | `kanban show definitely_missing_task` should return non-zero after fix. |
+
+## D1 Tool Search pair
+
+### Purpose
+
+- Progressive disclosure of MCP/plugin tools through Tool Search.
+- Bridge catalog scope and dispatch must match the active session toolsets.
+
+### Original upstream commits
+
+- `369075dc9 feat(tools): progressive tool disclosure for MCP and plugin tools`
+- `7427b9d58 fix(tool-search): scope bridge catalog + dispatch to the session's toolsets`
+
+### Per-delta decision procedure
+
+In the D1 commit, verify whether both original upstream commits or equivalent behavior are present in `v2026.6.5`. If yes, mark D1 as absorbed by that release and carry no local code. If only one side is present, inspect upstream follow-up commits before carrying anything.
+
+### Smoke if D1 is touched
+
+```bash
+python -m pytest -q tests/tools/test_tool_search.py
+python -m py_compile \
+  tools/tool_search.py \
+  model_tools.py \
+  agent/tool_executor.py \
+  agent/agent_runtime_helpers.py \
+  hermes_cli/config.py
+```
+
+## D2 Kanban review and same-card handoff helpers
+
+### Purpose
+
+17번째 지구 uses Kanban as a durable work bus. Worker questions, baton handoffs, review submission, request-changes, and rework must remain on the same task id so comments, events, and runs are auditable.
+
+### Native behavior to inspect first
+
+Before patching D2, inspect v0.16.0's native review queue/dispatcher path, including:
+
+- `claim_review_task(...)`
+- `has_spawnable_review(...)`
+- review queue dispatch and review skill loading
+
+Do not duplicate native review dispatch logic if it is sufficient. Patch only missing same-card transition behavior.
+
+### 17번째 지구 contract
+
+Required behavior:
+
+1. A worker can hand the current card to another assignee without creating a replacement card.
+2. A worker can submit the current card for review while preserving the original implementer.
+3. A reviewer can request changes and send the same card back to the implementer/target assignee.
+4. Provenance is recorded through events/outcomes, not by losing history in a new task.
+5. Native v0.16 review dispatch should be used where possible instead of replacing it.
+
+### Candidate missing surfaces to verify
+
+- `kanban_reassign`
+- `kanban_submit_review`
+- `kanban_request_changes`
+- DB helpers/events/outcomes for `handed_off`, `submitted_review`, `requested_changes`
+
+### Primary files
+
+- `hermes_cli/kanban_db.py`
+- `tools/kanban_tools.py`
+- `toolsets.py`
+- `tests/hermes_cli/test_kanban_db.py`
+- `tests/tools/test_kanban_tools.py`
+- `tests/hermes_cli/test_kanban_core_functionality.py`
+
+### Targeted smoke
+
+```bash
+python -m pytest -q \
+  tests/hermes_cli/test_kanban_db.py \
+  tests/tools/test_kanban_tools.py \
+  tests/hermes_cli/test_kanban_core_functionality.py
+python -m py_compile \
+  hermes_cli/kanban_db.py \
+  tools/kanban_tools.py \
+  toolsets.py
+```
+
+Manual/synthetic pass criteria:
+
+1. Create a disposable worker task.
+2. Worker comments and hands off the same card to another assignee.
+3. Assignee comments and hands the same card back.
+4. Worker submits the same card for review.
+5. Reviewer claims review and requests changes.
+6. Worker resubmits review.
+7. Reviewer completes the same card.
+8. One task id contains all comments/events/runs and never forks into a replacement card.
+
+## D3 Kanban assignee alias resolution
+
+### Purpose
+
+The board-facing assignee name and the actual spawnable Hermes profile can differ. In this deployment, `wolong` can be the durable board/audit lane for Gongmyeong while the actual runnable profile is `default`.
+
+### Config contract
+
+```yaml
+kanban:
+  assignee_aliases:
+    wolong: default
+```
+
+Required behavior:
+
+1. Preserve `tasks.assignee` as the board/audit lane.
+2. Resolve aliases only for dispatcher spawnability checks and `_default_spawn` profile selection.
+3. Apply alias resolution to ready dispatch, review dispatch, `has_spawnable_ready`, and `has_spawnable_review`.
+4. Fail closed on missing targets, cycles, or excessive alias chains.
+5. Do not implement this as a plugin unless upstream provides a narrow `resolve_assignee_profile` hook; plugins are too late for dispatcher spawn decisions.
+
+### Per-delta decision procedure
+
+In the D3 commit, verify whether v0.16.0 has an upstream equivalent for spawn-profile aliasing. If absent, re-apply the minimal dispatcher seam. Resolve D3 after D2 review/handoff analysis because review dispatch also needs alias resolution.
+
+### Primary files
+
+- `hermes_cli/kanban_db.py`
+- `tests/hermes_cli/test_kanban_db.py`
+
+### Targeted smoke
+
+```bash
+python -m pytest -q tests/hermes_cli/test_kanban_db.py
+PYTHONPATH=$PWD python -m hermes_cli.main kanban dispatch --dry-run --max 5 --json
+```
+
+Manual pass criteria:
+
+- A task assigned to `wolong` is not bucketed as `skipped_nonspawnable` solely because the runnable profile is `default`.
+- The persisted board assignee remains `wolong`.
+- Alias cycle/depth-limit tests pass.
+
+## D4 Discord gateway config and owner-thread routing seams
+
+### Purpose
+
+Multiple Discord bot/profile gateways can see the same server, channel, and thread. Participation must not equal ownership. Only the bot that created/owns a Discord thread should receive mention-free follow-ups in that thread.
+
+### Generic config commits to inspect
+
+- `0bfe19ba1 fix(gateway): merge nested gateway.platforms configuration block`
+- `44f3e5186 fix(gateway): run adapter config hooks for nested-only platform blocks`
+- `6d2727ef1 fix(discord): bridge explicit allow_from configuration to env var mapping`
+
+In the D4 commit, mark these as absorbed only if verified against the release base. Do not carry duplicate config patches if upstream already includes them.
+
+### Owner-thread contract to inspect
+
+Required behavior:
+
+1. Participation is not ownership.
+2. A bot explicitly mentioned later in another bot's thread may participate but must not become the default mention-free responder.
+3. `discord.thread_require_mention: true` remains a stronger gate.
+4. `discord.auto_thread_free_response` defaults false.
+5. `discord.auto_thread_free_response` / `DISCORD_AUTO_THREAD_FREE_RESPONSE` permits auto-threading from free-response command-center channels only when explicitly enabled.
+6. `no_thread_channels` remains an override.
+
+### Candidate patch surfaces
+
+Patch these only if still missing after v0.16.0 inspection:
+
+- `ThreadOwnerTracker` in `gateway/platforms/helpers.py`
+- Discord adapter ownership marking for created/auto-created threads
+- mention-free thread routing based on ownership, not participation
+- `auto_thread_free_response` toggle
+
+Do not clone or replace the whole Discord adapter as a plugin.
+
+### Primary files
+
+- `gateway/platforms/helpers.py`
+- `plugins/platforms/discord/adapter.py`
+- `tests/gateway/test_discord_channel_controls.py`
+- `tests/gateway/test_discord_free_response.py`
+- `tests/gateway/test_discord_thread_persistence.py`
+
+Config regression tests may still be run for confidence if generic config behavior is inspected:
+
+- `tests/gateway/test_config.py`
+
+### Targeted smoke
+
+```bash
+python -m pytest -q \
+  tests/gateway/test_discord_free_response.py \
+  tests/gateway/test_discord_channel_controls.py \
+  tests/gateway/test_discord_thread_persistence.py \
+  tests/gateway/test_config.py
+python -m py_compile \
+  gateway/platforms/helpers.py \
+  plugins/platforms/discord/adapter.py
+```
+
+Manual/live smoke only after explicit restart approval:
+
+1. Confirm affected profile config contains `discord.auto_thread_free_response: true` only where intended.
+2. Restart only affected running Discord gateways.
+3. In a free-response command-center channel, send an unmentioned message and confirm the bot creates/responds in an owned thread when enabled.
+4. In the created thread, confirm the owning bot can answer mention-free while another bot that was only mentioned later does not take over default routing.
+
+## D5 Plugin strategy retirement
+
+### Decision background
+
+The v0.15 plugin experiment did not move actual Kanban or Discord behavior out of the local runtime branch. It only provided diagnostics, migration audit, and transition-contract support. That did not materially reduce runtime update cost.
+
+### Current rule
+
+- Do not depend on `kkachi-hermes-plugin` for runtime behavior.
+- Do not recreate a support-only plugin for update management.
+- Keep update knowledge in this ledger and in active skills/SOUL where operators will actually read it.
+- A future plugin is acceptable only if it carries real behavior without broad new runtime hooks and demonstrably reduces the next update burden.
+
+### Per-delta decision procedure
+
+In the D5 commit, verify no active v0.16.0 plan/config depends on the retired support-only plugin. Then record the retirement decision there. Do not mark it in this baseline.
+
+## D6 CLI return-code passthrough
+
+### Observed risk to verify
+
+The top-level CLI command dispatcher may ignore integer return codes from subcommand handlers.
+
+Candidate smoke:
+
+```bash
+PYTHONPATH=$PWD python -m hermes_cli.main kanban show definitely_missing_task
+# expected after fix: rc 1, not rc 0
+```
+
+### Required behavior if still broken
+
+Scripts, cron jobs, CI checks, and release smoke must be able to distinguish command failure from success at the shell/process boundary.
+
+Patch the final top-level command dispatch point only:
+
+```python
+rc = args.func(args)
+if type(rc) is int:
+    sys.exit(rc)
+```
+
+Do **not** use `isinstance(rc, int)`: Python `bool` is an `int` subclass, so `True` could otherwise become exit code `1` by mistake.
+
+### Primary files
+
+- `hermes_cli/main.py`
+- targeted tests/smoke for CLI process return codes
+
+### Targeted smoke
+
+```bash
+PYTHONPATH=$PWD python -m hermes_cli.main kanban show definitely_missing_task
+# expected rc: 1
+
+PYTHONPATH=$PWD python -m hermes_cli.main kanban list --json
+# expected rc: 0
+```
+
+Additional unit coverage should verify that a fake command returning `True` or `False` is not converted into `SystemExit(1)` or `SystemExit(0)` by the passthrough logic.
+
+## Current release-candidate baseline
+
+```text
+release candidate branch: 17e/v0.16.0-re
+release base tag:         v2026.6.5
+release base commit:      3c231eb39
+ledger baseline purpose:  copy D1-D6 contracts into the release branch before per-delta code/decision commits
+```
+
+Initial preflight observations already collected, but not yet ledger-final decisions:
+
+```text
+D1: check whether original upstream commits are ancestors of v2026.6.5.
+D2/D3: old local commit 576ec47d9 is not an ancestor; compare manually with v0.16 native Kanban.
+D4: check whether generic config commits are ancestors; inspect owner-thread behavior separately.
+D6: verify missing-task CLI smoke before patching.
+```
+
+Patch-application preflight:
+
+```text
+D2/D3 old patch may conflict in hermes_cli/kanban_db.py; manual minimal re-application is expected.
+D4 old patch may conflict in plugins/platforms/discord/adapter.py; manual owner-thread-only re-application is expected.
+```
+
+## Completion gates for this release candidate
+
+Do not mark `17e/v0.16.0-re` ready until all applicable gates are complete:
+
+1. This ledger is committed on the release-candidate branch.
+2. `17e/carry.yaml` records D1-D6 status and smoke evidence.
+3. Each D1-D6 status is recorded only in its per-delta code/drop/retire commit.
+4. No local D1 code patch is present unless D1 is proven not absorbed.
+5. D2/D3 are either patched minimally or explicitly replaced by proven upstream-native behavior.
+6. D4 has only the still-needed owner-thread seam, not duplicate absorbed config patches.
+7. D5 remains a no-code/process decision unless active references require cleanup.
+8. D6 CLI return-code passthrough is fixed and smoked if still broken.
+9. Host targeted smoke passes for touched files.
+10. Docker smoke passes with disposable `HERMES_HOME`.
+11. `17e/live` repoint/apply is separately approved and verified.
