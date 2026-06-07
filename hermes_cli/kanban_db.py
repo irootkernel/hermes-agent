@@ -2049,6 +2049,63 @@ def _canonical_assignee(assignee: Optional[str]) -> Optional[str]:
     return normalize_profile_name(assignee)
 
 
+def _kanban_assignee_aliases() -> dict[str, str]:
+    """Return normalized Kanban assignee→profile aliases from config.
+
+    Task assignees are durable board/audit lanes. Dispatcher subprocesses
+    require a real Hermes profile for ``hermes -p <profile>``.  The
+    ``kanban.assignee_aliases`` map bridges those two names without rewriting
+    ``tasks.assignee``.
+    """
+    try:
+        from hermes_cli.config import load_config
+        from hermes_cli.profiles import normalize_profile_name
+
+        config = load_config()
+        kanban_cfg = config.get("kanban") if isinstance(config, dict) else None
+        aliases = (
+            kanban_cfg.get("assignee_aliases")
+            if isinstance(kanban_cfg, dict)
+            else None
+        )
+        if not isinstance(aliases, dict):
+            return {}
+        resolved: dict[str, str] = {}
+        for key, value in aliases.items():
+            if key is None or value is None:
+                continue
+            source = normalize_profile_name(str(key))
+            target = normalize_profile_name(str(value))
+            if source and target:
+                resolved[source] = target
+        return resolved
+    except Exception:
+        return {}
+
+
+def resolve_assignee_profile(assignee: Optional[str]) -> Optional[str]:
+    """Resolve a Kanban audit-lane assignee to the Hermes profile to spawn.
+
+    Alias cycles or excessively deep chains are treated as non-spawnable
+    configuration errors. Returning ``None`` keeps dispatcher behavior
+    fail-closed instead of accidentally spawning an intermediate lane.
+    """
+    current = _canonical_assignee(assignee)
+    if not current:
+        return current
+    aliases = _kanban_assignee_aliases()
+    seen: set[str] = set()
+    for _ in range(8):
+        if current in seen:
+            return None
+        seen.add(current)
+        target = aliases.get(current)
+        if not target:
+            return current
+        current = target
+    return None
+
+
 def create_task(
     conn: sqlite3.Connection,
     *,
@@ -5927,7 +5984,8 @@ def has_spawnable_ready(conn: sqlite3.Connection) -> bool:
         # Can't introspect — assume spawnable, preserve legacy behavior.
         return True
     for row in rows:
-        if profile_exists(row["assignee"]):
+        profile = resolve_assignee_profile(row["assignee"])
+        if profile and profile_exists(profile):
             return True
     return False
 
@@ -5952,7 +6010,8 @@ def has_spawnable_review(conn: sqlite3.Connection) -> bool:
     except Exception:
         return True
     for row in rows:
-        if profile_exists(row["assignee"]):
+        profile = resolve_assignee_profile(row["assignee"])
+        if profile and profile_exists(profile):
             return True
     return False
 
@@ -6091,7 +6150,10 @@ def dispatch_once(
     if _default_assignee:
         try:
             from hermes_cli.profiles import profile_exists as _pe
-            _default_assignee_resolved = bool(_pe(_default_assignee))
+            _default_profile = resolve_assignee_profile(_default_assignee)
+            _default_assignee_resolved = bool(
+                _default_profile and _pe(_default_profile)
+            )
         except Exception:
             # Profiles module not importable (test stubs, exotic envs).
             # Trust the operator's config and try the assignment; the
@@ -6160,7 +6222,11 @@ def dispatch_once(
             from hermes_cli.profiles import profile_exists  # local import: avoids cycle
         except Exception:
             profile_exists = None  # type: ignore[assignment]
-        if profile_exists is not None and not profile_exists(row_assignee):
+        profile_for_spawn = resolve_assignee_profile(row_assignee)
+        if (
+            profile_exists is not None
+            and (not profile_for_spawn or not profile_exists(profile_for_spawn))
+        ):
             # Bucket separately from skipped_unassigned: the operator
             # cannot fix this by assigning a profile (the assignee IS the
             # intended owner — a terminal lane). Health telemetry uses
@@ -6294,7 +6360,11 @@ def dispatch_once(
             from hermes_cli.profiles import profile_exists
         except Exception:
             profile_exists = None  # type: ignore[assignment]
-        if profile_exists is not None and not profile_exists(row["assignee"]):
+        profile_for_spawn = resolve_assignee_profile(row["assignee"])
+        if (
+            profile_exists is not None
+            and (not profile_for_spawn or not profile_exists(profile_for_spawn))
+        ):
             result.skipped_nonspawnable.append(row["id"])
             continue
         if dry_run:
@@ -6632,9 +6702,9 @@ def _default_spawn(
     if not task.assignee:
         raise ValueError(f"task {task.id} has no assignee")
 
-    from hermes_cli.profiles import normalize_profile_name
-
-    profile_arg = normalize_profile_name(task.assignee)
+    profile_arg = resolve_assignee_profile(task.assignee)
+    if not profile_arg:
+        raise ValueError(f"task {task.id} has no spawnable assignee profile")
 
     prompt = f"work kanban task {task.id}"
     env = dict(os.environ)

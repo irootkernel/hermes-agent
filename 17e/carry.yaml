@@ -38,7 +38,25 @@ entries:
     status: pending
   D3:
     title: Kanban assignee alias resolution
-    status: pending
+    status: keep-local-carry
+    local_action: reapply-minimal-dispatcher-seam
+    code_patch_required: true
+    config_contract:
+      kanban.assignee_aliases:
+        wolong: default
+    evidence:
+      upstream_absence:
+        - command: git grep -n "assignee_aliases\\|resolve_assignee_profile" e895d0ecf -- hermes_cli tests
+          result: no matches
+      smoke:
+        - command: PYTHONPATH=$PWD /Users/draccoon/.local/bin/hermes-python -m pytest -q tests/hermes_cli/test_kanban_db.py
+          result: 217 passed
+        - command: PYTHONPATH=$PWD HERMES_HOME=<disposable-home> /Users/draccoon/.local/bin/hermes-python -m hermes_cli.main kanban dispatch --dry-run --max 5 --json
+          result: spawned task kept assignee wolong; skipped_nonspawnable empty
+        - command: PYTHONPATH=$PWD /Users/draccoon/.local/bin/hermes-python -m py_compile hermes_cli/kanban_db.py tests/hermes_cli/test_kanban_db.py
+          result: passed
+        - command: git diff --check
+          result: passed
   D4:
     title: Discord gateway config and owner-thread routing seams
     status: pending

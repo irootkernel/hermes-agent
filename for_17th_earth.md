@@ -47,7 +47,7 @@ Use these labels in per-delta commits only, not as final baseline markings:
 |---|---|---|---|---|
 | D1 | [Tool Search pair](#d1-tool-search-pair) | `upstream-absorbed` by `v2026.6.5` | Drop local D1 carry; do not apply Tool Search code patches on this release branch. | `git merge-base --is-ancestor` returned `0` for both `369075dc9` and `7427b9d58` against this branch. |
 | D2 | [Kanban review and same-card handoff helpers](#d2-kanban-review-and-same-card-handoff-helpers) | pending per-delta decision | Compare native v0.16 review dispatch with the same-card handoff/review contract; patch only missing behavior. | v0.16 appears to have `review` status dispatch; verify missing `kanban_reassign`, `kanban_submit_review`, and `kanban_request_changes`. |
-| D3 | [Kanban assignee alias resolution](#d3-kanban-assignee-alias-resolution) | pending per-delta decision | Verify whether upstream has spawn-profile aliasing; patch only if absent. | Search for `kanban.assignee_aliases` / `resolve_assignee_profile` equivalents. |
+| D3 | [Kanban assignee alias resolution](#d3-kanban-assignee-alias-resolution) | `keep-local-carry` | Re-applied minimal dispatcher-only spawn-profile alias resolution. | v0.16.0 had no `kanban.assignee_aliases` / `resolve_assignee_profile` equivalent before this D3 commit. |
 | D4 | [Discord gateway config and owner-thread routing seams](#d4-discord-gateway-config-and-owner-thread-routing-seams) | pending per-delta decision | Separate absorbed generic config fixes from any still-needed owner-thread seam in the D4 commit. | Check `0bfe19ba1`, `44f3e5186`, `6d2727ef1`; inspect Discord owner tracking. |
 | D5 | [Plugin strategy retirement](#d5-plugin-strategy-retirement) | pending per-delta decision | Reconfirm the support-only plugin strategy remains non-actionable; record the decision in the D5 commit. | Process decision; no runtime patch expected unless references/config still point to plugin behavior. |
 | D6 | [CLI return-code passthrough](#d6-cli-return-code-passthrough) | pending per-delta decision | Verify top-level CLI return-code behavior; patch with `type(rc) is int` only if still broken. | `kanban show definitely_missing_task` should return non-zero after fix. |
@@ -179,6 +179,19 @@ Manual/synthetic pass criteria:
 
 ## D3 Kanban assignee alias resolution
 
+### v0.16.0 decision
+
+`keep-local-carry` for `17e/v0.16.0-re`.
+
+Upstream `v2026.6.5` has native Kanban review dispatch and spawnability checks, but not the 17번째 지구 assignee-lane to spawn-profile alias seam. This commit adds only the missing dispatcher seam: durable `tasks.assignee` remains the board/audit lane, while `kanban.assignee_aliases` is resolved for spawnability checks and `_default_spawn` profile selection.
+
+Decision evidence:
+
+```bash
+git grep -n "assignee_aliases\|resolve_assignee_profile" e895d0ecf -- hermes_cli tests
+# no matches
+```
+
 ### Purpose
 
 The board-facing assignee name and the actual spawnable Hermes profile can differ. In this deployment, `wolong` can be the durable board/audit lane for Gongmyeong while the actual runnable profile is `default`.
@@ -211,8 +224,17 @@ In the D3 commit, verify whether v0.16.0 has an upstream equivalent for spawn-pr
 ### Targeted smoke
 
 ```bash
-python -m pytest -q tests/hermes_cli/test_kanban_db.py
-PYTHONPATH=$PWD python -m hermes_cli.main kanban dispatch --dry-run --max 5 --json
+PYTHONPATH=$PWD /Users/draccoon/.local/bin/hermes-python -m pytest -q tests/hermes_cli/test_kanban_db.py
+# 217 passed
+
+PYTHONPATH=$PWD HERMES_HOME=<disposable-home> /Users/draccoon/.local/bin/hermes-python -m hermes_cli.main kanban dispatch --dry-run --max 5 --json
+# spawned task kept assignee "wolong"; skipped_nonspawnable []
+
+PYTHONPATH=$PWD /Users/draccoon/.local/bin/hermes-python -m py_compile hermes_cli/kanban_db.py tests/hermes_cli/test_kanban_db.py
+# passed
+
+git diff --check
+# passed
 ```
 
 Manual pass criteria:
