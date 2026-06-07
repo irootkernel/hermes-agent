@@ -168,6 +168,49 @@ class TestDoctorToolAvailabilityOverrides:
         assert doctor._doctor_tool_availability_detail("kanban") == "(runtime-gated; loaded only for dispatcher-spawned workers)"
 
 
+class TestDoctorToolAvailabilityConfigFilter:
+    def test_filters_disabled_optional_toolsets_from_doctor_warnings(self, monkeypatch):
+        monkeypatch.setattr(
+            doctor,
+            "_doctor_enabled_toolsets_for_warning_scope",
+            lambda: {"web", "terminal"},
+        )
+
+        available, unavailable = doctor._filter_doctor_tool_availability_for_config(
+            ["web", "terminal", "x_search"],
+            [
+                {"name": "x_search", "missing_vars": ["XAI_API_KEY"], "tools": ["x_search"]},
+                {"name": "homeassistant", "missing_vars": ["HASS_TOKEN"], "tools": ["ha_state"]},
+                {"name": "web", "missing_vars": ["BRAVE_API_KEY"], "tools": ["web_search"]},
+            ],
+        )
+
+        assert available == ["web", "terminal"]
+        assert unavailable == [
+            {"name": "web", "missing_vars": ["BRAVE_API_KEY"], "tools": ["web_search"]}
+        ]
+
+    def test_keeps_selected_optional_toolset_warnings(self, monkeypatch):
+        monkeypatch.setattr(
+            doctor,
+            "_doctor_enabled_toolsets_for_warning_scope",
+            lambda: {"web", "x_search"},
+        )
+
+        available, unavailable = doctor._filter_doctor_tool_availability_for_config(
+            ["web"],
+            [
+                {"name": "x_search", "missing_vars": ["XAI_API_KEY"], "tools": ["x_search"]},
+                {"name": "homeassistant", "missing_vars": ["HASS_TOKEN"], "tools": ["ha_state"]},
+            ],
+        )
+
+        assert available == ["web"]
+        assert unavailable == [
+            {"name": "x_search", "missing_vars": ["XAI_API_KEY"], "tools": ["x_search"]}
+        ]
+
+
 class TestHonchoDoctorConfigDetection:
     def test_reports_configured_when_enabled_with_api_key(self, monkeypatch):
         fake_config = SimpleNamespace(enabled=True, api_key="***")

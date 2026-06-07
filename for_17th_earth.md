@@ -55,6 +55,7 @@ D-items are release-scoped runtime/code differences between upstream Hermes and 
 | D4 | [Discord gateway config and owner-thread routing seams](#d4-discord-gateway-config-and-owner-thread-routing-seams) | generic config fixes `upstream-absorbed`; owner-thread seam applied | Drop duplicate generic config carries; re-applied only owner-thread routing and `auto_thread_free_response` opt-in. | Generic config commits are ancestors; `ThreadOwnerTracker` / owner-thread seam absent before D4 patch. |
 | D5 | [Plugin strategy retirement](#d5-plugin-strategy-retirement) | `retired` / no-code | Do not recreate `kkachi-hermes-plugin`; carry only this ledger/skill knowledge. | Repo audit found no active config/plan/plugin dependency outside this ledger/carry manifest. |
 | D6 | [CLI return-code passthrough](#d6-cli-return-code-passthrough) | `keep-local-carry` | Applied bool-safe top-level integer return-code passthrough. | Missing Kanban task now exits `1`; usage error exits `2`; bool return values are ignored. |
+| D7 | [Doctor actionable warning filter](#d7-doctor-actionable-warning-filter) | `keep-local-carry` | Applied config-scoped doctor Tool Availability output filtering. | Disabled optional toolsets are hidden from doctor warnings; selected/enabled missing toolsets still warn. |
 
 ## Rule section: operating rules (R-items)
 
@@ -626,6 +627,48 @@ git diff --check
 
 Additional unit coverage should verify that a fake command returning `True` or `False` is not converted into `SystemExit(1)` or `SystemExit(0)` by the passthrough logic.
 
+## D7 Doctor actionable warning filter
+
+### v0.16.0 decision
+
+`keep-local-carry` for `17e/v0.16.0-re`.
+
+R1 established that activation should not add unused provider/tool API keys solely to silence doctor output. Product code still printed Tool Availability warnings for every registered optional toolset, including default-off or unselected integrations, so D7 narrows doctor output to the toolsets selected/enabled by the active config.
+
+The filter is fail-open: if config/toolset resolution fails, doctor preserves the previous unfiltered output instead of hiding diagnostics.
+
+### Applied local seams
+
+- `hermes_cli/doctor.py`: add `_doctor_enabled_toolsets_for_warning_scope()` and `_filter_doctor_tool_availability_for_config(...)`.
+- `hermes_cli/doctor.py`: apply the config filter after runtime-gated doctor overrides and before printing Tool Availability rows or appending the generic missing-API-key setup issue.
+- `tests/hermes_cli/test_doctor.py`: cover both disabled optional toolsets and explicitly selected optional toolsets.
+
+### Targeted smoke
+
+```bash
+PYTHONPATH=$PWD /Users/draccoon/.local/bin/hermes-python -m pytest tests/hermes_cli/test_doctor.py::TestDoctorToolAvailabilityConfigFilter -q
+# 2 passed
+
+PYTHONPATH=$PWD /Users/draccoon/.local/bin/hermes-python -m pytest tests/hermes_cli/test_doctor.py tests/hermes_cli/test_doctor_dedicated_provider_skip.py -q
+# 67 passed, 1 warning
+
+docker run --rm -i \
+  -v "$PWD:/repo:ro" \
+  -w /repo \
+  -e HERMES_HOME=/tmp/hermes-d7-docker-smoke \
+  -e PYTHONPATH=/repo \
+  hermes-17e-d3-checkpoint-smoke:py311 \
+  python - <<'PY'
+# stub dotenv only, import candidate doctor.py from read-only repo, and assert
+# disabled optional toolsets are hidden while selected optional toolsets remain.
+PY
+# {'ok': True, 'available': ['web'], 'unavailable': [{'name': 'x_search', 'missing_vars': ['XAI_API_KEY'], 'tools': ['x_search']}]}
+```
+
+### Next-release instruction
+
+Re-check whether upstream doctor now scopes Tool Availability warnings to configured toolsets. If upstream absorbs equivalent behavior, mark D7 `upstream-absorbed`; otherwise keep the smallest filter seam and preserve fail-open behavior.
+
 ## R1 Config/profile activation policy
 
 ### Rule
@@ -649,7 +692,7 @@ During the approved activation window:
 
 Read-only config audit on `17e/v0.16.0-re` observed every default/named profile at `_config_version: 27`, but all 43 checked profile configs currently have `curator.prune_builtins: true`. That is host-local activation state, not a release diff. Before live activation, back up configs and set the intended policy explicitly for active profiles.
 
-Read-only `hermes doctor` smoke on the candidate runtime currently reports optional/unselected auth/tool warnings such as unused OAuth providers and disabled/missing optional tool dependencies. Those should be triaged under R1 before restart. If product code must change so doctor hides or downgrades unused provider/tool warnings by default while preserving warnings for enabled/selected features, allocate a D-item for that doctor output-policy change.
+D7 now narrows Tool Availability output so disabled/unselected optional toolsets do not create doctor warnings or the generic missing-API-key setup issue. Remaining doctor warnings still require R1 classification before restart: actionable, optional-unused, or stale-local-state.
 
 ### Next-release instruction
 
@@ -712,7 +755,7 @@ Re-check dashboard server startup, `/api/status`, frontend build artifacts, PTY/
 release candidate branch: 17e/v0.16.0-re
 release base tag:         v2026.6.5
 release base commit:      3c231eb39
-ledger baseline purpose:  copy D1-D6 runtime-diff contracts plus R1/R2/R3 operating-rule contracts into the release branch before per-delta code/decision commits
+ledger baseline purpose:  copy D1-D7 runtime-diff contracts plus R1/R2/R3 operating-rule contracts into the release branch before per-delta code/decision commits
 ```
 
 Initial preflight observations already collected, but not yet ledger-final decisions:
@@ -736,8 +779,8 @@ D4 old patch may conflict in plugins/platforms/discord/adapter.py; manual owner-
 Do not mark `17e/v0.16.0-re` ready until all applicable gates are complete:
 
 1. This ledger is committed on the release-candidate branch.
-2. `17e/carry.yaml` records D1-D6 status/smoke evidence and R1/R2/R3 operating-rule metadata separately from runtime diffs.
-3. Each D1-D6 status is recorded only in its per-delta code/drop/retire commit.
+2. `17e/carry.yaml` records D1-D7 status/smoke evidence and R1/R2/R3 operating-rule metadata separately from runtime diffs.
+3. Each D1-D7 status is recorded only in its per-delta code/drop/retire commit.
 4. R1/R2/R3 are treated as operating-rule/activation policies, not as product-code carries.
 5. No local D1 code patch is present unless D1 is proven not absorbed.
 6. D2/D3 are either patched minimally or explicitly replaced by proven upstream-native behavior.

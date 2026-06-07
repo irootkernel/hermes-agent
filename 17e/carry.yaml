@@ -298,3 +298,26 @@ entries:
           result: passed
         - command: git diff --check
           result: passed
+  D7:
+    title: Doctor actionable warning filter
+    status: keep-local-carry
+    local_action: filter-doctor-tool-availability-to-configured-toolsets
+    code_patch_required: true
+    applied:
+      - config-scoped Tool Availability warning filter
+      - fail-open fallback if config/toolset resolution fails
+      - selected/enabled optional toolsets still warn when missing requirements
+    files:
+      - hermes_cli/doctor.py
+      - tests/hermes_cli/test_doctor.py
+    evidence:
+      red:
+        - command: PYTHONPATH=$PWD /Users/draccoon/.local/bin/hermes-python -m pytest tests/hermes_cli/test_doctor.py::TestDoctorToolAvailabilityConfigFilter -q
+          result: "failed before implementation; missing doctor filter helpers"
+      smoke:
+        - command: PYTHONPATH=$PWD /Users/draccoon/.local/bin/hermes-python -m pytest tests/hermes_cli/test_doctor.py::TestDoctorToolAvailabilityConfigFilter -q
+          result: 2 passed
+        - command: PYTHONPATH=$PWD /Users/draccoon/.local/bin/hermes-python -m pytest tests/hermes_cli/test_doctor.py tests/hermes_cli/test_doctor_dedicated_provider_skip.py -q
+          result: "67 passed, 1 warning"
+        - command: docker run --rm -i -v "$PWD:/repo:ro" -w /repo -e HERMES_HOME=/tmp/hermes-d7-docker-smoke -e PYTHONPATH=/repo hermes-17e-d3-checkpoint-smoke:py311 python - <<'PY'
+          result: "read-only repo smoke passed; disabled optional homeassistant hidden, selected optional x_search warning preserved"
