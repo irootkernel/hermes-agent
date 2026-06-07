@@ -2106,6 +2106,20 @@ def resolve_assignee_profile(assignee: Optional[str]) -> Optional[str]:
     return None
 
 
+def _canonical_profile_assignee(assignee: Optional[str]) -> Optional[str]:
+    """Return a canonical audit-lane assignee only when it can spawn."""
+    canonical = _canonical_assignee(assignee)
+    if not canonical or canonical.startswith("t_"):
+        return None
+    try:
+        from hermes_cli.profiles import profile_exists
+
+        profile = resolve_assignee_profile(canonical)
+        return canonical if profile and profile_exists(profile) else None
+    except Exception:
+        return None
+
+
 def create_task(
     conn: sqlite3.Connection,
     *,
@@ -2532,6 +2546,82 @@ def handoff_task(
                 "to": target,
                 "summary": handoff_summary,
                 "reason": reason,
+            },
+            run_id=run_id,
+        )
+    return True
+
+
+def submit_task_for_review(
+    conn: sqlite3.Connection,
+    task_id: str,
+    *,
+    reviewer: Optional[str] = None,
+    summary: Optional[str] = None,
+    metadata: Optional[dict[str, Any]] = None,
+    expected_run_id: Optional[int] = None,
+) -> bool:
+    """Move a worker-owned task into native ``review`` status.
+
+    The current assignee is preserved in the ``submitted_review`` event so a
+    reviewer/request-changes loop can restore the implementer later. ``reviewer``
+    defaults to ``created_by`` only when that value resolves to a real profile;
+    otherwise callers must pass an explicit reviewer so review gates fail closed.
+    """
+    requested_reviewer = _canonical_assignee(reviewer)
+    with write_txn(conn):
+        row = conn.execute(
+            "SELECT status, assignee, created_by, current_run_id FROM tasks WHERE id = ?",
+            (task_id,),
+        ).fetchone()
+        if not row:
+            return False
+        if expected_run_id is not None and row["current_run_id"] != int(expected_run_id):
+            return False
+        if row["status"] not in {"running", "ready", "blocked"}:
+            return False
+        from_assignee = row["assignee"]
+        target_reviewer = requested_reviewer or _canonical_profile_assignee(row["created_by"])
+        if not target_reviewer:
+            return False
+        review_summary = summary or "submitted for review"
+        run_id = _end_run(
+            conn,
+            task_id,
+            outcome="submitted_review",
+            status="released",
+            summary=review_summary,
+            metadata=metadata,
+        )
+        if run_id is None and (review_summary or metadata):
+            run_id = _synthesize_ended_run(
+                conn,
+                task_id,
+                outcome="submitted_review",
+                summary=review_summary,
+                metadata=metadata,
+            )
+        conn.execute(
+            """
+            UPDATE tasks
+               SET status = 'review',
+                   assignee = ?,
+                   claim_lock = NULL,
+                   claim_expires = NULL,
+                   worker_pid = NULL,
+                   current_run_id = NULL
+             WHERE id = ?
+            """,
+            (target_reviewer, task_id),
+        )
+        _append_event(
+            conn,
+            task_id,
+            "submitted_review",
+            {
+                "from_assignee": from_assignee,
+                "reviewer": target_reviewer,
+                "summary": review_summary,
             },
             run_id=run_id,
         )

@@ -871,6 +871,43 @@ def _handle_reassign(args: dict[str, Any], **kw) -> str:
         return tool_error(f"kanban_reassign: {e}")
 
 
+def _handle_submit_review(args: dict[str, Any], **kw) -> str:
+    """Submit the current task for native Kanban review."""
+    tid = _default_task_id(args.get("task_id"))
+    if not tid:
+        return tool_error("task_id is required (or set HERMES_KANBAN_TASK in the env)")
+    ownership_err = _enforce_worker_task_ownership(tid)
+    if ownership_err:
+        return ownership_err
+    metadata = args.get("metadata")
+    if metadata is not None and not isinstance(metadata, dict):
+        return tool_error(f"metadata must be an object/dict, got {type(metadata).__name__}")
+    metadata = _stamp_worker_session_metadata(tid, metadata)
+    board = args.get("board")
+    try:
+        kb, conn = _connect(board=board)
+        try:
+            ok = kb.submit_task_for_review(
+                conn,
+                tid,
+                reviewer=_normalize_profile(args.get("reviewer")),
+                summary=args.get("summary"),
+                metadata=metadata,
+                expected_run_id=_worker_run_id(tid),
+            )
+            if not ok:
+                return tool_error(f"could not submit {tid} for review (unknown id, invalid state, missing reviewer, or stale run)")
+            task = kb.get_task(conn, tid)
+            return _ok(task_id=tid, status="review", reviewer=task.assignee if task else None)
+        finally:
+            conn.close()
+    except ValueError as e:
+        return tool_error(f"kanban_submit_review: {e}")
+    except Exception as e:
+        logger.exception("kanban_submit_review failed")
+        return tool_error(f"kanban_submit_review: {e}")
+
+
 def _handle_unblock(args: dict, **kw) -> str:
     """Transition a blocked task back to ready."""
     guard = _require_orchestrator_tool("kanban_unblock")
@@ -1367,6 +1404,29 @@ KANBAN_REASSIGN_SCHEMA = {
     },
 }
 
+KANBAN_SUBMIT_REVIEW_SCHEMA = {
+    "name": "kanban_submit_review",
+    "description": (
+        "Submit the current Kanban task for native review on the same card. "
+        "The current run is closed as submitted_review, the task moves to "
+        "review status, and the dispatcher can spawn the reviewer profile."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "task_id": {"type": "string", "description": _DESC_TASK_ID_DEFAULT},
+            "reviewer": {
+                "type": "string",
+                "description": "Reviewer profile/assignee. Required unless the task creator is a real profile.",
+            },
+            "summary": {"type": "string", "description": "Review handoff summary."},
+            "metadata": {"type": "object", "description": "Optional structured review facts."},
+            "board": _board_schema_prop(),
+        },
+        "required": ["summary"],
+    },
+}
+
 KANBAN_UNBLOCK_SCHEMA = {
     "name": "kanban_unblock",
     "description": (
@@ -1480,6 +1540,15 @@ registry.register(
     handler=_handle_reassign,
     check_fn=_check_kanban_mode,
     emoji="🔁",
+)
+
+registry.register(
+    name="kanban_submit_review",
+    toolset="kanban",
+    schema=KANBAN_SUBMIT_REVIEW_SCHEMA,
+    handler=_handle_submit_review,
+    check_fn=_check_kanban_mode,
+    emoji="🔎",
 )
 
 registry.register(

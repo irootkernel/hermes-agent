@@ -52,7 +52,7 @@ entries:
         - kanban_request_changes tool surface
       subitem_plan:
         D2-b: cooperative same-card handoff/reassign (applied)
-        D2-c: same-card submit-for-review
+        D2-c: same-card submit-for-review (applied)
         D2-d: request-changes/rework loop and final same-task-id smoke
       evidence:
         - command: git grep for old D2 helper/tool seams in current branch
@@ -66,7 +66,6 @@ entries:
         - handoff_task
         - kanban_reassign tool surface
       still_pending:
-        - D2-c submit_task_for_review / kanban_submit_review
         - D2-d request_changes / kanban_request_changes / final same-task-id smoke
       files:
         - hermes_cli/kanban_db.py
@@ -83,6 +82,34 @@ entries:
           result: passed
         - command: HERMES_HOME=<disposable-home> PYTHONPATH=$PWD /Users/draccoon/.local/bin/hermes-python - <<'PY'
           result: "same task id returned ready for samaui; handed_off event_count 1"
+    d2c_patch:
+      status: keep-local-carry
+      local_action: reapply-same-card-submit-for-review
+      applied:
+        - submit_task_for_review
+        - kanban_submit_review tool surface
+        - kanban_reassign and kanban_submit_review exposed through toolsets.py
+      still_pending:
+        - D2-d request_changes / kanban_request_changes / final same-task-id smoke
+      files:
+        - hermes_cli/kanban_db.py
+        - tools/kanban_tools.py
+        - toolsets.py
+        - tests/hermes_cli/test_kanban_db.py
+        - tests/tools/test_kanban_tools.py
+      evidence:
+        - command: targeted D2-c pytest selection
+          result: 8 passed, 1 warning
+        - command: PYTHONPATH=$PWD /Users/draccoon/.local/bin/hermes-python -m pytest -q tests/hermes_cli/test_kanban_db.py
+          result: 225 passed
+        - command: PYTHONPATH=$PWD /Users/draccoon/.local/bin/hermes-python -m pytest -q tests/tools/test_kanban_tools.py tests/hermes_cli/test_kanban_core_functionality.py
+          result: 250 passed, 1 skipped, 1 warning
+        - command: PYTHONPATH=$PWD /Users/draccoon/.local/bin/hermes-python -m py_compile hermes_cli/kanban_db.py tools/kanban_tools.py tests/hermes_cli/test_kanban_db.py tests/tools/test_kanban_tools.py toolsets.py
+          result: passed
+        - command: HERMES_HOME=<disposable-home> PYTHONPATH=$PWD /Users/draccoon/.local/bin/hermes-python - <<'PY'
+          result: "same task id t_86726e78 moved to review for samaui; review claim succeeded; events created, claimed, submitted_review, claimed"
+        - command: docker run --rm -i -v "$PWD:/repo:ro" -w /repo -e HERMES_HOME=/tmp/hermes-d2c-docker-smoke -e PYTHONPATH=/repo hermes-17e-d3-checkpoint-smoke:py311 python - <<'PY'
+          result: "same task id t_a2d7d069 moved to review for d2c-reviewer; run_outcome submitted_review; review_claim_status running; no live secrets or production DB mounted"
   D3:
     title: Kanban assignee alias resolution
     status: keep-local-carry

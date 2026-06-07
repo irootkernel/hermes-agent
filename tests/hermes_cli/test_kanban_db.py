@@ -1335,6 +1335,155 @@ def test_kanban_reassign_tool_handoffs_current_worker_task(
         }
 
 
+def test_submit_task_for_review_moves_same_card_to_review(kanban_home):
+    """Worker review submission closes the run and preserves the same task id."""
+    with kb.connect() as conn:
+        tid = kb.create_task(conn, title="reviewable", assignee="wolong", created_by="creator")
+        claimed = kb.claim_task(conn, tid, claimer="worker-lock")
+        run_id = claimed.current_run_id
+
+        ok = kb.submit_task_for_review(
+            conn,
+            tid,
+            reviewer="samaui",
+            summary="ready for review",
+            metadata={"tests": 3},
+            expected_run_id=run_id,
+        )
+
+        assert ok is True
+        task = kb.get_task(conn, tid)
+        assert task.id == tid
+        assert task.status == "review"
+        assert task.assignee == "samaui"
+        assert task.claim_lock is None
+        assert task.claim_expires is None
+        assert task.current_run_id is None
+
+        run = conn.execute(
+            "SELECT status, outcome, summary, metadata FROM task_runs WHERE id = ?",
+            (run_id,),
+        ).fetchone()
+        assert run["status"] == "released"
+        assert run["outcome"] == "submitted_review"
+        assert run["summary"] == "ready for review"
+        assert json.loads(run["metadata"]) == {"tests": 3}
+
+        event = conn.execute(
+            "SELECT kind, payload, run_id FROM task_events WHERE task_id = ? "
+            "AND kind = 'submitted_review'",
+            (tid,),
+        ).fetchone()
+        assert event["run_id"] == run_id
+        payload = json.loads(event["payload"])
+        assert payload == {
+            "from_assignee": "wolong",
+            "reviewer": "samaui",
+            "summary": "ready for review",
+        }
+
+
+def test_submit_task_for_review_defaults_to_profile_created_by(kanban_home, monkeypatch):
+    """created_by is used as reviewer only when it resolves to a real profile."""
+    from hermes_cli import profiles
+
+    monkeypatch.setattr(profiles, "profile_exists", lambda name: name == "creator")
+    with kb.connect() as conn:
+        tid = kb.create_task(conn, title="default reviewer", assignee="wolong", created_by="creator")
+        claimed = kb.claim_task(conn, tid, claimer="worker-lock")
+
+        assert kb.submit_task_for_review(conn, tid, expected_run_id=claimed.current_run_id)
+        task = kb.get_task(conn, tid)
+
+    assert task.status == "review"
+    assert task.assignee == "creator"
+
+
+def test_submit_task_for_review_fails_without_real_reviewer(kanban_home, monkeypatch):
+    """Task-id created_by values are not treated as reviewer profiles."""
+    from hermes_cli import profiles
+
+    monkeypatch.setattr(profiles, "profile_exists", lambda name: True)
+    with kb.connect() as conn:
+        tid = kb.create_task(conn, title="task id creator", assignee="wolong", created_by="t_parent")
+        claimed = kb.claim_task(conn, tid, claimer="worker-lock")
+
+        assert not kb.submit_task_for_review(conn, tid, expected_run_id=claimed.current_run_id)
+        task = kb.get_task(conn, tid)
+
+    assert task.status == "running"
+    assert task.assignee == "wolong"
+    assert task.current_run_id == claimed.current_run_id
+
+
+def test_submit_task_for_review_rejects_stale_run_id_without_mutation(kanban_home):
+    with kb.connect() as conn:
+        tid = kb.create_task(conn, title="review stale", assignee="wolong")
+        claimed = kb.claim_task(conn, tid, claimer="worker-lock")
+
+        ok = kb.submit_task_for_review(
+            conn,
+            tid,
+            reviewer="samaui",
+            summary="stale review",
+            expected_run_id=claimed.current_run_id + 1,
+        )
+
+        assert ok is False
+        task = kb.get_task(conn, tid)
+        assert task.status == "running"
+        assert task.assignee == "wolong"
+        assert task.current_run_id == claimed.current_run_id
+        assert not conn.execute(
+            "SELECT 1 FROM task_events WHERE task_id = ? AND kind = 'submitted_review'",
+            (tid,),
+        ).fetchone()
+
+
+def test_kanban_submit_review_tool_submits_current_worker_task(
+    kanban_home, monkeypatch
+):
+    from tools import kanban_tools
+    from tools.registry import registry
+
+    with kb.connect() as conn:
+        tid = kb.create_task(conn, title="tool submit", assignee="wolong")
+        claimed = kb.claim_task(conn, tid, claimer="worker-lock")
+        run_id = claimed.current_run_id
+
+    monkeypatch.setenv("HERMES_KANBAN_TASK", tid)
+    monkeypatch.setenv("HERMES_KANBAN_RUN_ID", str(run_id))
+    monkeypatch.setenv("HERMES_SESSION_ID", "session-1")
+
+    result = json.loads(
+        kanban_tools._handle_submit_review(
+            {
+                "reviewer": "samaui",
+                "summary": "tool review",
+                "metadata": {"source": "test"},
+            }
+        )
+    )
+
+    assert result == {"ok": True, "task_id": tid, "status": "review", "reviewer": "samaui"}
+    assert registry.get_entry("kanban_submit_review") is not None
+    assert registry.get_entry("kanban_submit_review").schema["name"] == "kanban_submit_review"
+    with kb.connect() as conn:
+        task = kb.get_task(conn, tid)
+        assert task.status == "review"
+        assert task.assignee == "samaui"
+        run = conn.execute(
+            "SELECT status, outcome, metadata FROM task_runs WHERE id = ?",
+            (run_id,),
+        ).fetchone()
+        assert run["status"] == "released"
+        assert run["outcome"] == "submitted_review"
+        assert json.loads(run["metadata"]) == {
+            "source": "test",
+            "worker_session_id": "session-1",
+        }
+
+
 def test_create_with_parents_stays_todo_until_parents_done(kanban_home):
     """kanban_create(parents=[...]) must land in 'todo' and only promote on parent done."""
     with kb.connect() as conn:
