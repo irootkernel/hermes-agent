@@ -57,7 +57,7 @@ def test_kanban_tools_visible_with_env_var(monkeypatch, tmp_path):
     expected = {
         "kanban_show", "kanban_complete", "kanban_block", "kanban_heartbeat",
         "kanban_comment", "kanban_create", "kanban_reassign",
-        "kanban_submit_review", "kanban_link",
+        "kanban_submit_review", "kanban_request_changes", "kanban_link",
     }
     assert kanban == expected, f"expected {expected}, got {kanban}"
 
@@ -87,6 +87,7 @@ def test_kanban_worker_env_overrides_profile_toolset_filter(monkeypatch, tmp_pat
     assert "kanban_block" in names
     assert "kanban_reassign" in names
     assert "kanban_submit_review" in names
+    assert "kanban_request_changes" in names
     assert "kanban_list" not in names
 
 
@@ -140,7 +141,7 @@ def test_kanban_tools_visible_with_toolset_config(monkeypatch, tmp_path):
         "kanban_list",
         "kanban_show", "kanban_complete", "kanban_block", "kanban_heartbeat",
         "kanban_comment", "kanban_create", "kanban_reassign",
-        "kanban_submit_review", "kanban_link",
+        "kanban_submit_review", "kanban_request_changes", "kanban_link",
         "kanban_unblock",
     }
     assert kanban == expected, f"expected {expected}, got {kanban}"

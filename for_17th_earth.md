@@ -46,7 +46,7 @@ Use these labels in per-delta commits only, not as final baseline markings:
 | ID | Change title | Baseline state | Per-delta work to do | Preflight evidence to verify |
 |---|---|---|---|---|
 | D1 | [Tool Search pair](#d1-tool-search-pair) | `upstream-absorbed` by `v2026.6.5` | Drop local D1 carry; do not apply Tool Search code patches on this release branch. | `git merge-base --is-ancestor` returned `0` for both `369075dc9` and `7427b9d58` against this branch. |
-| D2 | [Kanban review and same-card handoff helpers](#d2-kanban-review-and-same-card-handoff-helpers) | D2-a audited: `partial-native`; D2-b/c applied; D2-d pending | Keep native v0.16 review queue/dispatch; re-apply only missing same-card transition/tool seams in D2-b/c/d. | Native `review` claim/dispatch exists; `handoff_task`, `submit_task_for_review`, `request_changes`, and tool surfaces were absent at D2-a audit. |
+| D2 | [Kanban review and same-card handoff helpers](#d2-kanban-review-and-same-card-handoff-helpers) | D2-a audited: `partial-native`; D2-b/c/d applied | Keep native v0.16 review queue/dispatch; re-applied only missing same-card transition/tool seams in D2-b/c/d. | Native `review` claim/dispatch exists; `handoff_task`, `submit_task_for_review`, `request_changes`, and tool surfaces were absent at D2-a audit. |
 | D3 | [Kanban assignee alias resolution](#d3-kanban-assignee-alias-resolution) | `keep-local-carry` | Re-applied minimal dispatcher-only spawn-profile alias resolution. | v0.16.0 had no `kanban.assignee_aliases` / `resolve_assignee_profile` equivalent before this D3 commit. |
 | D4 | [Discord gateway config and owner-thread routing seams](#d4-discord-gateway-config-and-owner-thread-routing-seams) | pending per-delta decision | Separate absorbed generic config fixes from any still-needed owner-thread seam in the D4 commit. | Check `0bfe19ba1`, `44f3e5186`, `6d2727ef1`; inspect Discord owner tracking. |
 | D5 | [Plugin strategy retirement](#d5-plugin-strategy-retirement) | pending per-delta decision | Reconfirm the support-only plugin strategy remains non-actionable; record the decision in the D5 commit. | Process decision; no runtime patch expected unless references/config still point to plugin behavior. |
@@ -121,7 +121,7 @@ Re-apply D2 as smaller local-minimize subitems:
 
 - D2-b: cooperative same-card handoff/reassign (`handoff_task`, `kanban_reassign`) — applied in `17e/v0.16.0-re`.
 - D2-c: same-card submit-for-review (`submit_task_for_review`, `kanban_submit_review`) — applied in `17e/v0.16.0-re`.
-- D2-d: request-changes/rework loop (`request_changes`, `kanban_request_changes`) plus final same-task-id synthetic smoke.
+- D2-d: request-changes/rework loop (`request_changes`, `kanban_request_changes`) plus final same-task-id synthetic smoke — applied in `17e/v0.16.0-re`.
 
 Audit evidence:
 
@@ -152,7 +152,7 @@ PYTHONPATH=$PWD /Users/draccoon/.local/bin/hermes-python -m pytest -q \
 
 ### D2-b v0.16.0 patch decision
 
-Decision: `keep-local-carry` for cooperative same-card handoff/reassign. D2-c is now applied; D2-d remains pending.
+Decision: `keep-local-carry` for cooperative same-card handoff/reassign. D2-c and D2-d are now applied.
 
 Applied local seams:
 
@@ -198,7 +198,7 @@ PY
 
 ### D2-c v0.16.0 patch decision
 
-Decision: `keep-local-carry` for same-card submit-for-review. D2-d remains pending.
+Decision: `keep-local-carry` for same-card submit-for-review. D2-d is now applied.
 
 Applied local seams:
 
@@ -244,6 +244,56 @@ docker run --rm -i \
 # read-only repo mount, disposable HERMES_HOME, no live secrets/profile DB; submit review and claim native review on same task id.
 PY
 # {"ok": true, "task_id": "t_a2d7d069", "run_outcome": "submitted_review", "review_claim_status": "running"}
+```
+
+### D2-d v0.16.0 patch decision
+
+Decision: `keep-local-carry` for request-changes/rework loop. D2-b/c/d are now applied; native v0.16 review dispatch remains in use.
+
+Applied local seams:
+
+- `hermes_cli/kanban_db.py`: `request_changes(...)` closes the current review run as `requested_changes` / `released`, restores the original implementer from the latest `submitted_review` event unless an explicit target is provided, clears claim state, and returns the same task id to `ready`.
+- `tools/kanban_tools.py`: `kanban_request_changes` tool surface with same-task ownership guard, stale-run guard via `HERMES_KANBAN_RUN_ID`, required reason, and worker session metadata stamping.
+- `toolsets.py`: exposes `kanban_request_changes` through the Hermes CLI/kanban toolset list.
+
+Smoke evidence:
+
+```bash
+PYTHONPATH=$PWD /Users/draccoon/.local/bin/hermes-python -m pytest -q \
+  tests/hermes_cli/test_kanban_db.py::test_request_changes_returns_review_to_original_implementer \
+  tests/hermes_cli/test_kanban_db.py::test_request_changes_can_override_return_assignee \
+  tests/hermes_cli/test_kanban_db.py::test_request_changes_rejects_stale_run_id_without_mutation \
+  tests/hermes_cli/test_kanban_db.py::test_kanban_request_changes_tool_returns_current_review_task \
+  tests/hermes_cli/test_kanban_db.py::test_same_task_review_request_changes_rework_complete_loop \
+  tests/tools/test_kanban_tools.py::test_kanban_tools_visible_with_env_var \
+  tests/tools/test_kanban_tools.py::test_kanban_worker_env_overrides_profile_toolset_filter \
+  tests/tools/test_kanban_tools.py::test_kanban_tools_visible_with_toolset_config
+# 8 passed, 1 warning
+
+PYTHONPATH=$PWD /Users/draccoon/.local/bin/hermes-python -m pytest -q tests/hermes_cli/test_kanban_db.py
+# 230 passed
+
+PYTHONPATH=$PWD /Users/draccoon/.local/bin/hermes-python -m pytest -q tests/tools/test_kanban_tools.py tests/hermes_cli/test_kanban_core_functionality.py
+# 250 passed, 1 skipped, 1 warning
+
+PYTHONPATH=$PWD /Users/draccoon/.local/bin/hermes-python -m py_compile hermes_cli/kanban_db.py tools/kanban_tools.py tests/hermes_cli/test_kanban_db.py tests/tools/test_kanban_tools.py toolsets.py
+# passed
+
+HERMES_HOME=<disposable-home> PYTHONPATH=$PWD /Users/draccoon/.local/bin/hermes-python - <<'PY'
+# create one task id; submit_review -> review claim -> request_changes -> rework claim -> submit_review -> review claim -> complete.
+PY
+# {"ok": true, "task_id": "t_44cb7efb", "final_status": "done", "outcomes": ["submitted_review", "requested_changes", "submitted_review", "completed"]}
+
+docker run --rm -i \
+  -v "$PWD:/repo:ro" \
+  -w /repo \
+  -e HERMES_HOME=/tmp/hermes-d2d-docker-smoke \
+  -e PYTHONPATH=/repo \
+  hermes-17e-d3-checkpoint-smoke:py311 \
+  python - <<'PY'
+# read-only repo mount, disposable HERMES_HOME, no live secrets/profile DB; full D2-d same-task loop to done.
+PY
+# {"ok": true, "task_id": "t_4ae0b437", "final_status": "done", "outcomes": ["submitted_review", "requested_changes", "submitted_review", "completed"]}
 ```
 
 ### Purpose

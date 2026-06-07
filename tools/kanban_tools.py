@@ -908,6 +908,46 @@ def _handle_submit_review(args: dict[str, Any], **kw) -> str:
         return tool_error(f"kanban_submit_review: {e}")
 
 
+def _handle_request_changes(args: dict[str, Any], **kw) -> str:
+    """Send the current review task back to an implementer."""
+    tid = _default_task_id(args.get("task_id"))
+    if not tid:
+        return tool_error("task_id is required (or set HERMES_KANBAN_TASK in the env)")
+    ownership_err = _enforce_worker_task_ownership(tid)
+    if ownership_err:
+        return ownership_err
+    reason = args.get("reason")
+    if not reason or not str(reason).strip():
+        return tool_error("reason is required")
+    metadata = args.get("metadata")
+    if metadata is not None and not isinstance(metadata, dict):
+        return tool_error(f"metadata must be an object/dict, got {type(metadata).__name__}")
+    metadata = _stamp_worker_session_metadata(tid, metadata)
+    board = args.get("board")
+    try:
+        kb, conn = _connect(board=board)
+        try:
+            ok = kb.request_changes(
+                conn,
+                tid,
+                reason=str(reason),
+                assignee=_normalize_profile(args.get("assignee")),
+                metadata=metadata,
+                expected_run_id=_worker_run_id(tid),
+            )
+            if not ok:
+                return tool_error(f"could not request changes on {tid} (unknown id, incompatible state, or stale run)")
+            task = kb.get_task(conn, tid)
+            return _ok(task_id=tid, status="ready", assignee=task.assignee if task else None)
+        finally:
+            conn.close()
+    except ValueError as e:
+        return tool_error(f"kanban_request_changes: {e}")
+    except Exception as e:
+        logger.exception("kanban_request_changes failed")
+        return tool_error(f"kanban_request_changes: {e}")
+
+
 def _handle_unblock(args: dict, **kw) -> str:
     """Transition a blocked task back to ready."""
     guard = _require_orchestrator_tool("kanban_unblock")
@@ -1427,6 +1467,26 @@ KANBAN_SUBMIT_REVIEW_SCHEMA = {
     },
 }
 
+KANBAN_REQUEST_CHANGES_SCHEMA = {
+    "name": "kanban_request_changes",
+    "description": (
+        "Send a task in review back to the implementer on the same card. "
+        "The current review run is closed as requested_changes and the task "
+        "returns to ready for rework."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "task_id": {"type": "string", "description": _DESC_TASK_ID_DEFAULT},
+            "reason": {"type": "string", "description": "Specific changes required before approval."},
+            "assignee": {"type": "string", "description": "Optional implementer profile/assignee override."},
+            "metadata": {"type": "object", "description": "Optional structured review facts."},
+            "board": _board_schema_prop(),
+        },
+        "required": ["reason"],
+    },
+}
+
 KANBAN_UNBLOCK_SCHEMA = {
     "name": "kanban_unblock",
     "description": (
@@ -1549,6 +1609,15 @@ registry.register(
     handler=_handle_submit_review,
     check_fn=_check_kanban_mode,
     emoji="🔎",
+)
+
+registry.register(
+    name="kanban_request_changes",
+    toolset="kanban",
+    schema=KANBAN_REQUEST_CHANGES_SCHEMA,
+    handler=_handle_request_changes,
+    check_fn=_check_kanban_mode,
+    emoji="↩",
 )
 
 registry.register(

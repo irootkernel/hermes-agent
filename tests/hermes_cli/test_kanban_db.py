@@ -1484,6 +1484,229 @@ def test_kanban_submit_review_tool_submits_current_worker_task(
         }
 
 
+def test_request_changes_returns_review_to_original_implementer(kanban_home):
+    """request_changes uses submit-review provenance to restore implementer ownership."""
+    with kb.connect() as conn:
+        tid = kb.create_task(conn, title="needs changes", assignee="wolong", created_by="creator")
+        claimed = kb.claim_task(conn, tid, claimer="worker-lock")
+        assert kb.submit_task_for_review(
+            conn,
+            tid,
+            reviewer="samaui",
+            summary="review me",
+            expected_run_id=claimed.current_run_id,
+        )
+        review_claim = kb.claim_review_task(conn, tid, claimer="reviewer-lock")
+        assert review_claim is not None
+
+        ok = kb.request_changes(
+            conn,
+            tid,
+            reason="missing test",
+            metadata={"blocking": True},
+            expected_run_id=review_claim.current_run_id,
+        )
+
+        assert ok is True
+        task = kb.get_task(conn, tid)
+        assert task.status == "ready"
+        assert task.assignee == "wolong"
+        assert task.claim_lock is None
+        assert task.claim_expires is None
+        assert task.current_run_id is None
+
+        run = conn.execute(
+            "SELECT status, outcome, summary, metadata FROM task_runs WHERE id = ?",
+            (review_claim.current_run_id,),
+        ).fetchone()
+        assert run["status"] == "released"
+        assert run["outcome"] == "requested_changes"
+        assert run["summary"] == "changes requested: missing test"
+        assert json.loads(run["metadata"]) == {"blocking": True}
+
+        event = conn.execute(
+            "SELECT kind, payload, run_id FROM task_events WHERE task_id = ? "
+            "AND kind = 'requested_changes'",
+            (tid,),
+        ).fetchone()
+        assert event["run_id"] == review_claim.current_run_id
+        payload = json.loads(event["payload"])
+        assert payload == {"from": "samaui", "to": "wolong", "reason": "missing test"}
+
+
+def test_request_changes_can_override_return_assignee(kanban_home):
+    with kb.connect() as conn:
+        tid = kb.create_task(conn, title="needs target", assignee="wolong")
+        claimed = kb.claim_task(conn, tid, claimer="worker-lock")
+        assert kb.submit_task_for_review(
+            conn,
+            tid,
+            reviewer="samaui",
+            summary="review me",
+            expected_run_id=claimed.current_run_id,
+        )
+        review_claim = kb.claim_review_task(conn, tid, claimer="reviewer-lock")
+
+        assert kb.request_changes(
+            conn,
+            tid,
+            reason="route to specialist",
+            assignee="jowoo",
+            expected_run_id=review_claim.current_run_id,
+        )
+        task = kb.get_task(conn, tid)
+
+    assert task.status == "ready"
+    assert task.assignee == "jowoo"
+
+
+def test_request_changes_rejects_stale_run_id_without_mutation(kanban_home):
+    with kb.connect() as conn:
+        tid = kb.create_task(conn, title="stale review", assignee="wolong")
+        claimed = kb.claim_task(conn, tid, claimer="worker-lock")
+        assert kb.submit_task_for_review(
+            conn,
+            tid,
+            reviewer="samaui",
+            summary="review me",
+            expected_run_id=claimed.current_run_id,
+        )
+        review_claim = kb.claim_review_task(conn, tid, claimer="reviewer-lock")
+
+        ok = kb.request_changes(
+            conn,
+            tid,
+            reason="stale request",
+            expected_run_id=review_claim.current_run_id + 1,
+        )
+
+        assert ok is False
+        task = kb.get_task(conn, tid)
+        assert task.status == "running"
+        assert task.assignee == "samaui"
+        assert task.current_run_id == review_claim.current_run_id
+        assert not conn.execute(
+            "SELECT 1 FROM task_events WHERE task_id = ? AND kind = 'requested_changes'",
+            (tid,),
+        ).fetchone()
+
+
+def test_kanban_request_changes_tool_returns_current_review_task(
+    kanban_home, monkeypatch
+):
+    from tools import kanban_tools
+    from tools.registry import registry
+
+    with kb.connect() as conn:
+        tid = kb.create_task(conn, title="tool changes", assignee="wolong")
+        worker_claim = kb.claim_task(conn, tid, claimer="worker-lock")
+        assert kb.submit_task_for_review(
+            conn,
+            tid,
+            reviewer="samaui",
+            summary="tool review",
+            expected_run_id=worker_claim.current_run_id,
+        )
+        review_claim = kb.claim_review_task(conn, tid, claimer="reviewer-lock")
+        run_id = review_claim.current_run_id
+
+    monkeypatch.setenv("HERMES_KANBAN_TASK", tid)
+    monkeypatch.setenv("HERMES_KANBAN_RUN_ID", str(run_id))
+    monkeypatch.setenv("HERMES_SESSION_ID", "session-2")
+
+    result = json.loads(
+        kanban_tools._handle_request_changes(
+            {
+                "reason": "fix evidence gap",
+                "metadata": {"source": "test"},
+            }
+        )
+    )
+
+    assert result == {"ok": True, "task_id": tid, "status": "ready", "assignee": "wolong"}
+    assert registry.get_entry("kanban_request_changes") is not None
+    assert registry.get_entry("kanban_request_changes").schema["name"] == "kanban_request_changes"
+    with kb.connect() as conn:
+        task = kb.get_task(conn, tid)
+        assert task.status == "ready"
+        assert task.assignee == "wolong"
+        run = conn.execute(
+            "SELECT status, outcome, metadata FROM task_runs WHERE id = ?",
+            (run_id,),
+        ).fetchone()
+        assert run["status"] == "released"
+        assert run["outcome"] == "requested_changes"
+        assert json.loads(run["metadata"]) == {
+            "source": "test",
+            "worker_session_id": "session-2",
+        }
+
+
+def test_same_task_review_request_changes_rework_complete_loop(kanban_home):
+    """D2-d end-to-end loop keeps one task id across review, rework, and completion."""
+    with kb.connect() as conn:
+        tid = kb.create_task(conn, title="full loop", assignee="wolong")
+        first_claim = kb.claim_task(conn, tid, claimer="worker-1")
+        assert kb.submit_task_for_review(
+            conn,
+            tid,
+            reviewer="samaui",
+            summary="first pass",
+            expected_run_id=first_claim.current_run_id,
+        )
+        review_claim = kb.claim_review_task(conn, tid, claimer="reviewer-1")
+        assert review_claim is not None
+        assert kb.request_changes(
+            conn,
+            tid,
+            reason="needs evidence",
+            expected_run_id=review_claim.current_run_id,
+        )
+        rework_claim = kb.claim_task(conn, tid, claimer="worker-2")
+        assert rework_claim is not None
+        assert rework_claim.id == tid
+        assert kb.submit_task_for_review(
+            conn,
+            tid,
+            reviewer="samaui",
+            summary="second pass",
+            expected_run_id=rework_claim.current_run_id,
+        )
+        final_review = kb.claim_review_task(conn, tid, claimer="reviewer-2")
+        assert final_review is not None
+        assert kb.complete_task(conn, tid, result="approved", expected_run_id=final_review.current_run_id)
+
+        task = kb.get_task(conn, tid)
+        events = conn.execute(
+            "SELECT kind FROM task_events WHERE task_id = ? ORDER BY id",
+            (tid,),
+        ).fetchall()
+        runs = conn.execute(
+            "SELECT outcome FROM task_runs WHERE task_id = ? ORDER BY id",
+            (tid,),
+        ).fetchall()
+
+    assert task.status == "done"
+    assert task.id == tid
+    assert [event["kind"] for event in events] == [
+        "created",
+        "claimed",
+        "submitted_review",
+        "claimed",
+        "requested_changes",
+        "claimed",
+        "submitted_review",
+        "claimed",
+        "completed",
+    ]
+    assert [run["outcome"] for run in runs] == [
+        "submitted_review",
+        "requested_changes",
+        "submitted_review",
+        "completed",
+    ]
+
+
 def test_create_with_parents_stays_todo_until_parents_done(kanban_home):
     """kanban_create(parents=[...]) must land in 'todo' and only promote on parent done."""
     with kb.connect() as conn:

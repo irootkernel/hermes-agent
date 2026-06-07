@@ -2628,6 +2628,100 @@ def submit_task_for_review(
     return True
 
 
+def _latest_review_submit_payload(
+    conn: sqlite3.Connection,
+    task_id: str,
+) -> Optional[dict[str, Any]]:
+    row = conn.execute(
+        "SELECT payload FROM task_events WHERE task_id = ? AND kind = 'submitted_review' "
+        "ORDER BY id DESC LIMIT 1",
+        (task_id,),
+    ).fetchone()
+    if not row or not row["payload"]:
+        return None
+    try:
+        payload = json.loads(row["payload"])
+        return payload if isinstance(payload, dict) else None
+    except Exception:
+        return None
+
+
+def request_changes(
+    conn: sqlite3.Connection,
+    task_id: str,
+    *,
+    reason: str,
+    assignee: Optional[str] = None,
+    metadata: Optional[dict[str, Any]] = None,
+    expected_run_id: Optional[int] = None,
+) -> bool:
+    """Send a task in review back to the implementer on the same card."""
+    if not reason or not str(reason).strip():
+        raise ValueError("reason is required")
+    requested_assignee = _canonical_assignee(assignee)
+    with write_txn(conn):
+        row = conn.execute(
+            "SELECT status, assignee, created_by, current_run_id FROM tasks WHERE id = ?",
+            (task_id,),
+        ).fetchone()
+        if not row:
+            return False
+        if expected_run_id is not None and row["current_run_id"] != int(expected_run_id):
+            return False
+        if row["status"] not in {"running", "review", "blocked"}:
+            return False
+        submit_payload = _latest_review_submit_payload(conn, task_id) or {}
+        target = (
+            requested_assignee
+            or _canonical_assignee(submit_payload.get("from_assignee"))
+            or _canonical_profile_assignee(row["created_by"])
+            or _canonical_assignee(row["assignee"])
+        )
+        if not target:
+            return False
+        clean_reason = str(reason).strip()
+        request_summary = f"changes requested: {clean_reason}"
+        run_id = _end_run(
+            conn,
+            task_id,
+            outcome="requested_changes",
+            status="released",
+            summary=request_summary,
+            metadata=metadata,
+        )
+        if run_id is None:
+            run_id = _synthesize_ended_run(
+                conn,
+                task_id,
+                outcome="requested_changes",
+                summary=request_summary,
+                metadata=metadata,
+            )
+        conn.execute(
+            """
+            UPDATE tasks
+               SET status = 'ready',
+                   assignee = ?,
+                   claim_lock = NULL,
+                   claim_expires = NULL,
+                   worker_pid = NULL,
+                   current_run_id = NULL,
+                   consecutive_failures = 0,
+                   last_failure_error = NULL
+             WHERE id = ?
+            """,
+            (target, task_id),
+        )
+        _append_event(
+            conn,
+            task_id,
+            "requested_changes",
+            {"from": row["assignee"], "to": target, "reason": clean_reason},
+            run_id=run_id,
+        )
+    return True
+
+
 # ---------------------------------------------------------------------------
 # Links
 # ---------------------------------------------------------------------------
