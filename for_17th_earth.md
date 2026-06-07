@@ -45,7 +45,7 @@ Use these labels in per-delta commits only, not as final baseline markings:
 
 | ID | Change title | Baseline state | Per-delta work to do | Preflight evidence to verify |
 |---|---|---|---|---|
-| D1 | [Tool Search pair](#d1-tool-search-pair) | pending per-delta decision | Verify whether the pair is absorbed by `v2026.6.5`; mark/drop only in the D1 commit. | Check whether `369075dc9` and `7427b9d58` are ancestors of the release base. |
+| D1 | [Tool Search pair](#d1-tool-search-pair) | `upstream-absorbed` by `v2026.6.5` | Drop local D1 carry; do not apply Tool Search code patches on this release branch. | `git merge-base --is-ancestor` returned `0` for both `369075dc9` and `7427b9d58` against this branch. |
 | D2 | [Kanban review and same-card handoff helpers](#d2-kanban-review-and-same-card-handoff-helpers) | pending per-delta decision | Compare native v0.16 review dispatch with the same-card handoff/review contract; patch only missing behavior. | v0.16 appears to have `review` status dispatch; verify missing `kanban_reassign`, `kanban_submit_review`, and `kanban_request_changes`. |
 | D3 | [Kanban assignee alias resolution](#d3-kanban-assignee-alias-resolution) | pending per-delta decision | Verify whether upstream has spawn-profile aliasing; patch only if absent. | Search for `kanban.assignee_aliases` / `resolve_assignee_profile` equivalents. |
 | D4 | [Discord gateway config and owner-thread routing seams](#d4-discord-gateway-config-and-owner-thread-routing-seams) | pending per-delta decision | Separate absorbed generic config fixes from any still-needed owner-thread seam in the D4 commit. | Check `0bfe19ba1`, `44f3e5186`, `6d2727ef1`; inspect Discord owner tracking. |
@@ -53,6 +53,19 @@ Use these labels in per-delta commits only, not as final baseline markings:
 | D6 | [CLI return-code passthrough](#d6-cli-return-code-passthrough) | pending per-delta decision | Verify top-level CLI return-code behavior; patch with `type(rc) is int` only if still broken. | `kanban show definitely_missing_task` should return non-zero after fix. |
 
 ## D1 Tool Search pair
+
+### v0.16.0 decision
+
+`upstream-absorbed` by upstream tag `v2026.6.5` / release `v0.16.0`.
+
+Do not re-apply local D1 commits on `17e/v0.16.0-re`. Keep this ledger section so the next release audit can re-check whether the Tool Search behavior remains native.
+
+Decision evidence:
+
+```bash
+git merge-base --is-ancestor 369075dc9 HEAD  # rc 0
+git merge-base --is-ancestor 7427b9d58 HEAD  # rc 0
+```
 
 ### Purpose
 
@@ -68,11 +81,29 @@ Use these labels in per-delta commits only, not as final baseline markings:
 
 In the D1 commit, verify whether both original upstream commits or equivalent behavior are present in `v2026.6.5`. If yes, mark D1 as absorbed by that release and carry no local code. If only one side is present, inspect upstream follow-up commits before carrying anything.
 
-### Smoke if D1 is touched
+### Release-candidate smoke
 
 ```bash
-python -m pytest -q tests/tools/test_tool_search.py
-python -m py_compile \
+PYTHONPATH=$PWD /Users/draccoon/.local/bin/hermes-python -m pytest -q tests/tools/test_tool_search.py
+# 39 passed, 1 warning
+
+PYTHONPATH=$PWD /Users/draccoon/.local/bin/hermes-python -m py_compile \
+  tools/tool_search.py \
+  model_tools.py \
+  agent/tool_executor.py \
+  agent/agent_runtime_helpers.py \
+  hermes_cli/config.py
+# passed
+
+git diff --check
+# passed
+```
+
+### Smoke if D1 is touched again
+
+```bash
+PYTHONPATH=$PWD /Users/draccoon/.local/bin/hermes-python -m pytest -q tests/tools/test_tool_search.py
+PYTHONPATH=$PWD /Users/draccoon/.local/bin/hermes-python -m py_compile \
   tools/tool_search.py \
   model_tools.py \
   agent/tool_executor.py \

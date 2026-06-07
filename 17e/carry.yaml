@@ -1,0 +1,50 @@
+schema_version: 1
+release:
+  branch: 17e/v0.16.0-re
+  upstream_tag: v2026.6.5
+  upstream_version: v0.16.0
+  upstream_commit: 3c231eb39
+policy:
+  status_decisions_are_per_delta_commits: true
+  drop_means_mark_absorbed_or_retired_not_delete: true
+  verification_scope: targeted_smoke_not_full_macos_suite
+entries:
+  D1:
+    title: Tool Search pair
+    status: upstream-absorbed
+    absorbed_by:
+      upstream_tag: v2026.6.5
+      upstream_version: v0.16.0
+      commits:
+        - 369075dc9
+        - 7427b9d58
+    local_action: drop-local-carry
+    code_patch_required: false
+    evidence:
+      ancestor_checks:
+        - command: git merge-base --is-ancestor 369075dc9 HEAD
+          rc: 0
+        - command: git merge-base --is-ancestor 7427b9d58 HEAD
+          rc: 0
+      smoke:
+        - command: PYTHONPATH=$PWD /Users/draccoon/.local/bin/hermes-python -m pytest -q tests/tools/test_tool_search.py
+          result: 39 passed, 1 warning
+        - command: PYTHONPATH=$PWD /Users/draccoon/.local/bin/hermes-python -m py_compile tools/tool_search.py model_tools.py agent/tool_executor.py agent/agent_runtime_helpers.py hermes_cli/config.py
+          result: passed
+        - command: git diff --check
+          result: passed
+  D2:
+    title: Kanban review and same-card handoff helpers
+    status: pending
+  D3:
+    title: Kanban assignee alias resolution
+    status: pending
+  D4:
+    title: Discord gateway config and owner-thread routing seams
+    status: pending
+  D5:
+    title: Plugin strategy retirement
+    status: pending
+  D6:
+    title: CLI return-code passthrough
+    status: pending
