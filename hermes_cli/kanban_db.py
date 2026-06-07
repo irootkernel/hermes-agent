@@ -2463,6 +2463,81 @@ def assign_task(conn: sqlite3.Connection, task_id: str, profile: Optional[str]) 
         return True
 
 
+def handoff_task(
+    conn: sqlite3.Connection,
+    task_id: str,
+    profile: Optional[str],
+    *,
+    summary: Optional[str] = None,
+    reason: Optional[str] = None,
+    metadata: Optional[dict[str, Any]] = None,
+    expected_run_id: Optional[int] = None,
+) -> bool:
+    """Cooperatively hand a running task to another assignee on the same card.
+
+    This is the normal worker baton-pass path: the current run is closed as
+    ``handed_off`` and the task returns to ``ready`` for ``profile`` without
+    treating the worker as stale/reclaimed.
+    """
+    target = _canonical_assignee(profile)
+    with write_txn(conn):
+        row = conn.execute(
+            "SELECT status, assignee, current_run_id FROM tasks WHERE id = ?",
+            (task_id,),
+        ).fetchone()
+        if not row:
+            return False
+        if expected_run_id is not None and row["current_run_id"] != int(expected_run_id):
+            return False
+        if row["status"] != "running":
+            return False
+        handoff_summary = summary or reason
+        run_id = _end_run(
+            conn,
+            task_id,
+            outcome="handed_off",
+            status="released",
+            summary=handoff_summary,
+            metadata=metadata,
+        )
+        if run_id is None and (handoff_summary or metadata):
+            run_id = _synthesize_ended_run(
+                conn,
+                task_id,
+                outcome="handed_off",
+                summary=handoff_summary,
+                metadata=metadata,
+            )
+        conn.execute(
+            """
+            UPDATE tasks
+               SET status = 'ready',
+                   assignee = ?,
+                   claim_lock = NULL,
+                   claim_expires = NULL,
+                   worker_pid = NULL,
+                   current_run_id = NULL,
+                   consecutive_failures = 0,
+                   last_failure_error = NULL
+             WHERE id = ?
+            """,
+            (target, task_id),
+        )
+        _append_event(
+            conn,
+            task_id,
+            "handed_off",
+            {
+                "from": row["assignee"],
+                "to": target,
+                "summary": handoff_summary,
+                "reason": reason,
+            },
+            run_id=run_id,
+        )
+    return True
+
+
 # ---------------------------------------------------------------------------
 # Links
 # ---------------------------------------------------------------------------

@@ -35,7 +35,7 @@ entries:
           result: passed
   D2:
     title: Kanban review and same-card handoff helpers
-    status: partial-native-audited
+    status: partial-native-d2b-applied
     code_patch_required: true
     d2a_audit:
       native_present:
@@ -43,15 +43,15 @@ entries:
         - review status dispatch
         - has_spawnable_review
         - review agent sdlc-review skill injection
-      still_missing:
+      missing_at_d2a_audit:
         - handoff_task
         - submit_task_for_review
         - request_changes
         - kanban_reassign tool surface
         - kanban_submit_review tool surface
         - kanban_request_changes tool surface
-      next_subitems:
-        D2-b: cooperative same-card handoff/reassign
+      subitem_plan:
+        D2-b: cooperative same-card handoff/reassign (applied)
         D2-c: same-card submit-for-review
         D2-d: request-changes/rework loop and final same-task-id smoke
       evidence:
@@ -59,6 +59,30 @@ entries:
           result: absent
         - command: targeted native review pytest selection
           result: 10 passed
+    d2b_patch:
+      status: keep-local-carry
+      local_action: reapply-cooperative-same-card-handoff
+      applied:
+        - handoff_task
+        - kanban_reassign tool surface
+      still_pending:
+        - D2-c submit_task_for_review / kanban_submit_review
+        - D2-d request_changes / kanban_request_changes / final same-task-id smoke
+      files:
+        - hermes_cli/kanban_db.py
+        - tools/kanban_tools.py
+        - tests/hermes_cli/test_kanban_db.py
+      evidence:
+        - command: targeted D2-b pytest selection
+          result: 3 passed
+        - command: PYTHONPATH=$PWD /Users/draccoon/.local/bin/hermes-python -m pytest -q tests/hermes_cli/test_kanban_db.py
+          result: 220 passed
+        - command: PYTHONPATH=$PWD /Users/draccoon/.local/bin/hermes-python -m pytest -q tests/tools/test_kanban_tools.py tests/hermes_cli/test_kanban_core_functionality.py
+          result: 250 passed, 1 skipped, 1 warning
+        - command: PYTHONPATH=$PWD /Users/draccoon/.local/bin/hermes-python -m py_compile hermes_cli/kanban_db.py tools/kanban_tools.py tests/hermes_cli/test_kanban_db.py
+          result: passed
+        - command: HERMES_HOME=<disposable-home> PYTHONPATH=$PWD /Users/draccoon/.local/bin/hermes-python - <<'PY'
+          result: "same task id returned ready for samaui; handed_off event_count 1"
   D3:
     title: Kanban assignee alias resolution
     status: keep-local-carry

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import concurrent.futures
+import json
 import os
 import sqlite3
 import sys
@@ -1217,6 +1218,121 @@ def test_claim_succeeds_once_parents_done(kanban_home):
         claimed = kb.claim_task(conn, child, claimer="host:1")
     assert claimed is not None
     assert claimed.status == "running"
+
+
+def test_handoff_task_closes_run_and_returns_same_card_to_ready(kanban_home):
+    """Cooperative handoff keeps the same task id and releases the run."""
+    with kb.connect() as conn:
+        tid = kb.create_task(conn, title="handoff", assignee="wolong")
+        claimed = kb.claim_task(conn, tid, claimer="worker-lock")
+        run_id = claimed.current_run_id
+
+        ok = kb.handoff_task(
+            conn,
+            tid,
+            "samaui",
+            summary="handoff summary",
+            reason="needs specialist",
+            metadata={"handoff": True},
+            expected_run_id=run_id,
+        )
+
+        assert ok is True
+        task = kb.get_task(conn, tid)
+        assert task.id == tid
+        assert task.status == "ready"
+        assert task.assignee == "samaui"
+        assert task.claim_lock is None
+        assert task.claim_expires is None
+        assert task.current_run_id is None
+
+        run = conn.execute(
+            "SELECT status, outcome, summary, metadata FROM task_runs WHERE id = ?",
+            (run_id,),
+        ).fetchone()
+        assert run["status"] == "released"
+        assert run["outcome"] == "handed_off"
+        assert run["summary"] == "handoff summary"
+        assert json.loads(run["metadata"])["handoff"] is True
+
+        event = conn.execute(
+            "SELECT kind, payload, run_id FROM task_events WHERE task_id = ? "
+            "AND kind = 'handed_off'",
+            (tid,),
+        ).fetchone()
+        assert event["run_id"] == run_id
+        payload = json.loads(event["payload"])
+        assert payload["from"] == "wolong"
+        assert payload["to"] == "samaui"
+        assert payload["reason"] == "needs specialist"
+
+
+def test_handoff_task_rejects_stale_run_id_without_mutation(kanban_home):
+    with kb.connect() as conn:
+        tid = kb.create_task(conn, title="handoff", assignee="wolong")
+        claimed = kb.claim_task(conn, tid, claimer="worker-lock")
+
+        ok = kb.handoff_task(
+            conn,
+            tid,
+            "samaui",
+            summary="stale handoff",
+            expected_run_id=claimed.current_run_id + 1,
+        )
+
+        assert ok is False
+        task = kb.get_task(conn, tid)
+        assert task.status == "running"
+        assert task.assignee == "wolong"
+        assert task.current_run_id == claimed.current_run_id
+        assert not conn.execute(
+            "SELECT 1 FROM task_events WHERE task_id = ? AND kind = 'handed_off'",
+            (tid,),
+        ).fetchone()
+
+
+def test_kanban_reassign_tool_handoffs_current_worker_task(
+    kanban_home, monkeypatch
+):
+    from tools import kanban_tools
+    from tools.registry import registry
+
+    with kb.connect() as conn:
+        tid = kb.create_task(conn, title="tool handoff", assignee="wolong")
+        claimed = kb.claim_task(conn, tid, claimer="worker-lock")
+        run_id = claimed.current_run_id
+
+    monkeypatch.setenv("HERMES_KANBAN_TASK", tid)
+    monkeypatch.setenv("HERMES_KANBAN_RUN_ID", str(run_id))
+    monkeypatch.setenv("HERMES_SESSION_ID", "session-1")
+
+    result = json.loads(
+        kanban_tools._handle_reassign(
+            {
+                "assignee": "samaui",
+                "summary": "tool handoff",
+                "metadata": {"source": "test"},
+            }
+        )
+    )
+
+    assert result == {"ok": True, "task_id": tid, "assignee": "samaui"}
+    assert registry.get_entry("kanban_reassign") is not None
+    assert registry.get_entry("kanban_reassign").schema["name"] == "kanban_reassign"
+    with kb.connect() as conn:
+        task = kb.get_task(conn, tid)
+        assert task.status == "ready"
+        assert task.assignee == "samaui"
+        run = conn.execute(
+            "SELECT status, outcome, metadata FROM task_runs WHERE id = ?",
+            (run_id,),
+        ).fetchone()
+        assert run["status"] == "released"
+        assert run["outcome"] == "handed_off"
+        assert json.loads(run["metadata"]) == {
+            "source": "test",
+            "worker_session_id": "session-1",
+        }
 
 
 def test_create_with_parents_stays_todo_until_parents_done(kanban_home):

@@ -119,7 +119,7 @@ Decision: `partial-native`; do not replace v0.16.0's native review queue/dispatc
 
 Re-apply D2 as smaller local-minimize subitems:
 
-- D2-b: cooperative same-card handoff/reassign (`handoff_task`, `kanban_reassign`).
+- D2-b: cooperative same-card handoff/reassign (`handoff_task`, `kanban_reassign`) — applied in `17e/v0.16.0-re`.
 - D2-c: same-card submit-for-review (`submit_task_for_review`, `kanban_submit_review`).
 - D2-d: request-changes/rework loop (`request_changes`, `kanban_request_changes`) plus final same-task-id synthetic smoke.
 
@@ -130,7 +130,7 @@ Audit evidence:
 git grep -n "def claim_review_task" -- hermes_cli/kanban_db.py
 git grep -n "status = 'review'\|sdlc-review\|has_spawnable_review" -- hermes_cli/kanban_db.py tests/hermes_cli/test_kanban_db.py
 
-# Old D2 local seams still absent after v0.16.0 + D3/D6:
+# Old D2 local seams absent at D2-a audit time, before the D2-b patch:
 git grep -n "def handoff_task\|def submit_task_for_review\|def request_changes" -- hermes_cli tools toolsets.py tests
 # no matches
 git grep -n "kanban_reassign\|kanban_submit_review\|kanban_request_changes" -- tools toolsets.py tests
@@ -148,6 +148,52 @@ PYTHONPATH=$PWD /Users/draccoon/.local/bin/hermes-python -m pytest -q \
   tests/hermes_cli/test_kanban_db.py::test_has_spawnable_review_false_on_empty \
   tests/hermes_cli/test_kanban_db.py::test_review_status_in_valid_statuses
 # 10 passed
+```
+
+### D2-b v0.16.0 patch decision
+
+Decision: `keep-local-carry` for cooperative same-card handoff/reassign only. D2 is not complete; D2-c and D2-d remain pending.
+
+Applied local seams:
+
+- `hermes_cli/kanban_db.py`: `handoff_task(...)` closes the current run as `handed_off` / `released`, clears the claim, resets failure counters, and returns the same task id to `ready` for the target assignee.
+- `tools/kanban_tools.py`: `kanban_reassign` worker/orchestrator tool surface with same-task ownership guard, stale-run guard via `HERMES_KANBAN_RUN_ID`, and worker session metadata stamping.
+
+Smoke evidence:
+
+```bash
+PYTHONPATH=$PWD /Users/draccoon/.local/bin/hermes-python -m pytest -q \
+  tests/hermes_cli/test_kanban_db.py::test_handoff_task_closes_run_and_returns_same_card_to_ready \
+  tests/hermes_cli/test_kanban_db.py::test_handoff_task_rejects_stale_run_id_without_mutation \
+  tests/hermes_cli/test_kanban_db.py::test_kanban_reassign_tool_handoffs_current_worker_task
+# 3 passed
+
+PYTHONPATH=$PWD /Users/draccoon/.local/bin/hermes-python -m pytest -q tests/hermes_cli/test_kanban_db.py
+# 220 passed
+
+PYTHONPATH=$PWD /Users/draccoon/.local/bin/hermes-python -m pytest -q tests/tools/test_kanban_tools.py tests/hermes_cli/test_kanban_core_functionality.py
+# 250 passed, 1 skipped, 1 warning
+
+PYTHONPATH=$PWD /Users/draccoon/.local/bin/hermes-python -m py_compile hermes_cli/kanban_db.py tools/kanban_tools.py tests/hermes_cli/test_kanban_db.py
+# passed
+
+HERMES_HOME=<disposable-home> PYTHONPATH=$PWD /Users/draccoon/.local/bin/hermes-python - <<'PY'
+# create running task, call tools.kanban_tools._handle_reassign, assert same task returns ready for target assignee
+PY
+# {"ok": true, "status": "ready", "assignee": "samaui", "event_count": 1}
+
+docker run --rm -i \
+  -v "$PWD:/repo:ro" \
+  -w /repo \
+  -e HERMES_HOME=/tmp/hermes-d2b-docker-smoke \
+  -e PYTHONPATH=/repo \
+  hermes-17e-d3-checkpoint-smoke:py311 \
+  python - <<'PY'
+# create two disposable profiles, create one Kanban task assigned to worker-a,
+# dispatch worker-a, call kanban_reassign to worker-b, dispatch worker-b, and
+# complete the same task id.
+PY
+# {"ok": true, "profiles": ["d2b-worker-a", "d2b-worker-b"], "task_id": "t_2ecfb7b2", "run_outcomes": ["handed_off", "completed"], "final_status": "done"}
 ```
 
 ### Purpose

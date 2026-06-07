@@ -831,6 +831,46 @@ def _handle_create(args: dict, **kw) -> str:
         return tool_error(f"kanban_create: {e}")
 
 
+def _handle_reassign(args: dict[str, Any], **kw) -> str:
+    """Cooperatively hand the current task to another assignee."""
+    tid = _default_task_id(args.get("task_id"))
+    if not tid:
+        return tool_error("task_id is required (or set HERMES_KANBAN_TASK in the env)")
+    ownership_err = _enforce_worker_task_ownership(tid)
+    if ownership_err:
+        return ownership_err
+    assignee = _normalize_profile(args.get("assignee"))
+    if not assignee:
+        return tool_error("assignee is required")
+    metadata = args.get("metadata")
+    if metadata is not None and not isinstance(metadata, dict):
+        return tool_error(f"metadata must be an object/dict, got {type(metadata).__name__}")
+    metadata = _stamp_worker_session_metadata(tid, metadata)
+    board = args.get("board")
+    try:
+        kb, conn = _connect(board=board)
+        try:
+            ok = kb.handoff_task(
+                conn,
+                tid,
+                assignee,
+                summary=args.get("summary"),
+                reason=args.get("reason"),
+                metadata=metadata,
+                expected_run_id=_worker_run_id(tid),
+            )
+            if not ok:
+                return tool_error(f"could not reassign {tid} (unknown id, terminal state, or stale run)")
+            return _ok(task_id=tid, assignee=assignee)
+        finally:
+            conn.close()
+    except ValueError as e:
+        return tool_error(f"kanban_reassign: {e}")
+    except Exception as e:
+        logger.exception("kanban_reassign failed")
+        return tool_error(f"kanban_reassign: {e}")
+
+
 def _handle_unblock(args: dict, **kw) -> str:
     """Transition a blocked task back to ready."""
     guard = _require_orchestrator_tool("kanban_unblock")
@@ -1306,6 +1346,27 @@ KANBAN_CREATE_SCHEMA = {
     },
 }
 
+KANBAN_REASSIGN_SCHEMA = {
+    "name": "kanban_reassign",
+    "description": (
+        "Cooperatively hand the current Kanban task to another assignee on "
+        "the same card. The current run is closed as handed_off and the "
+        "task returns to ready for the target profile."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "task_id": {"type": "string", "description": _DESC_TASK_ID_DEFAULT},
+            "assignee": {"type": "string", "description": "Target profile/assignee."},
+            "summary": {"type": "string", "description": "Short handoff summary."},
+            "reason": {"type": "string", "description": "Why the task is being reassigned."},
+            "metadata": {"type": "object", "description": "Optional structured handoff facts."},
+            "board": _board_schema_prop(),
+        },
+        "required": ["assignee"],
+    },
+}
+
 KANBAN_UNBLOCK_SCHEMA = {
     "name": "kanban_unblock",
     "description": (
@@ -1410,6 +1471,15 @@ registry.register(
     handler=_handle_create,
     check_fn=_check_kanban_mode,
     emoji="➕",
+)
+
+registry.register(
+    name="kanban_reassign",
+    toolset="kanban",
+    schema=KANBAN_REASSIGN_SCHEMA,
+    handler=_handle_reassign,
+    check_fn=_check_kanban_mode,
+    emoji="🔁",
 )
 
 registry.register(
