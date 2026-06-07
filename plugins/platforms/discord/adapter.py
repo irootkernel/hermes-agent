@@ -50,7 +50,7 @@ sys.path.insert(0, str(_Path(__file__).resolve().parents[2]))
 from gateway.config import Platform, PlatformConfig
 import re
 
-from gateway.platforms.helpers import MessageDeduplicator, ThreadParticipationTracker
+from gateway.platforms.helpers import MessageDeduplicator, ThreadOwnerTracker, ThreadParticipationTracker
 from utils import atomic_json_write
 from gateway.platforms.base import (
     BasePlatformAdapter,
@@ -610,6 +610,10 @@ class DiscordAdapter(BasePlatformAdapter):
         # in those threads don't require @mention.  Persisted to disk so the
         # set survives gateway restarts.
         self._threads = ThreadParticipationTracker("discord")
+        # Track the default responder/owner for auto-created Discord threads.
+        # Ownership is stricter than participation: explicitly mentioned other
+        # bots may join the thread, but must not become the mention-free owner.
+        self._thread_owners = ThreadOwnerTracker("discord")
         # Persistent typing indicator loops per channel (DMs don't reliably
         # show the standard typing gateway event for bots)
         self._typing_tasks: Dict[str, asyncio.Task] = {}
@@ -3752,9 +3756,13 @@ class DiscordAdapter(BasePlatformAdapter):
         link = f"<#{thread_id}>" if thread_id else f"**{thread_name}**"
         await interaction.followup.send(f"Created thread {link}", ephemeral=True)
 
-        # Track thread participation so follow-ups don't require @mention
+        # Track thread participation and owner so follow-ups can route to the
+        # creator/default responder without giving ownership to later participants.
         if thread_id:
             self._threads.mark(thread_id)
+            owner_key = self._discord_thread_owner_key()
+            if owner_key:
+                self._thread_owners.mark_owner(thread_id, owner_key)
 
         # If a message was provided, kick off a new Hermes session in the thread
         starter = (message or "").strip()
@@ -3908,16 +3916,16 @@ class DiscordAdapter(BasePlatformAdapter):
         return set()
 
     def _discord_thread_require_mention(self) -> bool:
-        """Return whether thread participation requires @mention to follow up.
+        """Return whether Discord threads always require @mention to follow up.
 
-        When ``False`` (default), once the bot has participated in a thread it
-        keeps responding to every message in that thread without needing to be
-        mentioned again — useful for one-on-one conversations.
+        When ``False`` (default), a bot that owns a Discord thread can keep
+        responding to mention-free follow-ups in that thread. Ownership is
+        separate from participation so later-mentioned bots do not become the
+        default responder.
 
         When ``True``, the @mention requirement is enforced inside threads as
-        well.  Set this when multiple bots share a thread and you want each
-        one to only fire on explicit @mention, avoiding bot-to-bot loops or
-        unwanted cross-replies.
+        well. Set this when every threaded message should require an explicit
+        bot mention.
         """
         configured = self.config.extra.get("thread_require_mention")
         if configured is not None:
@@ -3925,6 +3933,29 @@ class DiscordAdapter(BasePlatformAdapter):
                 return configured.lower() not in {"false", "0", "no", "off"}
             return bool(configured)
         return os.getenv("DISCORD_THREAD_REQUIRE_MENTION", "false").lower() in {"true", "1", "yes", "on"}
+
+    def _discord_auto_thread_free_response(self) -> bool:
+        """Return whether free-response channels may still auto-create threads."""
+        configured = self.config.extra.get("auto_thread_free_response")
+        if configured is not None:
+            if isinstance(configured, str):
+                return configured.lower() in {"true", "1", "yes", "on"}
+            return bool(configured)
+        return os.getenv("DISCORD_AUTO_THREAD_FREE_RESPONSE", "false").lower() in {"true", "1", "yes", "on"}
+
+    def _discord_thread_owner_key(self) -> Optional[str]:
+        """Return the stable owner key for this Discord bot instance."""
+        if not self._client or not getattr(self._client, "user", None):
+            return None
+        user_id = getattr(self._client.user, "id", None)
+        return str(user_id) if user_id is not None else None
+
+    def _is_owned_discord_thread(self, thread_id: Optional[str]) -> bool:
+        """Return True when this bot owns mention-free replies for *thread_id*."""
+        if not thread_id:
+            return False
+        owner_key = self._discord_thread_owner_key()
+        return bool(owner_key and self._thread_owners.is_owner(thread_id, owner_key))
 
     def _discord_history_backfill(self) -> bool:
         """Return whether history backfill is enabled for shared sessions."""
@@ -4780,14 +4811,15 @@ class DiscordAdapter(BasePlatformAdapter):
                 or is_voice_linked_channel
             )
 
-            # Skip the mention check if the message is in a thread where
-            # the bot has previously participated (auto-created or replied in)
+            # Skip the mention check if this bot owns the thread's default
+            # responder slot (normally because it auto-created the thread)
             # — UNLESS thread_require_mention is enabled, in which case threads
-            # are gated the same as channels.  Useful when multiple bots share
-            # a thread.
+            # are gated the same as channels. Participation alone is not enough:
+            # a later-mentioned bot may join without becoming the no-mention
+            # responder for future replies.
             in_bot_thread = (
                 is_thread
-                and thread_id in self._threads
+                and self._is_owned_discord_thread(thread_id)
                 and not self._discord_thread_require_mention()
             )
 
@@ -4802,8 +4834,10 @@ class DiscordAdapter(BasePlatformAdapter):
         if not is_thread and not isinstance(message.channel, discord.DMChannel):
             no_thread_channels_raw = os.getenv("DISCORD_NO_THREAD_CHANNELS", "")
             no_thread_channels = {ch.strip() for ch in no_thread_channels_raw.split(",") if ch.strip()}
-            skip_thread = bool(channel_ids & no_thread_channels) or is_free_channel
             auto_thread = os.getenv("DISCORD_AUTO_THREAD", "true").lower() in {"true", "1", "yes"}
+            skip_thread = bool(channel_ids & no_thread_channels) or (
+                is_free_channel and not self._discord_auto_thread_free_response()
+            )
             is_reply_message = getattr(message, "type", None) == discord.MessageType.reply
             if auto_thread and not skip_thread and not is_voice_linked_channel and not is_reply_message:
                 thread = await self._auto_create_thread(message)
@@ -4813,6 +4847,9 @@ class DiscordAdapter(BasePlatformAdapter):
                     thread_id = str(thread.id)
                     auto_threaded_channel = thread
                     self._threads.mark(thread_id)
+                    owner_key = self._discord_thread_owner_key()
+                    if owner_key:
+                        self._thread_owners.mark_owner(thread_id, owner_key)
 
         all_attachments = list(message.attachments) + snapshot_attachments
 
@@ -6367,11 +6404,12 @@ def _apply_yaml_config(yaml_cfg: dict, discord_cfg: dict) -> dict | None:
     The DiscordAdapter reads its runtime configuration via ``os.getenv()``
     throughout the connect / handle code paths (``DISCORD_ALLOWED_USERS``,
     ``DISCORD_REQUIRE_MENTION``, ``DISCORD_FREE_RESPONSE_CHANNELS``,
-    ``DISCORD_AUTO_THREAD``, ``DISCORD_REACTIONS``,
-    ``DISCORD_IGNORED_CHANNELS``, ``DISCORD_ALLOWED_CHANNELS``,
-    ``DISCORD_NO_THREAD_CHANNELS``, ``DISCORD_HISTORY_BACKFILL``,
-    ``DISCORD_HISTORY_BACKFILL_LIMIT``, ``DISCORD_ALLOW_MENTION_*``,
-    ``DISCORD_REPLY_TO_MODE``, ``DISCORD_THREAD_REQUIRE_MENTION``).
+    ``DISCORD_AUTO_THREAD``, ``DISCORD_AUTO_THREAD_FREE_RESPONSE``,
+    ``DISCORD_REACTIONS``, ``DISCORD_IGNORED_CHANNELS``,
+    ``DISCORD_ALLOWED_CHANNELS``, ``DISCORD_NO_THREAD_CHANNELS``,
+    ``DISCORD_HISTORY_BACKFILL``, ``DISCORD_HISTORY_BACKFILL_LIMIT``,
+    ``DISCORD_ALLOW_MENTION_*``, ``DISCORD_REPLY_TO_MODE``,
+    ``DISCORD_THREAD_REQUIRE_MENTION``).
     Rather than rewrite ~50 call sites inside the adapter to read from
     ``PlatformConfig.extra`` instead, this hook keeps the existing
     env-driven model and merely owns the YAML→env translation here, next to
@@ -6409,6 +6447,8 @@ def _apply_yaml_config(yaml_cfg: dict, discord_cfg: dict) -> dict | None:
         os.environ["DISCORD_FREE_RESPONSE_CHANNELS"] = str(frc)
     if "auto_thread" in discord_cfg and not os.getenv("DISCORD_AUTO_THREAD"):
         os.environ["DISCORD_AUTO_THREAD"] = str(discord_cfg["auto_thread"]).lower()
+    if "auto_thread_free_response" in discord_cfg and not os.getenv("DISCORD_AUTO_THREAD_FREE_RESPONSE"):
+        os.environ["DISCORD_AUTO_THREAD_FREE_RESPONSE"] = str(discord_cfg["auto_thread_free_response"]).lower()
     if "reactions" in discord_cfg and not os.getenv("DISCORD_REACTIONS"):
         os.environ["DISCORD_REACTIONS"] = str(discord_cfg["reactions"]).lower()
     # ignored_channels: channels where bot never responds (even when mentioned)
@@ -6496,12 +6536,13 @@ def register(ctx) -> None:
         # hermes_cli/setup.py::_setup_discord function.  Same shape as Teams.
         setup_fn=interactive_setup,
         # YAML→env config bridge — owns the translation of ``config.yaml``
-        # ``discord:`` keys (require_mention, free_response_channels,
-        # auto_thread, reactions, ignored_channels, allowed_channels,
-        # no_thread_channels, allow_mentions.*, reply_to_mode,
-        # thread_require_mention) into ``DISCORD_*`` env vars that the
-        # adapter reads via ``os.getenv()``.  Replaces the hardcoded block
-        # that used to live in ``gateway/config.py``.  Hook contract: #24836.
+        # ``discord:`` keys (allow_from, require_mention,
+        # free_response_channels, auto_thread, auto_thread_free_response,
+        # reactions, ignored_channels, allowed_channels, no_thread_channels,
+        # allow_mentions.*, reply_to_mode, thread_require_mention) into
+        # ``DISCORD_*`` env vars that the adapter reads via ``os.getenv()``.
+        # Replaces the hardcoded block that used to live in
+        # ``gateway/config.py``.  Hook contract: #24836.
         apply_yaml_config_fn=_apply_yaml_config,
         # Auth env vars for _is_user_authorized() integration
         allowed_users_env="DISCORD_ALLOWED_USERS",

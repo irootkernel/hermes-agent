@@ -48,7 +48,7 @@ Use these labels in per-delta commits only, not as final baseline markings:
 | D1 | [Tool Search pair](#d1-tool-search-pair) | `upstream-absorbed` by `v2026.6.5` | Drop local D1 carry; do not apply Tool Search code patches on this release branch. | `git merge-base --is-ancestor` returned `0` for both `369075dc9` and `7427b9d58` against this branch. |
 | D2 | [Kanban review and same-card handoff helpers](#d2-kanban-review-and-same-card-handoff-helpers) | D2-a audited: `partial-native`; D2-b/c/d applied | Keep native v0.16 review queue/dispatch; re-applied only missing same-card transition/tool seams in D2-b/c/d. | Native `review` claim/dispatch exists; `handoff_task`, `submit_task_for_review`, `request_changes`, and tool surfaces were absent at D2-a audit. |
 | D3 | [Kanban assignee alias resolution](#d3-kanban-assignee-alias-resolution) | `keep-local-carry` | Re-applied minimal dispatcher-only spawn-profile alias resolution. | v0.16.0 had no `kanban.assignee_aliases` / `resolve_assignee_profile` equivalent before this D3 commit. |
-| D4 | [Discord gateway config and owner-thread routing seams](#d4-discord-gateway-config-and-owner-thread-routing-seams) | pending per-delta decision | Separate absorbed generic config fixes from any still-needed owner-thread seam in the D4 commit. | Check `0bfe19ba1`, `44f3e5186`, `6d2727ef1`; inspect Discord owner tracking. |
+| D4 | [Discord gateway config and owner-thread routing seams](#d4-discord-gateway-config-and-owner-thread-routing-seams) | generic config fixes `upstream-absorbed`; owner-thread seam applied | Drop duplicate generic config carries; re-applied only owner-thread routing and `auto_thread_free_response` opt-in. | Generic config commits are ancestors; `ThreadOwnerTracker` / owner-thread seam absent before D4 patch. |
 | D5 | [Plugin strategy retirement](#d5-plugin-strategy-retirement) | pending per-delta decision | Reconfirm the support-only plugin strategy remains non-actionable; record the decision in the D5 commit. | Process decision; no runtime patch expected unless references/config still point to plugin behavior. |
 | D6 | [CLI return-code passthrough](#d6-cli-return-code-passthrough) | `keep-local-carry` | Applied bool-safe top-level integer return-code passthrough. | Missing Kanban task now exits `1`; usage error exits `2`; bool return values are ignored. |
 
@@ -432,35 +432,64 @@ Manual pass criteria:
 
 Multiple Discord bot/profile gateways can see the same server, channel, and thread. Participation must not equal ownership. Only the bot that created/owns a Discord thread should receive mention-free follow-ups in that thread.
 
-### Generic config commits to inspect
+### D4 v0.16.0 patch decision
+
+Decision: `partial-native-local-minimized-owner-thread-applied`.
+
+Generic config carries are `upstream-absorbed` by this release branch, so do not re-apply duplicate patches for:
 
 - `0bfe19ba1 fix(gateway): merge nested gateway.platforms configuration block`
 - `44f3e5186 fix(gateway): run adapter config hooks for nested-only platform blocks`
 - `6d2727ef1 fix(discord): bridge explicit allow_from configuration to env var mapping`
 
-In the D4 commit, mark these as absorbed only if verified against the release base. Do not carry duplicate config patches if upstream already includes them.
+Absorption evidence:
 
-### Owner-thread contract to inspect
+```bash
+git merge-base --is-ancestor 0bfe19ba1 HEAD  # rc 0
+git merge-base --is-ancestor 44f3e5186 HEAD  # rc 0
+git merge-base --is-ancestor 6d2727ef1 HEAD  # rc 0
+```
 
-Required behavior:
+Owner-thread routing remained a 17번째 지구 local seam before this D4 patch:
 
-1. Participation is not ownership.
-2. A bot explicitly mentioned later in another bot's thread may participate but must not become the default mention-free responder.
-3. `discord.thread_require_mention: true` remains a stronger gate.
-4. `discord.auto_thread_free_response` defaults false.
-5. `discord.auto_thread_free_response` / `DISCORD_AUTO_THREAD_FREE_RESPONSE` permits auto-threading from free-response command-center channels only when explicitly enabled.
+```bash
+git grep -n "ThreadOwnerTracker\|auto_thread_free_response\|_is_owned_discord_thread" HEAD -- gateway plugins tests
+# no matches before D4 patch
+```
+
+Applied local seams:
+
+1. `ThreadOwnerTracker` in `gateway/platforms/helpers.py` persists Discord thread owner/default-responder mapping separately from participation.
+2. Discord slash-created and auto-created threads mark both participation and ownership.
+3. Mention-free thread routing uses ownership, not participation; a bot mentioned later inside another bot's thread may participate but does not take over default routing.
+4. `discord.thread_require_mention: true` remains a stronger gate for every threaded message.
+5. `discord.auto_thread_free_response` / `DISCORD_AUTO_THREAD_FREE_RESPONSE` defaults false and opt-in permits auto-threading from free-response command-center channels.
 6. `no_thread_channels` remains an override.
 
-### Candidate patch surfaces
-
-Patch these only if still missing after v0.16.0 inspection:
-
-- `ThreadOwnerTracker` in `gateway/platforms/helpers.py`
-- Discord adapter ownership marking for created/auto-created threads
-- mention-free thread routing based on ownership, not participation
-- `auto_thread_free_response` toggle
-
 Do not clone or replace the whole Discord adapter as a plugin.
+
+### Release-candidate smoke
+
+```bash
+PYTHONPATH=$PWD /Users/draccoon/.local/bin/hermes-python -m pytest -q \
+  tests/gateway/test_discord_free_response.py \
+  tests/gateway/test_discord_channel_controls.py \
+  tests/gateway/test_discord_thread_persistence.py \
+  tests/gateway/test_config.py
+# 119 passed
+
+PYTHONPATH=$PWD /Users/draccoon/.local/bin/hermes-python -m py_compile \
+  gateway/platforms/helpers.py \
+  plugins/platforms/discord/adapter.py \
+  tests/gateway/test_discord_free_response.py \
+  tests/gateway/test_discord_channel_controls.py \
+  tests/gateway/test_discord_thread_persistence.py
+# passed
+
+# Docker/read-only repo + disposable HERMES_HOME smoke:
+# owned thread accepted; foreign-owned participated thread rejected;
+# free-response auto-thread opt-in created an owned thread.
+```
 
 ### Primary files
 
@@ -469,23 +498,7 @@ Do not clone or replace the whole Discord adapter as a plugin.
 - `tests/gateway/test_discord_channel_controls.py`
 - `tests/gateway/test_discord_free_response.py`
 - `tests/gateway/test_discord_thread_persistence.py`
-
-Config regression tests may still be run for confidence if generic config behavior is inspected:
-
 - `tests/gateway/test_config.py`
-
-### Targeted smoke
-
-```bash
-python -m pytest -q \
-  tests/gateway/test_discord_free_response.py \
-  tests/gateway/test_discord_channel_controls.py \
-  tests/gateway/test_discord_thread_persistence.py \
-  tests/gateway/test_config.py
-python -m py_compile \
-  gateway/platforms/helpers.py \
-  plugins/platforms/discord/adapter.py
-```
 
 Manual/live smoke only after explicit restart approval:
 

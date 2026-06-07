@@ -155,7 +155,44 @@ entries:
           result: passed
   D4:
     title: Discord gateway config and owner-thread routing seams
-    status: pending
+    status: partial-native-local-minimized-owner-thread-applied
+    code_patch_required: true
+    absorbed_generic_config:
+      status: upstream-absorbed
+      commits:
+        - 0bfe19ba1
+        - 44f3e5186
+        - 6d2727ef1
+      evidence:
+        - command: git merge-base --is-ancestor 0bfe19ba1 HEAD
+          rc: 0
+        - command: git merge-base --is-ancestor 44f3e5186 HEAD
+          rc: 0
+        - command: git merge-base --is-ancestor 6d2727ef1 HEAD
+          rc: 0
+    owner_thread_patch:
+      status: keep-local-carry
+      local_action: reapply-owner-thread-routing-seam
+      applied:
+        - ThreadOwnerTracker
+        - Discord owner marking for slash-created and auto-created threads
+        - mention-free thread routing based on ownership, not participation
+        - discord.auto_thread_free_response / DISCORD_AUTO_THREAD_FREE_RESPONSE opt-in
+      files:
+        - gateway/platforms/helpers.py
+        - plugins/platforms/discord/adapter.py
+        - tests/gateway/test_discord_channel_controls.py
+        - tests/gateway/test_discord_free_response.py
+        - tests/gateway/test_discord_thread_persistence.py
+      evidence:
+        - command: git grep -n "ThreadOwnerTracker\\|auto_thread_free_response\\|_is_owned_discord_thread" HEAD -- gateway plugins tests
+          result: no matches before D4 patch
+        - command: PYTHONPATH=$PWD /Users/draccoon/.local/bin/hermes-python -m pytest -q tests/gateway/test_discord_free_response.py tests/gateway/test_discord_channel_controls.py tests/gateway/test_discord_thread_persistence.py tests/gateway/test_config.py
+          result: 119 passed
+        - command: PYTHONPATH=$PWD /Users/draccoon/.local/bin/hermes-python -m py_compile gateway/platforms/helpers.py plugins/platforms/discord/adapter.py tests/gateway/test_discord_free_response.py tests/gateway/test_discord_channel_controls.py tests/gateway/test_discord_thread_persistence.py
+          result: passed
+        - command: docker run --rm -i -v "$PWD:/repo:ro" -w /repo -e HERMES_HOME=/tmp/hermes-d4-docker-smoke -e PYTHONPATH=/repo hermes-17e-d3-checkpoint-smoke:py311 python - <<'PY'
+          result: "owned thread accepted; foreign-owned participated thread rejected; free-response auto-thread opt-in created owned thread; no live secrets or production DB mounted"
   D5:
     title: Plugin strategy retirement
     status: pending

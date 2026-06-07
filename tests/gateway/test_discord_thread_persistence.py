@@ -96,3 +96,31 @@ class TestDiscordThreadPersistence:
             # ThreadParticipationTracker should return empty set, not crash
             tracker = ThreadParticipationTracker("discord")
             assert "$test" not in tracker
+
+    def test_thread_owner_tracker_starts_empty_when_no_state_file(self, tmp_path):
+        with patch.dict(os.environ, {"HERMES_HOME": str(tmp_path)}):
+            from gateway.platforms.helpers import ThreadOwnerTracker
+            tracker = ThreadOwnerTracker("discord")
+            assert tracker.owner_for("111") is None
+            assert not tracker.is_owner("111", "bot-a")
+
+    def test_thread_owner_tracker_persists_to_disk(self, tmp_path):
+        with patch.dict(os.environ, {"HERMES_HOME": str(tmp_path)}):
+            from gateway.platforms.helpers import ThreadOwnerTracker
+            tracker1 = ThreadOwnerTracker("discord")
+            tracker1.mark_owner("111", "bot-a")
+            tracker2 = ThreadOwnerTracker("discord")
+
+        assert tracker2.owner_for("111") == "bot-a"
+        assert tracker2.is_owner("111", "bot-a")
+        assert json.loads((tmp_path / "discord_thread_owners.json").read_text()) == {"111": "bot-a"}
+
+    def test_thread_owner_tracker_preserves_first_owner(self, tmp_path):
+        with patch.dict(os.environ, {"HERMES_HOME": str(tmp_path)}):
+            from gateway.platforms.helpers import ThreadOwnerTracker
+            tracker = ThreadOwnerTracker("discord")
+            tracker.mark_owner("111", "bot-a")
+            tracker.mark_owner("111", "bot-b")
+
+        assert tracker.owner_for("111") == "bot-a"
+        assert json.loads((tmp_path / "discord_thread_owners.json").read_text()) == {"111": "bot-a"}

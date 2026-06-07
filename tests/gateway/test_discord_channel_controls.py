@@ -78,6 +78,22 @@ def adapter(monkeypatch):
     monkeypatch.setattr(discord_platform.discord, "DMChannel", FakeDMChannel, raising=False)
     monkeypatch.setattr(discord_platform.discord, "Thread", FakeThread, raising=False)
 
+    # Isolate tests from the live profile/gateway environment.
+    for _var in (
+        "DISCORD_REQUIRE_MENTION",
+        "DISCORD_THREAD_REQUIRE_MENTION",
+        "DISCORD_FREE_RESPONSE_CHANNELS",
+        "DISCORD_AUTO_THREAD",
+        "DISCORD_AUTO_THREAD_FREE_RESPONSE",
+        "DISCORD_NO_THREAD_CHANNELS",
+        "DISCORD_ALLOWED_CHANNELS",
+        "DISCORD_IGNORED_CHANNELS",
+        "DISCORD_HISTORY_BACKFILL",
+        "DISCORD_HISTORY_BACKFILL_LIMIT",
+        "DISCORD_ALLOW_BOTS",
+    ):
+        monkeypatch.delenv(_var, raising=False)
+
     config = PlatformConfig(enabled=True, token="fake-token")
     adapter = DiscordAdapter(config)
     adapter._client = SimpleNamespace(user=SimpleNamespace(id=999))
@@ -242,6 +258,7 @@ async def test_normal_channel_still_auto_threads(adapter, monkeypatch):
     adapter.handle_message.assert_awaited_once()
     event = adapter.handle_message.await_args.args[0]
     assert event.source.chat_type == "thread"
+    assert adapter._thread_owners.is_owner("999", "999")
 
 
 @pytest.mark.asyncio
@@ -311,17 +328,36 @@ def test_config_bridges_no_thread_channels(monkeypatch, tmp_path):
     config_file = tmp_path / "config.yaml"
     config_file.write_text(yaml.dump({
         "discord": {
-            "no_thread_channels": ["333"],
+            "no_thread_channels": [333],
         },
     }))
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))
-    monkeypatch.setenv("DISCORD_NO_THREAD_CHANNELS", "")
+    monkeypatch.delenv("DISCORD_NO_THREAD_CHANNELS", raising=False)
 
     from gateway.config import load_gateway_config
     load_gateway_config()
 
     import os
     assert os.getenv("DISCORD_NO_THREAD_CHANNELS") == "333"
+
+
+def test_config_bridges_auto_thread_free_response(monkeypatch, tmp_path):
+    """gateway/config.py bridges discord.auto_thread_free_response to env var."""
+    import yaml
+    config_file = tmp_path / "config.yaml"
+    config_file.write_text(yaml.dump({
+        "discord": {
+            "auto_thread_free_response": True,
+        },
+    }))
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    monkeypatch.delenv("DISCORD_AUTO_THREAD_FREE_RESPONSE", raising=False)
+
+    from gateway.config import load_gateway_config
+    load_gateway_config()
+
+    import os
+    assert os.getenv("DISCORD_AUTO_THREAD_FREE_RESPONSE") == "true"
 
 
 def test_config_env_var_takes_precedence(monkeypatch, tmp_path):
