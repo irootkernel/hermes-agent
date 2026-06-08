@@ -971,7 +971,7 @@ Re-check config schema/version, migration behavior, profile-level policy values,
 
 ### Rule
 
-Skill assets are not 17번째 지구 runtime diffs by themselves. Preserve upstream bundled skill originals as upstream-owned artifacts; do not mutate bundled copies to encode local operating preference. Treat custom/local skills, hub-installed skills, profile-local copies, and explicit override/fork skills as host-local compatibility assets that must be checked before activation.
+Skill assets are not 17번째 지구 runtime diffs by themselves. Preserve upstream bundled skill originals as upstream-owned artifacts; do not mutate bundled copies to encode local operating preference. Treat custom/local skills, hub-installed skills, profile-local skill copies, shared `skills.external_dirs` roots, and explicit override/fork skills as host-local compatibility assets that must be checked before activation.
 
 Local 17번째 지구 skill behavior should be represented as one of:
 
@@ -984,12 +984,16 @@ During activation/local-assets audit:
 2. If the removed bundled skill is unused and unmodified, remove the local copy or let the official sync/repair path retire it.
 3. If the removed bundled skill is actively used or locally modified, fork the needed behavior into a custom skill before removing the upstream-tracked copy.
 4. If an official optional skill replaces the removed bundled skill, install/repair it profile-locally through the official skill path instead of preserving a stale bundled copy.
-5. Check every runtime-visible local/custom/profile skill `SKILL.md` for valid frontmatter, name consistency, and duplicate runtime-visible skill names.
-6. Check that every active cron `skills[]` entry resolves in the profile that will run the cron job; unresolved active cron skill references are activation blockers unless explicitly retired or accepted.
+5. Include every runtime-visible skill root in the audit: profile-local `skills/`, default/root `skills/` if in scope, hub/official state, and shared external roots such as `/Users/draccoon/Workspace/Hermes/ops/skills` referenced through `skills.external_dirs`.
+6. Treat a removed bundled skill that survives in a shared external root as a stale hidden bundle even if `hermes skills list` reports `Source: local`. Remove it from the active shared root unless there is an explicit custom-fork/override decision.
+7. Check every runtime-visible local/custom/profile/shared skill `SKILL.md` for valid frontmatter, name consistency, and duplicate runtime-visible skill names.
+8. Check that every active cron `skills[]` entry resolves in the profile that will run the cron job; unresolved active cron skill references are activation blockers unless explicitly retired or accepted.
 
 ### Current local activation note
 
 Read-only skill audit comparing the pre-update live/freeze commit to `v2026.6.5` found 16 bundled skills removed from `skills/`; 9 have same-slug `optional-skills/` replacements and active cron `skills[]` references to removed bundled slugs were not observed. Profile-local stale copies still require activation-time classification.
+
+Post-activation follow-up on 2026-06-08 found the same former bundled skills still globally visible because named profiles resolve the shared external root `/Users/draccoon/Workspace/Hermes/ops/skills`. Hermes reported them as `Source: local`, but the active copies were stale former bundled/optional copies rather than approved custom forks. The shared-root cleanup moved all 16 out of active `ops/skills`, preserved them under `/Users/draccoon/.hermes/backups/skill-former-bundled-prune-20260608-192942`, and recorded receipts under `ops/skills/_governance/former-bundled-prune-20260608-192942.{md,json}`. Representative resolver smoke for 황충, 궁, and 미방 showed no former-bundled targets visible; `audit_external_skill_governance.py` returned `status: ok`, `violation_count: 0`, and `canonical_skill_count_runtime_parity: 95`.
 
 Follow-up read-only local-assets audit on the default plus named profiles observed runtime-visible skill frontmatter errors `0` and runtime-visible duplicate skill profiles `0`. This does not replace activation-time skill update/repair decisions; it only records that the current visible skill inventory parses cleanly.
 
@@ -997,7 +1001,7 @@ R2 intentionally stops at provenance, resolver/readiness, frontmatter, duplicate
 
 ### Next-release instruction
 
-Re-check bundled and optional skill movement between the previous live release and the new upstream tag. Also re-check custom/local/hub/profile skill frontmatter, duplicate runtime-visible skill names, and active cron `skills[]` resolution. Keep bundled skill provenance, optional repair/install, curator effects on skills, and local skill fork/override decisions under R2 or a successor R-item. After R2 establishes ownership/resolution boundaries, run R5 for profile-owned usage-style optimization instead of folding that work into R2.
+Re-check bundled and optional skill movement between the previous live release and the new upstream tag. Also re-check every runtime-visible skill root, including shared `skills.external_dirs` roots, for stale former-bundled copies that now appear as `Source: local`. A removed bundled skill must not remain globally visible from `/Users/draccoon/Workspace/Hermes/ops/skills` unless R2 records an explicit custom-fork/override decision. Re-check custom/local/hub/profile/shared skill frontmatter, duplicate runtime-visible skill names, and active cron `skills[]` resolution. Keep bundled skill provenance, optional repair/install, curator effects on skills, and local skill fork/override decisions under R2 or a successor R-item. After R2 establishes ownership/resolution boundaries, run R5 for profile-owned usage-style optimization instead of folding that work into R2.
 
 ## R3 Web dashboard and desktop activation gate
 
