@@ -189,11 +189,12 @@ def test_run_slash_submit_result_routes_to_creator_acceptance(kanban_home, monke
 
 
 def test_run_slash_json_output(kanban_home):
-    out = kc.run_slash("create 'jsontask' --assignee alice --json")
+    out = kc.run_slash("create 'jsontask' --assignee alice --mutex-key artifact:json --json")
     payload = json.loads(out)
     assert payload["title"] == "jsontask"
     assert payload["assignee"] == "alice"
     assert payload["status"] == "ready"
+    assert payload["mutex_key"] == "artifact:json"
 
 
 def test_run_slash_dispatch_dry_run_counts(kanban_home):

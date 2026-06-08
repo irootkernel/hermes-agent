@@ -142,6 +142,7 @@ Re-apply D2 as smaller local-minimize subitems:
 - D2-e: creator/final gate after reviewer approval (`final_assignee` review payload and `review_accepted` same-card routing) — applied on `17e/live` after v0.16.0 activation.
 - D2-f: async review watcher coverage (`kanban_submit_review` session-source auto-subscribe plus notifier delivery for `requested_changes` / `review_accepted`) — applied on `17e/live` after D2-e.
 - D2-g: creator-accepted work result submission (`submit_task_result`, `kanban_submit_result`, CLI `submit-result`) — applied in this branch after D2-f.
+- D2-h: artifact/resource serialization (`mutex_key` on tasks plus dispatcher skip for same-key running work) — applied in this branch after D2-g.
 
 Audit evidence:
 
@@ -463,6 +464,52 @@ HERMES_HOME=<disposable-home> PYTHONPATH=$PWD /Users/draccoon/.local/bin/hermes-
 # submit_result -> creator review -> request_changes -> worker rework -> submit_result -> creator complete on one task id.
 PY
 # {"task_id": "t_3ee697ce", "after_first_submit": {"status": "review", "assignee": "creator"}, "after_changes": {"status": "ready", "assignee": "worker"}, "final": {"status": "done", "assignee": "creator", "result": "accepted"}, "outcomes": ["submitted_result", "requested_changes", "submitted_result", "completed"]}
+```
+
+### D2-h v0.16.0 patch decision
+
+Decision: `keep-local-carry` for artifact/resource mutation serialization. D2-b/c/d/e/f/g/h are now applied; native v0.16 review dispatch remains in use.
+
+Applied local seams:
+
+- `hermes_cli/kanban_db.py`: adds `tasks.mutex_key` with legacy migration, `Task.mutex_key`, create-time normalization, and `DispatchResult.skipped_mutex_locked`.
+- `claim_task(...)` performs a fail-closed mutex check inside the write transaction before `ready -> running`, so direct/two-connection claims cannot bypass the dispatcher guard while another same-key task is running.
+- Dispatcher ready loop now builds active running mutex keys and defers ready tasks whose non-empty `mutex_key` is already running. The same in-memory active set is updated after each spawn/dry-run spawn so two ready cards with one key cannot launch in the same tick.
+- `has_spawnable_ready(...)` treats mutex-locked ready rows as temporarily deferred instead of spawnable, avoiding false stuck-health signals when only serialized work is waiting.
+- `hermes_cli/kanban.py`: `kanban create --mutex-key <key>` plus JSON/human dispatch diagnostics for `skipped_mutex_locked`.
+- `tools/kanban_tools.py`: `kanban_create` accepts `mutex_key`, and list/show summaries surface it.
+
+Review note:
+
+- Samaui review card `t_c933f5a9`: first pass requested mandatory claim-time fail-closed protection because dispatcher-only in-memory locking could be bypassed by concurrent/direct `claim_task` calls. Added the write-transaction mutex guard and two-connection regression. Final pass: `SAMAUI_ACCEPT / STRATEGIC_RED_ACCEPT_WITH_RISK`; remaining namespace/FIFO semantics are non-blocking for this mutual-exclusion primitive.
+
+Smoke evidence:
+
+```bash
+/Users/draccoon/.local/bin/hermes-python -m pytest tests/hermes_cli/test_kanban_db.py -k 'mutex_key or mutex_locked' -q
+# 5 passed, 241 deselected
+
+/Users/draccoon/.local/bin/hermes-python -m pytest \
+  tests/hermes_cli/test_kanban_db.py \
+  tests/hermes_cli/test_kanban_cli.py \
+  tests/tools/test_kanban_tools.py -q
+# 378 passed, 1 warning
+
+/Users/draccoon/.local/bin/hermes-python -m py_compile \
+  hermes_cli/kanban_db.py \
+  hermes_cli/kanban.py \
+  tools/kanban_tools.py
+# passed
+
+git diff --check
+# passed
+
+HERMES_HOME=<disposable-home> /Users/draccoon/.local/bin/hermes-python - <<'PY'
+# direct same-key claim while holder owns artifact:smoke returns None.
+# first tick: holder owns artifact:smoke, so same-key ready task is deferred and artifact:other spawns.
+# second tick after holder completion: deferred artifact:smoke task spawns.
+PY
+# blocked_direct_claim=true; first_skipped_mutex_locked=[["t_5f099f26", "artifact:smoke"]]; second_spawned=[["t_5f099f26", "bob", "..."]]
 ```
 
 ### Purpose

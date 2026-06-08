@@ -801,6 +801,11 @@ class Task:
     # set the env var. Lets clients render a per-session board without
     # relying on tenant + time-window heuristics.
     session_id: Optional[str] = None
+    # Coarse-grained serialization key for cards that mutate the same
+    # artifact/path/resource. When a task with this key is running, the
+    # dispatcher defers other ready tasks with the same key until the lock
+    # clears. NULL/empty means no mutex participation.
+    mutex_key: Optional[str] = None
 
     @classmethod
     def from_row(cls, row: sqlite3.Row) -> "Task":
@@ -875,6 +880,9 @@ class Task:
             ),
             session_id=(
                 row["session_id"] if "session_id" in keys else None
+            ),
+            mutex_key=(
+                row["mutex_key"] if "mutex_key" in keys else None
             ),
         )
 
@@ -1037,7 +1045,11 @@ CREATE TABLE IF NOT EXISTS tasks (
     -- for tasks created from the CLI, dashboard, or any path that doesn't
     -- set the env var. Indexed so per-session list queries stay cheap on
     -- larger boards.
-    session_id           TEXT
+    session_id           TEXT,
+    -- Coarse-grained serialization key for tasks that mutate the same
+    -- artifact/resource. While a task with a non-empty key is running,
+    -- the dispatcher defers other ready tasks with the same key.
+    mutex_key            TEXT
 );
 
 CREATE TABLE IF NOT EXISTS task_links (
@@ -1693,6 +1705,14 @@ def _migrate_add_optional_columns(conn: sqlite3.Connection) -> None:
             conn, "tasks", "session_id", "session_id TEXT"
         )
 
+    if "mutex_key" not in cols:
+        # Optional coarse-grained artifact/resource lock for serialized
+        # mutation lanes. Existing rows get NULL and keep legacy unconstrained
+        # dispatch behavior.
+        _add_column_if_missing(
+            conn, "tasks", "mutex_key", "mutex_key TEXT"
+        )
+
     # Indexes over additive ``tasks`` columns must be created after the
     # columns exist. Keeping them in SCHEMA_SQL breaks legacy boards: SQLite
     # parses each statement in ``executescript`` against the live schema, so a
@@ -1706,6 +1726,9 @@ def _migrate_add_optional_columns(conn: sqlite3.Connection) -> None:
     )
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_tasks_session_id ON tasks(session_id)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_tasks_mutex_key ON tasks(mutex_key)"
     )
 
     # task_events gained a run_id column; back-fill it as NULL for
@@ -2120,6 +2143,20 @@ def _canonical_profile_assignee(assignee: Optional[str]) -> Optional[str]:
         return None
 
 
+def _normalize_mutex_key(value: Optional[str]) -> Optional[str]:
+    """Normalize optional artifact/resource mutex keys.
+
+    Empty/whitespace keys opt out of serialization. Non-empty keys are kept
+    verbatim after trimming so operators can choose stable schemes such as
+    ``path:/repo/file.py`` or ``artifact:release-ledger`` without case-folding
+    surprises.
+    """
+    if value is None:
+        return None
+    key = str(value).strip()
+    return key or None
+
+
 def create_task(
     conn: sqlite3.Connection,
     *,
@@ -2142,6 +2179,7 @@ def create_task(
     goal_max_turns: Optional[int] = None,
     initial_status: str = "running",
     session_id: Optional[str] = None,
+    mutex_key: Optional[str] = None,
     board: Optional[str] = None,
 ) -> str:
     """Create a new task and optionally link it under parent tasks.
@@ -2184,6 +2222,7 @@ def create_task(
         branch_name = str(branch_name).strip() or None
     if branch_name and workspace_kind != "worktree":
         raise ValueError("branch_name is only valid for worktree workspaces")
+    mutex_key = _normalize_mutex_key(mutex_key)
     parents = tuple(p for p in parents if p)
 
     # Normalise + validate skills: strip whitespace, drop empties, dedupe
@@ -2307,8 +2346,9 @@ def create_task(
                         id, title, body, assignee, status, priority,
                         created_by, created_at, workspace_kind, workspace_path,
                         branch_name, tenant, idempotency_key, max_runtime_seconds,
-                        skills, max_retries, goal_mode, goal_max_turns, session_id
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        skills, max_retries, goal_mode, goal_max_turns, session_id,
+                        mutex_key
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         task_id,
@@ -2330,6 +2370,7 @@ def create_task(
                         1 if goal_mode else 0,
                         int(goal_max_turns) if goal_max_turns is not None else None,
                         session_id,
+                        mutex_key,
                     ),
                 )
                 for pid in parents:
@@ -2349,6 +2390,7 @@ def create_task(
                         "branch_name": branch_name,
                         "skills": list(skills_list) if skills_list else None,
                         "goal_mode": bool(goal_mode) or None,
+                        "mutex_key": mutex_key,
                     },
                 )
             return task_id
@@ -3471,6 +3513,29 @@ def claim_task(
                 """,
                 (now, int(stale["current_run_id"])),
             )
+        mutex_row = conn.execute(
+            "SELECT mutex_key FROM tasks "
+            "WHERE id = ? AND status = 'ready' AND claim_lock IS NULL",
+            (task_id,),
+        ).fetchone()
+        mutex_key = _normalize_mutex_key(mutex_row["mutex_key"] if mutex_row else None)
+        if mutex_key:
+            locked = conn.execute(
+                "SELECT id FROM tasks "
+                "WHERE id != ? AND status = 'running' AND mutex_key = ? "
+                "LIMIT 1",
+                (task_id, mutex_key),
+            ).fetchone()
+            if locked:
+                _append_event(
+                    conn, task_id, "claim_rejected",
+                    {
+                        "reason": "mutex_locked",
+                        "mutex_key": mutex_key,
+                        "running_task_id": locked["id"],
+                    },
+                )
+                return None
         cur = conn.execute(
             """
             UPDATE tasks
@@ -5384,6 +5449,11 @@ class DispatchResult:
     subsequent tick when the assignee has capacity. Separate bucket so
     telemetry / dashboards can show "this profile is busy" vs
     "task is genuinely stuck"."""
+    skipped_mutex_locked: list[tuple[str, str]] = field(default_factory=list)
+    """Ready tasks deferred because another running task owns the same
+    non-empty ``mutex_key``. Each entry is ``(task_id, mutex_key)``. This is
+    expected serialization, not a failure; the next dispatcher tick after the
+    running owner completes may spawn the deferred task."""
     crashed: list[str] = field(default_factory=list)
     """Task ids reclaimed because their worker PID disappeared."""
     auto_blocked: list[str] = field(default_factory=list)
@@ -6457,6 +6527,20 @@ def check_respawn_guard(conn: sqlite3.Connection, task_id: str) -> Optional[str]
     return None
 
 
+def _running_mutex_keys(conn: sqlite3.Connection) -> set[str]:
+    """Return non-empty mutex keys currently owned by running tasks."""
+    keys: set[str] = set()
+    for row in conn.execute(
+        "SELECT DISTINCT mutex_key FROM tasks "
+        "WHERE status = 'running' AND mutex_key IS NOT NULL "
+        "AND TRIM(mutex_key) != ''"
+    ).fetchall():
+        key = _normalize_mutex_key(row["mutex_key"])
+        if key:
+            keys.add(key)
+    return keys
+
+
 def has_spawnable_ready(conn: sqlite3.Connection) -> bool:
     """Return True iff there is at least one ready+assigned+unclaimed task
     whose assignee maps to a real Hermes profile.
@@ -6472,18 +6556,26 @@ def has_spawnable_ready(conn: sqlite3.Connection) -> bool:
     the warning still fires in degraded environments.
     """
     rows = conn.execute(
-        "SELECT DISTINCT assignee FROM tasks "
+        "SELECT assignee, mutex_key FROM tasks "
         "WHERE status = 'ready' AND assignee IS NOT NULL "
         "    AND claim_lock IS NULL"
     ).fetchall()
     if not rows:
         return False
+    locked_mutexes = _running_mutex_keys(conn)
     try:
         from hermes_cli.profiles import profile_exists  # local import: avoids cycle
     except Exception:
-        # Can't introspect — assume spawnable, preserve legacy behavior.
-        return True
+        # Can't introspect — assume any unlocked ready+assigned row is spawnable,
+        # preserve legacy behavior while respecting mutex serialization.
+        return any(
+            not (_normalize_mutex_key(row["mutex_key"]) in locked_mutexes)
+            for row in rows
+        )
     for row in rows:
+        mutex_key = _normalize_mutex_key(row["mutex_key"])
+        if mutex_key and mutex_key in locked_mutexes:
+            continue
         profile = resolve_assignee_profile(row["assignee"])
         if profile and profile_exists(profile):
             return True
@@ -6603,7 +6695,7 @@ def dispatch_once(
         )
 
     ready_rows = conn.execute(
-        "SELECT id, assignee FROM tasks "
+        "SELECT id, assignee, mutex_key FROM tasks "
         "WHERE status = 'ready' AND claim_lock IS NULL "
         "ORDER BY priority DESC, created_at ASC"
     ).fetchall()
@@ -6642,6 +6734,11 @@ def dispatch_once(
             "GROUP BY assignee"
         ):
             _per_profile_running[prow["assignee"]] = int(prow["n"])
+    # D2-h artifact mutex guard: ready tasks with a non-empty mutex_key are
+    # serialized behind any currently-running task with the same key. Keep an
+    # in-memory set and update it as this tick spawns so two ready tasks with
+    # the same key cannot launch in the same dispatcher pass.
+    _active_mutex_keys = _running_mutex_keys(conn)
     # Normalize default_assignee once: empty/whitespace string → None so the
     # rest of the loop can use ``if default_assignee:`` as a single check.
     # We also resolve profile_exists once here for the same reason.
@@ -6708,6 +6805,10 @@ def dispatch_once(
             else:
                 result.skipped_unassigned.append(row["id"])
                 continue
+        mutex_key = _normalize_mutex_key(row["mutex_key"])
+        if mutex_key and mutex_key in _active_mutex_keys:
+            result.skipped_mutex_locked.append((row["id"], mutex_key))
+            continue
         # Skip ready tasks whose assignee is not a real Hermes profile.
         # `_default_spawn` invokes ``hermes -p <assignee>`` which fails
         # with "Profile 'X' does not exist" when the assignee names a
@@ -6771,6 +6872,8 @@ def dispatch_once(
             continue
         if dry_run:
             result.spawned.append((row["id"], row_assignee, ""))
+            if mutex_key:
+                _active_mutex_keys.add(mutex_key)
             # Increment per-profile counter even in dry_run so the cap
             # check sees the would-be spawn on subsequent iterations.
             # Without this, dry_run reports every task as spawnable and
@@ -6821,6 +6924,9 @@ def dispatch_once(
             # complete_task).
             result.spawned.append((claimed.id, claimed.assignee or "", str(workspace)))
             spawned += 1
+            claimed_mutex_key = _normalize_mutex_key(claimed.mutex_key)
+            if claimed_mutex_key:
+                _active_mutex_keys.add(claimed_mutex_key)
             # Track the new in-flight count for this profile so later
             # iterations in this same tick respect the per-profile cap
             # (#21582). Subsequent ticks re-query from the DB.

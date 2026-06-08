@@ -134,7 +134,7 @@ entries:
           result: passed
   D2:
     title: Kanban review and same-card handoff helpers
-    status: partial-native-local-minimized-d2b-d2c-d2d-d2e-d2f-d2g-applied
+    status: partial-native-local-minimized-d2b-d2c-d2d-d2e-d2f-d2g-d2h-applied
     code_patch_required: true
     d2a_audit:
       native_present:
@@ -154,6 +154,7 @@ entries:
         D2-c: same-card submit-for-review (applied)
         D2-d: request-changes/rework loop and final same-task-id smoke (applied)
         D2-g: creator-accepted work result submission (applied)
+        D2-h: mutex_key artifact/resource serialization for dispatcher (applied)
       evidence:
         - command: git grep for old D2 helper/tool seams in current branch
           result: absent
@@ -264,6 +265,41 @@ entries:
           result: passed
         - command: HERMES_HOME=<disposable-home> PYTHONPATH=$PWD /Users/draccoon/.local/bin/hermes-python - <<'PY'
           result: "same task id t_3ee697ce completed submit_result -> request_changes -> submit_result -> completed; outcomes submitted_result, requested_changes, submitted_result, completed"
+    d2h_patch:
+      status: keep-local-carry
+      local_action: add-mutex-key-artifact-serialization
+      applied:
+        - tasks.mutex_key schema/migration/dataclass field
+        - create_task, CLI create --mutex-key, and kanban_create mutex_key surface
+        - dispatcher skips ready tasks whose mutex_key is already running
+        - claim_task fail-closed mutex guard blocks direct/concurrent same-key claims
+        - same-tick serialization for multiple ready tasks with one mutex_key
+        - has_spawnable_ready treats mutex-locked ready rows as deferred, not stuck
+      files:
+        - hermes_cli/kanban_db.py
+        - hermes_cli/kanban.py
+        - tools/kanban_tools.py
+        - tests/hermes_cli/test_kanban_db.py
+        - tests/hermes_cli/test_kanban_cli.py
+        - tests/tools/test_kanban_tools.py
+        - for_17th_earth.md
+      evidence:
+        - command: targeted D2-h RED pytest selection before implementation
+          result: "3 failed; create_task lacked mutex_key"
+        - command: Samaui review card t_c933f5a9 first pass
+          result: "SAMAUI_REQUEST_CHANGES; add fail-closed claim-time mutex guard and two-connection regression"
+        - command: Samaui review card t_c933f5a9 final pass
+          result: "SAMAUI_ACCEPT / STRATEGIC_RED_ACCEPT_WITH_RISK after claim-time guard and regression; namespace/FIFO semantics noted as non-blocking risk"
+        - command: /Users/draccoon/.local/bin/hermes-python -m pytest tests/hermes_cli/test_kanban_db.py -k 'mutex_key or mutex_locked' -q
+          result: "5 passed, 241 deselected"
+        - command: /Users/draccoon/.local/bin/hermes-python -m pytest tests/hermes_cli/test_kanban_db.py tests/hermes_cli/test_kanban_cli.py tests/tools/test_kanban_tools.py -q
+          result: "378 passed, 1 warning"
+        - command: /Users/draccoon/.local/bin/hermes-python -m py_compile hermes_cli/kanban_db.py hermes_cli/kanban.py tools/kanban_tools.py
+          result: passed
+        - command: git diff --check
+          result: passed
+        - command: HERMES_HOME=<disposable-home> /Users/draccoon/.local/bin/hermes-python - <<'PY'
+          result: "direct same-key claim blocked; first tick spawned artifact:other and deferred artifact:smoke; after holder completion next tick spawned deferred artifact:smoke"
   D3:
     title: Kanban assignee alias resolution
     status: keep-local-carry

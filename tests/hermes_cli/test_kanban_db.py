@@ -2471,6 +2471,111 @@ def test_dispatch_dry_run_does_not_claim(kanban_home, all_assignees_spawnable):
         assert kb.get_task(conn, t2).status == "ready"
 
 
+def test_create_task_persists_mutex_key(kanban_home):
+    with kb.connect() as conn:
+        tid = kb.create_task(
+            conn,
+            title="edit shared artifact",
+            assignee="alice",
+            mutex_key="artifact:/repo/shared.py",
+        )
+        task = kb.get_task(conn, tid)
+
+    assert task is not None
+    assert task.mutex_key == "artifact:/repo/shared.py"
+
+
+def test_dispatch_mutex_key_defers_ready_when_same_key_running(
+    kanban_home, all_assignees_spawnable
+):
+    spawns = []
+
+    def fake_spawn(task, workspace):
+        spawns.append(task.id)
+
+    with kb.connect() as conn:
+        running = kb.create_task(
+            conn, title="running edit", assignee="alice", mutex_key="artifact:shared"
+        )
+        same_key = kb.create_task(
+            conn, title="same artifact", assignee="bob", mutex_key="artifact:shared"
+        )
+        other_key = kb.create_task(
+            conn, title="different artifact", assignee="carol", mutex_key="artifact:other"
+        )
+        assert kb.claim_task(conn, running) is not None
+
+        res = kb.dispatch_once(conn, spawn_fn=fake_spawn)
+
+        assert (same_key, "artifact:shared") in res.skipped_mutex_locked
+        assert spawns == [other_key]
+        assert kb.get_task(conn, same_key).status == "ready"
+        assert kb.get_task(conn, other_key).status == "running"
+
+
+def test_dispatch_mutex_key_serializes_ready_tasks_within_same_tick_dry_run(
+    kanban_home, all_assignees_spawnable
+):
+    with kb.connect() as conn:
+        first = kb.create_task(
+            conn, title="first edit", assignee="alice", mutex_key="artifact:shared"
+        )
+        second = kb.create_task(
+            conn, title="second edit", assignee="bob", mutex_key="artifact:shared"
+        )
+        res = kb.dispatch_once(conn, dry_run=True)
+
+    assert res.spawned == [(first, "alice", "")]
+    assert res.skipped_mutex_locked == [(second, "artifact:shared")]
+
+
+def test_claim_task_mutex_key_guard_blocks_second_connection(kanban_home):
+    conn_a = kb.connect()
+    conn_b = kb.connect()
+    try:
+        first = kb.create_task(
+            conn_a, title="first edit", assignee="alice", mutex_key="artifact:shared"
+        )
+        second = kb.create_task(
+            conn_a, title="second edit", assignee="bob", mutex_key="artifact:shared"
+        )
+        assert kb.claim_task(conn_a, first, claimer="worker-a") is not None
+
+        assert kb.claim_task(conn_b, second, claimer="worker-b") is None
+        second_task = kb.get_task(conn_b, second)
+        assert second_task is not None
+        assert second_task.status == "ready"
+        events = kb.list_events(conn_b, second)
+        rejected = [e for e in events if e.kind == "claim_rejected"]
+        assert rejected
+        payload = rejected[-1].payload
+        if isinstance(payload, str):
+            payload = json.loads(payload)
+        assert payload == {
+            "reason": "mutex_locked",
+            "mutex_key": "artifact:shared",
+            "running_task_id": first,
+        }
+    finally:
+        conn_b.close()
+        conn_a.close()
+
+
+def test_has_spawnable_ready_false_when_only_mutex_locked_work(
+    kanban_home, all_assignees_spawnable
+):
+    with kb.connect() as conn:
+        running = kb.create_task(
+            conn, title="running edit", assignee="alice", mutex_key="artifact:shared"
+        )
+        kb.create_task(
+            conn, title="queued edit", assignee="bob", mutex_key="artifact:shared"
+        )
+        assert kb.claim_task(conn, running) is not None
+
+        assert kb.has_spawnable_ready(conn) is False
+
+
 def test_dispatch_skips_unassigned(kanban_home):
     with kb.connect() as conn:
         t = kb.create_task(conn, title="floater")

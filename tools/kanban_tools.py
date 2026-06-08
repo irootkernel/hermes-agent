@@ -376,6 +376,7 @@ def _task_summary_dict(kb, conn, task) -> dict[str, Any]:
         "completed_at": task.completed_at,
         "current_run_id": task.current_run_id,
         "model_override": task.model_override,
+        "mutex_key": getattr(task, "mutex_key", None),
         "parents": parents,
         "children": children,
         "parent_count": len(parents),
@@ -421,6 +422,7 @@ def _handle_show(args: dict, **kw) -> str:
                     "result": t.result,
                     "current_run_id": t.current_run_id,
                     "model_override": t.model_override,
+                    "mutex_key": getattr(t, "mutex_key", None),
                 }
 
             def _run_dict(r):
@@ -844,6 +846,7 @@ def _handle_create(args: dict, **kw) -> str:
     if goal_bool_error:
         return tool_error(goal_bool_error)
     goal_max_turns = args.get("goal_max_turns")
+    mutex_key = args.get("mutex_key")
     if isinstance(parents, str):
         parents = [parents]
     if not isinstance(parents, (list, tuple)):
@@ -887,6 +890,7 @@ def _handle_create(args: dict, **kw) -> str:
                 initial_status=str(initial_status),
                 created_by=os.environ.get("HERMES_PROFILE") or "worker",
                 session_id=session_id,
+                mutex_key=str(mutex_key) if mutex_key is not None else None,
             )
             new_task = kb.get_task(conn, new_tid)
             return _ok(
@@ -1504,6 +1508,16 @@ KANBAN_CREATE_SCHEMA = {
                     "require immediate human ops (R3 gate) to skip the "
                     "brief running-to-blocked transition. Defaults to "
                     "'running', which preserves the usual dispatch path."
+                ),
+            },
+            "mutex_key": {
+                "type": "string",
+                "description": (
+                    "Optional artifact/resource serialization key. Ready "
+                    "tasks with the same non-empty mutex_key are not "
+                    "dispatched while another task with that key is running. "
+                    "Use stable schemes like 'path:/repo/file.py' or "
+                    "'artifact:release-ledger' for shared mutation lanes."
                 ),
             },
             "skills": {

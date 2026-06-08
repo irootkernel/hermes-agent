@@ -79,6 +79,7 @@ def _task_to_dict(t: kb.Task) -> dict[str, Any]:
         "session_id": t.session_id,
         "workflow_template_id": t.workflow_template_id,
         "current_step_key": t.current_step_key,
+        "mutex_key": t.mutex_key,
     }
 
 
@@ -333,6 +334,10 @@ def build_parser(parent_subparsers: argparse._SubParsersAction) -> argparse.Argu
                                "(repeatable). Appended to the built-in "
                                "kanban-worker skill. Example: "
                                "--skill translation --skill github-code-review")
+    p_create.add_argument("--mutex-key", default=None,
+                          help="Optional artifact/resource key. Ready tasks "
+                               "with the same key serialize behind the one "
+                               "currently running.")
     p_create.add_argument("--max-retries", type=int, default=None,
                           metavar="N",
                           help="Per-task override for the consecutive-failure "
@@ -1368,6 +1373,7 @@ def _cmd_create(args: argparse.Namespace) -> int:
             goal_mode=bool(getattr(args, "goal_mode", False)),
             goal_max_turns=getattr(args, "goal_max_turns", None),
             initial_status=getattr(args, "initial_status", "running"),
+            mutex_key=getattr(args, "mutex_key", None),
         )
         task = kb.get_task(conn, task_id)
     if getattr(args, "json", False):
@@ -2241,6 +2247,10 @@ def _cmd_dispatch(args: argparse.Namespace) -> int:
                 {"task_id": tid, "assignee": who, "current": current}
                 for (tid, who, current) in res.skipped_per_profile_capped
             ],
+            "skipped_mutex_locked": [
+                {"task_id": tid, "mutex_key": key}
+                for (tid, key) in res.skipped_mutex_locked
+            ],
             "auto_assigned_default": res.auto_assigned_default,
         }, indent=2))
         return 0
@@ -2274,6 +2284,9 @@ def _cmd_dispatch(args: argparse.Namespace) -> int:
             print(
                 f"Deferred ({who} at per-profile cap, {current} running): {tid}"
             )
+    if res.skipped_mutex_locked:
+        for tid, key in res.skipped_mutex_locked:
+            print(f"Deferred (mutex_key {key!r} already running): {tid}")
     if res.skipped_nonspawnable:
         print(
             f"Skipped (non-spawnable assignee — terminal lane, OK): "
