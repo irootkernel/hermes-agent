@@ -554,11 +554,12 @@ def _handle_complete(args: dict, **kw) -> str:
         kb, conn = _connect(board=board)
         try:
             try:
+                expected_run_id = _worker_run_id(tid)
                 ok = kb.complete_task(
                     conn, tid,
                     result=result, summary=summary, metadata=metadata,
                     created_cards=created_cards,
-                    expected_run_id=_worker_run_id(tid),
+                    expected_run_id=expected_run_id,
                 )
             except kb.HallucinatedCardsError as hall_err:
                 # Structured rejection — surface the phantom ids so the
@@ -581,11 +582,30 @@ def _handle_complete(args: dict, **kw) -> str:
                     f"created_cards=[] to skip the card-claim check entirely."
                 )
             if not ok:
+                task = kb.get_task(conn, tid)
+                if (
+                    task
+                    and task.status == "running"
+                    and (expected_run_id is None or task.current_run_id == expected_run_id)
+                    and kb._run_claimed_from_review(conn, tid, task.current_run_id)
+                ):
+                    has_final_gate, final_assignee = kb._latest_review_final_gate(conn, tid)
+                    if has_final_gate and not final_assignee:
+                        return tool_error(
+                            f"could not complete {tid}: recorded final_assignee "
+                            "no longer resolves to a spawnable profile"
+                        )
                 return tool_error(
                     f"could not complete {tid} (unknown id or already terminal)"
                 )
             run = kb.latest_run(conn, tid)
-            return _ok(task_id=tid, run_id=run.id if run else None)
+            task = kb.get_task(conn, tid)
+            return _ok(
+                task_id=tid,
+                run_id=run.id if run else None,
+                status=task.status if task else None,
+                assignee=task.assignee if task else None,
+            )
         finally:
             conn.close()
     except ValueError as e:
@@ -891,6 +911,7 @@ def _handle_submit_review(args: dict[str, Any], **kw) -> str:
                 conn,
                 tid,
                 reviewer=_normalize_profile(args.get("reviewer")),
+                final_assignee=_normalize_profile(args.get("final_assignee")),
                 summary=args.get("summary"),
                 metadata=metadata,
                 expected_run_id=_worker_run_id(tid),
@@ -898,7 +919,16 @@ def _handle_submit_review(args: dict[str, Any], **kw) -> str:
             if not ok:
                 return tool_error(f"could not submit {tid} for review (unknown id, invalid state, missing reviewer, or stale run)")
             task = kb.get_task(conn, tid)
-            return _ok(task_id=tid, status="review", reviewer=task.assignee if task else None)
+            final_assignee = None
+            try:
+                payload = kb._latest_review_submit_payload(conn, tid) or {}
+                final_assignee = payload.get("final_assignee")
+            except Exception:
+                final_assignee = None
+            out = {"task_id": tid, "status": "review", "reviewer": task.assignee if task else None}
+            if final_assignee:
+                out["final_assignee"] = final_assignee
+            return _ok(**out)
         finally:
             conn.close()
     except ValueError as e:
@@ -1449,7 +1479,9 @@ KANBAN_SUBMIT_REVIEW_SCHEMA = {
     "description": (
         "Submit the current Kanban task for native review on the same card. "
         "The current run is closed as submitted_review, the task moves to "
-        "review status, and the dispatcher can spawn the reviewer profile."
+        "review status, and the dispatcher can spawn the reviewer profile. "
+        "When a final assignee/creator gate is recorded, reviewer approval "
+        "returns the same card to that final gate instead of marking it done."
     ),
     "parameters": {
         "type": "object",
@@ -1458,6 +1490,16 @@ KANBAN_SUBMIT_REVIEW_SCHEMA = {
             "reviewer": {
                 "type": "string",
                 "description": "Reviewer profile/assignee. Required unless the task creator is a real profile.",
+            },
+            "final_assignee": {
+                "type": "string",
+                "description": (
+                    "Optional creator/final gate profile. If omitted and "
+                    "the task creator is a real profile different from the "
+                    "reviewer, that creator is used. Reviewer approval then "
+                    "routes the same card back to this assignee for final "
+                    "completion instead of closing it."
+                ),
             },
             "summary": {"type": "string", "description": "Review handoff summary."},
             "metadata": {"type": "object", "description": "Optional structured review facts."},

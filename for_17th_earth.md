@@ -50,7 +50,7 @@ D-items are release-scoped runtime/code differences between upstream Hermes and 
 | ID | Change title | Baseline state | Per-delta work to do | Preflight evidence to verify |
 |---|---|---|---|---|
 | D1 | [Tool Search pair](#d1-tool-search-pair) | `upstream-absorbed` by `v2026.6.5` | Drop local D1 carry; do not apply Tool Search code patches on this release branch. | `git merge-base --is-ancestor` returned `0` for both `369075dc9` and `7427b9d58` against this branch. |
-| D2 | [Kanban review and same-card handoff helpers](#d2-kanban-review-and-same-card-handoff-helpers) | D2-a audited: `partial-native`; D2-b/c/d applied | Keep native v0.16 review queue/dispatch; re-applied only missing same-card transition/tool seams in D2-b/c/d. | Native `review` claim/dispatch exists; `handoff_task`, `submit_task_for_review`, `request_changes`, and tool surfaces were absent at D2-a audit. |
+| D2 | [Kanban review and same-card handoff helpers](#d2-kanban-review-and-same-card-handoff-helpers) | D2-a audited: `partial-native`; D2-b/c/d/e applied | Keep native v0.16 review queue/dispatch; re-applied only missing same-card transition/tool seams in D2-b/c/d/e. | Native `review` claim/dispatch exists; `handoff_task`, `submit_task_for_review`, `request_changes`, final creator-gate routing, and tool surfaces were absent at D2-a audit. |
 | D3 | [Kanban assignee alias resolution](#d3-kanban-assignee-alias-resolution) | `keep-local-carry` | Re-applied minimal dispatcher-only spawn-profile alias resolution. | v0.16.0 had no `kanban.assignee_aliases` / `resolve_assignee_profile` equivalent before this D3 commit. |
 | D4 | [Discord gateway config and owner-thread routing seams](#d4-discord-gateway-config-and-owner-thread-routing-seams) | generic config fixes `upstream-absorbed`; owner-thread seam applied | Drop duplicate generic config carries; re-applied only owner-thread routing and `auto_thread_free_response` opt-in. | Generic config commits are ancestors; `ThreadOwnerTracker` / owner-thread seam absent before D4 patch. |
 | D5 | [Plugin strategy retirement](#d5-plugin-strategy-retirement) | `retired` / no-code | Do not recreate `kkachi-hermes-plugin`; carry only this ledger/skill knowledge. | Repo audit found no active config/plan/plugin dependency outside this ledger/carry manifest. |
@@ -138,6 +138,7 @@ Re-apply D2 as smaller local-minimize subitems:
 - D2-b: cooperative same-card handoff/reassign (`handoff_task`, `kanban_reassign`) — applied in `17e/v0.16.0-re`.
 - D2-c: same-card submit-for-review (`submit_task_for_review`, `kanban_submit_review`) — applied in `17e/v0.16.0-re`.
 - D2-d: request-changes/rework loop (`request_changes`, `kanban_request_changes`) plus final same-task-id synthetic smoke — applied in `17e/v0.16.0-re`.
+- D2-e: creator/final gate after reviewer approval (`final_assignee` review payload and `review_accepted` same-card routing) — applied on `17e/live` after v0.16.0 activation.
 
 Audit evidence:
 
@@ -312,6 +313,46 @@ PY
 # {"ok": true, "task_id": "t_4ae0b437", "final_status": "done", "outcomes": ["submitted_review", "requested_changes", "submitted_review", "completed"]}
 ```
 
+### D2-e v0.16.0 patch decision
+
+Decision: `keep-local-carry` for creator/final gate after reviewer approval. D2-b/c/d/e are now applied; native v0.16 review dispatch remains in use.
+
+Applied local seams:
+
+- `hermes_cli/kanban_db.py`: `submit_task_for_review(...)` records an optional `final_assignee` in the `submitted_review` event. Explicit reviewers and final assignees are validated as real spawnable profiles/aliases before recording; invalid review/final gates fail closed without changing task state. When omitted, a real profile-valued `created_by` different from the reviewer becomes the creator gate. `complete_task(...)` detects reviewer runs claimed from native `review` status; only on that active reviewer-approval path does it revalidate `final_assignee`. If a still-valid final gate exists, reviewer approval closes the review run as `review_accepted`, returns the same card to `ready` for the final assignee, and does **not** mark the task `done` or set `completed_at`. If a recorded final gate later becomes invalid while that reviewer approval is active, completion fails closed and leaves the review run active. Historical `submitted_review.final_assignee` payloads are not used as global completion state for later rework/non-review runs.
+- `tools/kanban_tools.py`: `kanban_submit_review` accepts `final_assignee` and advertises creator/final gate semantics; `kanban_complete` returns the post-call task `status`/`assignee` so a reviewer can see that approval routed to a final gate rather than terminal completion, and reports an explicit final-gate drift error when an active reviewer approval fails because the recorded final assignee no longer resolves.
+- `hermes_cli/kanban.py`: CLI completion prints a routed-review message when completion leaves the task non-`done`, and names active final-gate drift instead of collapsing it into the generic terminal/unknown completion error.
+- `tests/hermes_cli/test_kanban_db.py`: regression tests cover reviewer approval routing to creator gate, final creator completion on the same task id, invalid explicit reviewer/final gate rejection, tool-level invalid reviewer errors, route-time final gate re-validation, stale final-gate payloads after `request_changes`/rework, and worker-facing active final-gate drift errors.
+
+Smoke evidence:
+
+```bash
+PYTHONPATH=$PWD /Users/draccoon/.local/bin/hermes-python -m pytest -q \
+  tests/hermes_cli/test_kanban_db.py::test_review_approval_routes_to_creator_final_gate \
+  tests/hermes_cli/test_kanban_db.py::test_review_approval_rejects_final_gate_that_became_invalid \
+  tests/hermes_cli/test_kanban_db.py::test_stale_review_final_gate_does_not_wedge_rework_completion \
+  tests/hermes_cli/test_kanban_db.py::test_kanban_complete_tool_reports_invalid_active_final_gate \
+  tests/hermes_cli/test_kanban_db.py::test_same_task_review_request_changes_rework_complete_loop \
+  tests/tools/test_kanban_tools.py::test_complete_happy_path
+# 6 passed
+
+PYTHONPATH=$PWD /Users/draccoon/.local/bin/hermes-python -m pytest -q tests/hermes_cli/test_kanban_db.py
+# 237 passed
+
+PYTHONPATH=$PWD /Users/draccoon/.local/bin/hermes-python -m pytest -q tests/tools/test_kanban_tools.py tests/hermes_cli/test_kanban_core_functionality.py
+# 250 passed, 1 skipped, 1 warning
+
+PYTHONPATH=$PWD /Users/draccoon/.local/bin/hermes-python -m py_compile \
+  hermes_cli/kanban_db.py \
+  hermes_cli/kanban.py \
+  tools/kanban_tools.py \
+  tests/hermes_cli/test_kanban_db.py
+# passed
+
+git diff --check -- hermes_cli/kanban_db.py tools/kanban_tools.py hermes_cli/kanban.py tests/hermes_cli/test_kanban_db.py for_17th_earth.md
+# passed
+```
+
 ### Purpose
 
 17번째 지구 uses Kanban as a durable work bus. Worker questions, baton handoffs, review submission, request-changes, and rework must remain on the same task id so comments, events, and runs are auditable.
@@ -335,6 +376,7 @@ Required behavior:
 3. A reviewer can request changes and send the same card back to the implementer/target assignee.
 4. Provenance is recorded through events/outcomes, not by losing history in a new task.
 5. Native v0.16 review dispatch should be used where possible instead of replacing it.
+6. When a creator/final gate is recorded, reviewer approval must not be terminal `done`; the same card must route back to the final assignee and only the final assignee's completion closes the task.
 
 ### Candidate missing surfaces to verify
 

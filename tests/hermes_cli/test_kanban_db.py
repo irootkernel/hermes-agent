@@ -28,6 +28,14 @@ def kanban_home(tmp_path, monkeypatch):
     return home
 
 
+def _allow_profiles(monkeypatch, *names: str) -> None:
+    """Treat selected profile names as spawnable inside isolated test homes."""
+    from hermes_cli import profiles
+
+    allowed = set(names)
+    monkeypatch.setattr(profiles, "profile_exists", lambda name: name in allowed)
+
+
 # ---------------------------------------------------------------------------
 # Schema / init
 # ---------------------------------------------------------------------------
@@ -1335,8 +1343,9 @@ def test_kanban_reassign_tool_handoffs_current_worker_task(
         }
 
 
-def test_submit_task_for_review_moves_same_card_to_review(kanban_home):
+def test_submit_task_for_review_moves_same_card_to_review(kanban_home, monkeypatch):
     """Worker review submission closes the run and preserves the same task id."""
+    _allow_profiles(monkeypatch, "samaui")
     with kb.connect() as conn:
         tid = kb.create_task(conn, title="reviewable", assignee="wolong", created_by="creator")
         claimed = kb.claim_task(conn, tid, claimer="worker-lock")
@@ -1416,10 +1425,12 @@ def test_submit_task_for_review_fails_without_real_reviewer(kanban_home, monkeyp
     assert task.current_run_id == claimed.current_run_id
 
 
-def test_submit_task_for_review_rejects_stale_run_id_without_mutation(kanban_home):
+def test_submit_task_for_review_rejects_stale_run_id_without_mutation(kanban_home, monkeypatch):
+    _allow_profiles(monkeypatch, "samaui")
     with kb.connect() as conn:
         tid = kb.create_task(conn, title="review stale", assignee="wolong")
         claimed = kb.claim_task(conn, tid, claimer="worker-lock")
+        assert claimed is not None
 
         ok = kb.submit_task_for_review(
             conn,
@@ -1431,6 +1442,68 @@ def test_submit_task_for_review_rejects_stale_run_id_without_mutation(kanban_hom
 
         assert ok is False
         task = kb.get_task(conn, tid)
+        assert task is not None
+        assert task.status == "running"
+        assert task.assignee == "wolong"
+        assert task.current_run_id == claimed.current_run_id
+        assert not conn.execute(
+            "SELECT 1 FROM task_events WHERE task_id = ? AND kind = 'submitted_review'",
+            (tid,),
+        ).fetchone()
+
+
+def test_submit_task_for_review_rejects_invalid_final_assignee(kanban_home, monkeypatch):
+    """D2-e must fail closed on typo/non-spawnable explicit final gates."""
+    from hermes_cli import profiles
+
+    monkeypatch.setattr(profiles, "profile_exists", lambda name: name == "samaui")
+    with kb.connect() as conn:
+        tid = kb.create_task(conn, title="bad final gate", assignee="wolong")
+        claimed = kb.claim_task(conn, tid, claimer="worker-lock")
+        assert claimed is not None
+
+        ok = kb.submit_task_for_review(
+            conn,
+            tid,
+            reviewer="samaui",
+            final_assignee="ghost-profile",
+            summary="review me",
+            expected_run_id=claimed.current_run_id,
+        )
+
+        assert ok is False
+        task = kb.get_task(conn, tid)
+        assert task is not None
+        assert task.status == "running"
+        assert task.assignee == "wolong"
+        assert task.current_run_id == claimed.current_run_id
+        assert not conn.execute(
+            "SELECT 1 FROM task_events WHERE task_id = ? AND kind = 'submitted_review'",
+            (tid,),
+        ).fetchone()
+
+
+def test_submit_task_for_review_rejects_invalid_reviewer(kanban_home, monkeypatch):
+    """D2-e review routing must fail closed on non-spawnable explicit reviewers."""
+    from hermes_cli import profiles
+
+    monkeypatch.setattr(profiles, "profile_exists", lambda name: name == "samaui")
+    with kb.connect() as conn:
+        tid = kb.create_task(conn, title="bad reviewer", assignee="wolong")
+        claimed = kb.claim_task(conn, tid, claimer="worker-lock")
+        assert claimed is not None
+
+        ok = kb.submit_task_for_review(
+            conn,
+            tid,
+            reviewer="ghost-reviewer",
+            summary="review me",
+            expected_run_id=claimed.current_run_id,
+        )
+
+        assert ok is False
+        task = kb.get_task(conn, tid)
+        assert task is not None
         assert task.status == "running"
         assert task.assignee == "wolong"
         assert task.current_run_id == claimed.current_run_id
@@ -1446,6 +1519,7 @@ def test_kanban_submit_review_tool_submits_current_worker_task(
     from tools import kanban_tools
     from tools.registry import registry
 
+    _allow_profiles(monkeypatch, "samaui")
     with kb.connect() as conn:
         tid = kb.create_task(conn, title="tool submit", assignee="wolong")
         claimed = kb.claim_task(conn, tid, claimer="worker-lock")
@@ -1484,8 +1558,42 @@ def test_kanban_submit_review_tool_submits_current_worker_task(
         }
 
 
-def test_request_changes_returns_review_to_original_implementer(kanban_home):
+def test_kanban_submit_review_tool_rejects_invalid_reviewer(kanban_home, monkeypatch):
+    from tools import kanban_tools
+
+    _allow_profiles(monkeypatch, "samaui")
+    with kb.connect() as conn:
+        tid = kb.create_task(conn, title="tool bad reviewer", assignee="wolong")
+        claimed = kb.claim_task(conn, tid, claimer="worker-lock")
+        assert claimed is not None
+        run_id = claimed.current_run_id
+
+    monkeypatch.setenv("HERMES_KANBAN_TASK", tid)
+    monkeypatch.setenv("HERMES_KANBAN_RUN_ID", str(run_id))
+
+    result = json.loads(
+        kanban_tools._handle_submit_review(
+            {"reviewer": "ghost-reviewer", "summary": "tool review"}
+        )
+    )
+
+    assert "error" in result
+    assert "could not submit" in result["error"]
+    with kb.connect() as conn:
+        task = kb.get_task(conn, tid)
+        assert task is not None
+        assert task.status == "running"
+        assert task.assignee == "wolong"
+        assert task.current_run_id == run_id
+        assert not conn.execute(
+            "SELECT 1 FROM task_events WHERE task_id = ? AND kind = 'submitted_review'",
+            (tid,),
+        ).fetchone()
+
+
+def test_request_changes_returns_review_to_original_implementer(kanban_home, monkeypatch):
     """request_changes uses submit-review provenance to restore implementer ownership."""
+    _allow_profiles(monkeypatch, "samaui")
     with kb.connect() as conn:
         tid = kb.create_task(conn, title="needs changes", assignee="wolong", created_by="creator")
         claimed = kb.claim_task(conn, tid, claimer="worker-lock")
@@ -1534,7 +1642,8 @@ def test_request_changes_returns_review_to_original_implementer(kanban_home):
         assert payload == {"from": "samaui", "to": "wolong", "reason": "missing test"}
 
 
-def test_request_changes_can_override_return_assignee(kanban_home):
+def test_request_changes_can_override_return_assignee(kanban_home, monkeypatch):
+    _allow_profiles(monkeypatch, "samaui")
     with kb.connect() as conn:
         tid = kb.create_task(conn, title="needs target", assignee="wolong")
         claimed = kb.claim_task(conn, tid, claimer="worker-lock")
@@ -1560,7 +1669,8 @@ def test_request_changes_can_override_return_assignee(kanban_home):
     assert task.assignee == "jowoo"
 
 
-def test_request_changes_rejects_stale_run_id_without_mutation(kanban_home):
+def test_request_changes_rejects_stale_run_id_without_mutation(kanban_home, monkeypatch):
+    _allow_profiles(monkeypatch, "samaui")
     with kb.connect() as conn:
         tid = kb.create_task(conn, title="stale review", assignee="wolong")
         claimed = kb.claim_task(conn, tid, claimer="worker-lock")
@@ -1597,6 +1707,7 @@ def test_kanban_request_changes_tool_returns_current_review_task(
     from tools import kanban_tools
     from tools.registry import registry
 
+    _allow_profiles(monkeypatch, "samaui")
     with kb.connect() as conn:
         tid = kb.create_task(conn, title="tool changes", assignee="wolong")
         worker_claim = kb.claim_task(conn, tid, claimer="worker-lock")
@@ -1642,8 +1753,9 @@ def test_kanban_request_changes_tool_returns_current_review_task(
         }
 
 
-def test_same_task_review_request_changes_rework_complete_loop(kanban_home):
+def test_same_task_review_request_changes_rework_complete_loop(kanban_home, monkeypatch):
     """D2-d end-to-end loop keeps one task id across review, rework, and completion."""
+    _allow_profiles(monkeypatch, "samaui")
     with kb.connect() as conn:
         tid = kb.create_task(conn, title="full loop", assignee="wolong")
         first_claim = kb.claim_task(conn, tid, claimer="worker-1")
@@ -1705,6 +1817,216 @@ def test_same_task_review_request_changes_rework_complete_loop(kanban_home):
         "submitted_review",
         "completed",
     ]
+
+
+def test_review_approval_routes_to_creator_final_gate(kanban_home, monkeypatch):
+    """D2-e: reviewer approval is not final when a creator gate exists."""
+    from hermes_cli import profiles
+
+    monkeypatch.setattr(profiles, "profile_exists", lambda name: name in {"creator", "samaui"})
+    with kb.connect() as conn:
+        tid = kb.create_task(
+            conn,
+            title="needs creator gate",
+            assignee="wolong",
+            created_by="creator",
+        )
+        worker_claim = kb.claim_task(conn, tid, claimer="worker-lock")
+        assert kb.submit_task_for_review(
+            conn,
+            tid,
+            reviewer="samaui",
+            summary="implementation ready",
+            expected_run_id=worker_claim.current_run_id,
+        )
+        submitted = conn.execute(
+            "SELECT payload FROM task_events WHERE task_id = ? AND kind = 'submitted_review'",
+            (tid,),
+        ).fetchone()
+        assert json.loads(submitted["payload"])["final_assignee"] == "creator"
+
+        review_claim = kb.claim_review_task(conn, tid, claimer="reviewer-lock")
+        assert review_claim is not None
+        assert kb.complete_task(
+            conn,
+            tid,
+            result="review approved",
+            summary="approved by reviewer",
+            expected_run_id=review_claim.current_run_id,
+        )
+
+        after_review = kb.get_task(conn, tid)
+        assert after_review is not None
+        events = conn.execute(
+            "SELECT kind, payload, run_id FROM task_events WHERE task_id = ? ORDER BY id",
+            (tid,),
+        ).fetchall()
+        runs = conn.execute(
+            "SELECT id, status, outcome, summary FROM task_runs WHERE task_id = ? ORDER BY id",
+            (tid,),
+        ).fetchall()
+
+        assert after_review.status == "ready"
+        assert after_review.assignee == "creator"
+        assert after_review.current_run_id is None
+        assert after_review.completed_at is None
+        assert [event["kind"] for event in events] == [
+            "created",
+            "claimed",
+            "submitted_review",
+            "claimed",
+            "review_accepted",
+        ]
+        review_event = json.loads(events[-1]["payload"])
+        assert review_event == {
+            "from": "samaui",
+            "to": "creator",
+            "summary": "approved by reviewer",
+            "result_len": len("review approved"),
+        }
+        assert events[-1]["run_id"] == review_claim.current_run_id
+        assert [(r["status"], r["outcome"], r["summary"]) for r in runs] == [
+            ("released", "submitted_review", "implementation ready"),
+            ("released", "review_accepted", "approved by reviewer"),
+        ]
+
+        final_claim = kb.claim_task(conn, tid, claimer="creator-lock")
+        assert final_claim is not None
+        assert kb.complete_task(
+            conn,
+            tid,
+            result="creator accepted",
+            expected_run_id=final_claim.current_run_id,
+        )
+        final_task = kb.get_task(conn, tid)
+
+    assert final_task is not None
+    assert final_task.status == "done"
+    assert final_task.assignee == "creator"
+
+
+def test_review_approval_rejects_final_gate_that_became_invalid(kanban_home, monkeypatch):
+    """D2-e re-validates final gate at reviewer approval time."""
+    from hermes_cli import profiles
+
+    valid_profiles = {"creator", "samaui"}
+    monkeypatch.setattr(profiles, "profile_exists", lambda name: name in valid_profiles)
+    with kb.connect() as conn:
+        tid = kb.create_task(conn, title="gate drift", assignee="wolong")
+        worker_claim = kb.claim_task(conn, tid, claimer="worker-lock")
+        assert worker_claim is not None
+        assert kb.submit_task_for_review(
+            conn,
+            tid,
+            reviewer="samaui",
+            final_assignee="creator",
+            summary="ready",
+            expected_run_id=worker_claim.current_run_id,
+        )
+        review_claim = kb.claim_review_task(conn, tid, claimer="reviewer-lock")
+        assert review_claim is not None
+        valid_profiles.remove("creator")
+
+        ok = kb.complete_task(
+            conn,
+            tid,
+            result="review approved",
+            expected_run_id=review_claim.current_run_id,
+        )
+
+        task = kb.get_task(conn, tid)
+        assert task is not None
+        assert ok is False
+        assert task.status == "running"
+        assert task.assignee == "samaui"
+        assert task.current_run_id == review_claim.current_run_id
+        assert not conn.execute(
+            "SELECT 1 FROM task_events WHERE task_id = ? AND kind = 'review_accepted'",
+            (tid,),
+        ).fetchone()
+
+
+def test_stale_review_final_gate_does_not_wedge_rework_completion(kanban_home, monkeypatch):
+    """A historical final_assignee is enforced only during active reviewer approval."""
+    from hermes_cli import profiles
+
+    valid_profiles = {"creator", "samaui"}
+    monkeypatch.setattr(profiles, "profile_exists", lambda name: name in valid_profiles)
+    with kb.connect() as conn:
+        tid = kb.create_task(conn, title="stale gate after changes", assignee="wolong")
+        worker_claim = kb.claim_task(conn, tid, claimer="worker-lock")
+        assert worker_claim is not None
+        assert kb.submit_task_for_review(
+            conn,
+            tid,
+            reviewer="samaui",
+            final_assignee="creator",
+            summary="ready",
+            expected_run_id=worker_claim.current_run_id,
+        )
+        review_claim = kb.claim_review_task(conn, tid, claimer="reviewer-lock")
+        assert review_claim is not None
+        assert kb.request_changes(
+            conn,
+            tid,
+            reason="needs rework",
+            expected_run_id=review_claim.current_run_id,
+        )
+
+        rework_claim = kb.claim_task(conn, tid, claimer="rework-lock")
+        assert rework_claim is not None
+        valid_profiles.remove("creator")
+
+        ok = kb.complete_task(
+            conn,
+            tid,
+            result="reworked and complete",
+            expected_run_id=rework_claim.current_run_id,
+        )
+
+        task = kb.get_task(conn, tid)
+        assert task is not None
+        assert ok is True
+        assert task.status == "done"
+        assert task.assignee == "wolong"
+        assert not conn.execute(
+            "SELECT 1 FROM task_events WHERE task_id = ? AND kind = 'review_accepted'",
+            (tid,),
+        ).fetchone()
+
+
+def test_kanban_complete_tool_reports_invalid_active_final_gate(kanban_home, monkeypatch):
+    """Worker-facing completion errors name active final-gate drift."""
+    from hermes_cli import profiles
+    from tools import kanban_tools
+
+    valid_profiles = {"creator", "samaui"}
+    monkeypatch.setattr(profiles, "profile_exists", lambda name: name in valid_profiles)
+    with kb.connect() as conn:
+        tid = kb.create_task(conn, title="tool gate drift", assignee="wolong")
+        worker_claim = kb.claim_task(conn, tid, claimer="worker-lock")
+        assert worker_claim is not None
+        assert kb.submit_task_for_review(
+            conn,
+            tid,
+            reviewer="samaui",
+            final_assignee="creator",
+            summary="ready",
+            expected_run_id=worker_claim.current_run_id,
+        )
+        review_claim = kb.claim_review_task(conn, tid, claimer="reviewer-lock")
+        assert review_claim is not None
+        run_id = review_claim.current_run_id
+        valid_profiles.remove("creator")
+
+    monkeypatch.setenv("HERMES_KANBAN_TASK", tid)
+    monkeypatch.setenv("HERMES_KANBAN_RUN_ID", str(run_id))
+
+    result = json.loads(kanban_tools._handle_complete({"result": "approved"}))
+
+    assert "error" in result
+    assert "final_assignee" in result["error"]
+    assert "spawnable profile" in result["error"]
 
 
 def test_create_with_parents_stays_todo_until_parents_done(kanban_home):

@@ -1894,17 +1894,36 @@ def _cmd_complete(args: argparse.Namespace) -> int:
     failed: list[str] = []
     with kb.connect_closing() as conn:
         for tid in ids:
+            expected_run_id = _worker_run_id_for(tid)
             if not kb.complete_task(
                 conn, tid,
                 result=args.result,
                 summary=summary,
                 metadata=metadata,
-                expected_run_id=_worker_run_id_for(tid),
+                expected_run_id=expected_run_id,
             ):
                 failed.append(tid)
+                task = kb.get_task(conn, tid)
+                if (
+                    task
+                    and task.status == "running"
+                    and (expected_run_id is None or task.current_run_id == expected_run_id)
+                    and kb._run_claimed_from_review(conn, tid, task.current_run_id)
+                ):
+                    has_final_gate, final_assignee = kb._latest_review_final_gate(conn, tid)
+                    if has_final_gate and not final_assignee:
+                        print(
+                            f"cannot complete {tid}: recorded final_assignee no longer resolves to a spawnable profile",
+                            file=sys.stderr,
+                        )
+                        continue
                 print(f"cannot complete {tid} (unknown id or terminal state)", file=sys.stderr)
             else:
-                print(f"Completed {tid}")
+                task = kb.get_task(conn, tid)
+                if task and task.status != "done":
+                    print(f"Completed review for {tid}; routed to {task.assignee or 'unassigned'} ({task.status})")
+                else:
+                    print(f"Completed {tid}")
     return 0 if not failed else 1
 
 

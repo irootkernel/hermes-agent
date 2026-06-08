@@ -2557,6 +2557,7 @@ def submit_task_for_review(
     task_id: str,
     *,
     reviewer: Optional[str] = None,
+    final_assignee: Optional[str] = None,
     summary: Optional[str] = None,
     metadata: Optional[dict[str, Any]] = None,
     expected_run_id: Optional[int] = None,
@@ -2568,7 +2569,22 @@ def submit_task_for_review(
     defaults to ``created_by`` only when that value resolves to a real profile;
     otherwise callers must pass an explicit reviewer so review gates fail closed.
     """
-    requested_reviewer = _canonical_assignee(reviewer)
+    reviewer_was_requested = bool(reviewer and str(reviewer).strip())
+    requested_reviewer = (
+        _canonical_profile_assignee(reviewer)
+        if reviewer_was_requested
+        else None
+    )
+    if reviewer_was_requested and not requested_reviewer:
+        return False
+    final_assignee_was_requested = bool(final_assignee and str(final_assignee).strip())
+    requested_final_assignee = (
+        _canonical_profile_assignee(final_assignee)
+        if final_assignee_was_requested
+        else None
+    )
+    if final_assignee_was_requested and not requested_final_assignee:
+        return False
     with write_txn(conn):
         row = conn.execute(
             "SELECT status, assignee, created_by, current_run_id FROM tasks WHERE id = ?",
@@ -2584,6 +2600,10 @@ def submit_task_for_review(
         target_reviewer = requested_reviewer or _canonical_profile_assignee(row["created_by"])
         if not target_reviewer:
             return False
+        creator_gate = _canonical_profile_assignee(row["created_by"])
+        target_final_assignee = requested_final_assignee or creator_gate
+        if target_final_assignee == target_reviewer:
+            target_final_assignee = None
         review_summary = summary or "submitted for review"
         run_id = _end_run(
             conn,
@@ -2614,15 +2634,18 @@ def submit_task_for_review(
             """,
             (target_reviewer, task_id),
         )
+        event_payload = {
+            "from_assignee": from_assignee,
+            "reviewer": target_reviewer,
+            "summary": review_summary,
+        }
+        if target_final_assignee:
+            event_payload["final_assignee"] = target_final_assignee
         _append_event(
             conn,
             task_id,
             "submitted_review",
-            {
-                "from_assignee": from_assignee,
-                "reviewer": target_reviewer,
-                "summary": review_summary,
-            },
+            event_payload,
             run_id=run_id,
         )
     return True
@@ -3875,13 +3898,101 @@ class HallucinatedCardsError(ValueError):
         )
 
 
+def _run_claimed_from_review(conn: sqlite3.Connection, task_id: str, run_id: Optional[int]) -> bool:
+    """Return True when ``run_id`` was created by ``claim_review_task``."""
+    if run_id is None:
+        return False
+    row = conn.execute(
+        "SELECT payload FROM task_events WHERE task_id = ? AND run_id = ? "
+        "AND kind = 'claimed' ORDER BY id DESC LIMIT 1",
+        (task_id, int(run_id)),
+    ).fetchone()
+    if not row or not row["payload"]:
+        return False
+    try:
+        payload = json.loads(row["payload"])
+    except Exception:
+        return False
+    return isinstance(payload, dict) and payload.get("source_status") == "review"
+
+
+def _latest_review_final_gate(conn: sqlite3.Connection, task_id: str) -> tuple[bool, Optional[str]]:
+    """Return whether a final gate exists and its currently valid assignee."""
+    payload = _latest_review_submit_payload(conn, task_id) or {}
+    if "final_assignee" not in payload:
+        return False, None
+    return True, _canonical_profile_assignee(payload.get("final_assignee"))
+
+
+def _accept_review_for_final_gate(
+    conn: sqlite3.Connection,
+    task_id: str,
+    *,
+    final_assignee: str,
+    result: Optional[str],
+    summary: Optional[str],
+    metadata: Optional[dict[str, Any]],
+    verified_cards: list[str],
+) -> bool:
+    """Close a reviewer run as accepted and return the card to creator gate."""
+    row = conn.execute(
+        "SELECT assignee, current_run_id FROM tasks WHERE id = ?",
+        (task_id,),
+    ).fetchone()
+    if not row or row["current_run_id"] is None:
+        return False
+    review_summary = summary if summary is not None else result
+    run_id = _end_run(
+        conn,
+        task_id,
+        outcome="review_accepted",
+        status="released",
+        summary=review_summary,
+        metadata=metadata,
+    )
+    if run_id is None and (review_summary or metadata):
+        run_id = _synthesize_ended_run(
+            conn,
+            task_id,
+            outcome="review_accepted",
+            summary=review_summary,
+            metadata=metadata,
+        )
+    conn.execute(
+        """
+        UPDATE tasks
+           SET status = 'ready',
+               assignee = ?,
+               claim_lock = NULL,
+               claim_expires = NULL,
+               worker_pid = NULL,
+               current_run_id = NULL,
+               consecutive_failures = 0,
+               last_failure_error = NULL
+         WHERE id = ?
+        """,
+        (final_assignee, task_id),
+    )
+    ev_summary = (review_summary or "").strip().splitlines()[0][:400] if review_summary else ""
+    payload: dict[str, Any] = {
+        "from": row["assignee"],
+        "to": final_assignee,
+        "summary": ev_summary or None,
+        "result_len": len(result) if result else 0,
+    }
+    if verified_cards:
+        payload["verified_cards"] = verified_cards
+    _append_event(conn, task_id, "review_accepted", payload, run_id=run_id)
+    return True
+
+
 def complete_task(
     conn: sqlite3.Connection,
     task_id: str,
     *,
     result: Optional[str] = None,
     summary: Optional[str] = None,
-    metadata: Optional[dict] = None,
+    metadata: Optional[dict[str, Any]] = None,
     created_cards: Optional[Iterable[str]] = None,
     expected_run_id: Optional[int] = None,
 ) -> bool:
@@ -3943,6 +4054,34 @@ def complete_task(
         verified_cards = []
 
     with write_txn(conn):
+        row = conn.execute(
+            "SELECT status, current_run_id FROM tasks WHERE id = ?",
+            (task_id,),
+        ).fetchone()
+        if not row:
+            return False
+        current_run_id = row["current_run_id"]
+        if expected_run_id is not None and current_run_id != int(expected_run_id):
+            return False
+        active_review_approval = row["status"] == "running" and _run_claimed_from_review(
+            conn, task_id, current_run_id
+        )
+        if active_review_approval:
+            has_final_gate, final_assignee = _latest_review_final_gate(conn, task_id)
+            if has_final_gate and not final_assignee:
+                return False
+        else:
+            final_assignee = None
+        if active_review_approval and final_assignee:
+            return _accept_review_for_final_gate(
+                conn,
+                task_id,
+                final_assignee=final_assignee,
+                result=result,
+                summary=summary,
+                metadata=metadata,
+                verified_cards=verified_cards,
+            )
         if expected_run_id is None:
             cur = conn.execute(
                 """
