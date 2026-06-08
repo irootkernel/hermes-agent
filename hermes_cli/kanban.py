@@ -80,6 +80,7 @@ def _task_to_dict(t: kb.Task) -> dict[str, Any]:
         "workflow_template_id": t.workflow_template_id,
         "current_step_key": t.current_step_key,
         "mutex_key": t.mutex_key,
+        "workflow_type": kb.safe_workflow_type(t.workflow_type),
     }
 
 
@@ -338,6 +339,11 @@ def build_parser(parent_subparsers: argparse._SubParsersAction) -> argparse.Argu
                           help="Optional artifact/resource key. Ready tasks "
                                "with the same key serialize behind the one "
                                "currently running.")
+    p_create.add_argument("--workflow-type", default=None,
+                          choices=sorted(kb.VALID_WORKFLOW_TYPES),
+                          help="Optional closed-set coordination style. "
+                               "Workers receive a fixed workflow context "
+                               "banner in kanban_show/worker_context.")
     p_create.add_argument("--max-retries", type=int, default=None,
                           metavar="N",
                           help="Per-task override for the consecutive-failure "
@@ -1374,6 +1380,7 @@ def _cmd_create(args: argparse.Namespace) -> int:
             goal_max_turns=getattr(args, "goal_max_turns", None),
             initial_status=getattr(args, "initial_status", "running"),
             mutex_key=getattr(args, "mutex_key", None),
+            workflow_type=getattr(args, "workflow_type", None),
         )
         task = kb.get_task(conn, task_id)
     if getattr(args, "json", False):

@@ -44,6 +44,15 @@ logger = logging.getLogger(__name__)
 
 KANBAN_LIST_DEFAULT_LIMIT = 50
 KANBAN_LIST_MAX_LIMIT = 200
+KANBAN_WORKFLOW_TYPE_ENUM = [
+    "creator_adjudicated_review",
+    "creator_accepted_work",
+    "fanout_fanin",
+    "parallel_color_review",
+    "round_based_color_consensus",
+    "serial_dependency_chain",
+    "single_card_baton",
+]
 
 
 def _profile_has_kanban_toolset() -> bool:
@@ -377,6 +386,7 @@ def _task_summary_dict(kb, conn, task) -> dict[str, Any]:
         "current_run_id": task.current_run_id,
         "model_override": task.model_override,
         "mutex_key": getattr(task, "mutex_key", None),
+        "workflow_type": kb.safe_workflow_type(getattr(task, "workflow_type", None)),
         "parents": parents,
         "children": children,
         "parent_count": len(parents),
@@ -423,6 +433,7 @@ def _handle_show(args: dict, **kw) -> str:
                     "current_run_id": t.current_run_id,
                     "model_override": t.model_override,
                     "mutex_key": getattr(t, "mutex_key", None),
+                    "workflow_type": kb.safe_workflow_type(getattr(t, "workflow_type", None)),
                 }
 
             def _run_dict(r):
@@ -847,6 +858,7 @@ def _handle_create(args: dict, **kw) -> str:
         return tool_error(goal_bool_error)
     goal_max_turns = args.get("goal_max_turns")
     mutex_key = args.get("mutex_key")
+    workflow_type = args.get("workflow_type")
     if isinstance(parents, str):
         parents = [parents]
     if not isinstance(parents, (list, tuple)):
@@ -891,6 +903,7 @@ def _handle_create(args: dict, **kw) -> str:
                 created_by=os.environ.get("HERMES_PROFILE") or "worker",
                 session_id=session_id,
                 mutex_key=str(mutex_key) if mutex_key is not None else None,
+                workflow_type=str(workflow_type) if workflow_type is not None else None,
             )
             new_task = kb.get_task(conn, new_tid)
             return _ok(
@@ -1518,6 +1531,17 @@ KANBAN_CREATE_SCHEMA = {
                     "dispatched while another task with that key is running. "
                     "Use stable schemes like 'path:/repo/file.py' or "
                     "'artifact:release-ledger' for shared mutation lanes."
+                ),
+            },
+            "workflow_type": {
+                "type": "string",
+                "enum": KANBAN_WORKFLOW_TYPE_ENUM,
+                "description": (
+                    "Optional closed-set coordination style. The worker "
+                    "receives a fixed workflow context banner in "
+                    "kanban_show/worker_context. Use this when routing "
+                    "known patterns such as creator_accepted_work, "
+                    "parallel_color_review, or single_card_baton."
                 ),
             },
             "skills": {

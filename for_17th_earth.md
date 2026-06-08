@@ -143,6 +143,7 @@ Re-apply D2 as smaller local-minimize subitems:
 - D2-f: async review watcher coverage (`kanban_submit_review` session-source auto-subscribe plus notifier delivery for `requested_changes` / `review_accepted`) — applied on `17e/live` after D2-e.
 - D2-g: creator-accepted work result submission (`submit_task_result`, `kanban_submit_result`, CLI `submit-result`) — applied in this branch after D2-f.
 - D2-h: artifact/resource serialization (`mutex_key` on tasks plus dispatcher skip for same-key running work) — applied in this branch after D2-g.
+- D2-i: workflow context banners (`workflow_type` on tasks plus fixed worker-context guidance for known collaboration styles) — applied in this branch after D2-h.
 
 Audit evidence:
 
@@ -510,6 +511,61 @@ HERMES_HOME=<disposable-home> /Users/draccoon/.local/bin/hermes-python - <<'PY'
 # second tick after holder completion: deferred artifact:smoke task spawns.
 PY
 # blocked_direct_claim=true; first_skipped_mutex_locked=[["t_5f099f26", "artifact:smoke"]]; second_spawned=[["t_5f099f26", "bob", "..."]]
+```
+
+### D2-i v0.16.0 patch decision
+
+Decision: `keep-local-carry` for workflow context banners. D2-b/c/d/e/f/g/h/i are now applied; native v0.16 review dispatch remains in use.
+
+Applied local seams:
+
+- `hermes_cli/kanban_db.py`: adds `tasks.workflow_type` with legacy migration, `Task.workflow_type`, closed-set `VALID_WORKFLOW_TYPES`, create-time validation, safe output normalization for agent-facing task metadata, and `build_worker_context(...)` injection of a fixed `## Workflow context` banner.
+- The workflow type value is not rendered as arbitrary free-form guidance. Unknown values fail closed at create time, invalid legacy/direct DB values are normalized to `null` in `Task`, CLI JSON show/list, and Kanban tool show/list payloads, and all banner text comes from operator-authored constants.
+- Samaui first pass found that invalid `workflow_type` values already persisted by a legacy/direct DB write could still be rendered in `build_worker_context(...)`; fixed by ignoring values not in the closed set before any header/banner rendering, with a regression test.
+- Samaui second pass found the same invalid persisted values could still surface through model-facing metadata JSON; fixed by centralizing `safe_workflow_type(...)` and using it in `Task.from_row`, CLI `_task_to_dict`, and Kanban tool show/list serializers.
+- Supported workflow types: `creator_adjudicated_review`, `creator_accepted_work`, `parallel_color_review`, `round_based_color_consensus`, `fanout_fanin`, `serial_dependency_chain`, `single_card_baton`.
+- `hermes_cli/kanban.py`: `kanban create --workflow-type <type>` plus JSON show/list surface via `_task_to_dict`.
+- `tools/kanban_tools.py`: `kanban_create` accepts `workflow_type`, and task summaries/show payloads surface it.
+
+Smoke evidence:
+
+```bash
+/Users/draccoon/.local/bin/hermes-python -m pytest \
+  tests/tools/test_kanban_tools.py::test_show_and_list_sanitize_invalid_persisted_workflow_type \
+  tests/hermes_cli/test_kanban_cli.py::test_run_slash_json_sanitizes_invalid_persisted_workflow_type \
+  tests/hermes_cli/test_kanban_db.py::test_worker_context_does_not_inject_invalid_persisted_workflow_type -q
+# 3 passed
+
+/Users/draccoon/.local/bin/hermes-python -m pytest tests/hermes_cli/test_kanban_db.py -k 'workflow_type or workflow_type_banner' -q
+# 4 passed, 246 deselected
+
+/Users/draccoon/.local/bin/hermes-python -m pytest \
+  tests/hermes_cli/test_kanban_db.py \
+  tests/hermes_cli/test_kanban_cli.py \
+  tests/tools/test_kanban_tools.py -q
+# 385 passed, 1 warning
+
+/Users/draccoon/.local/bin/hermes-python -m py_compile \
+  hermes_cli/kanban_db.py \
+  hermes_cli/kanban.py \
+  tools/kanban_tools.py \
+  tests/hermes_cli/test_kanban_db.py \
+  tests/hermes_cli/test_kanban_cli.py \
+  tests/tools/test_kanban_tools.py
+# passed
+
+git diff --check
+# passed
+
+# Static added-line scan for hardcoded secrets, shell=True, eval/exec, pickle, and obvious SQL formatting:
+# no findings
+
+HERMES_HOME=<disposable-home> /Users/draccoon/.local/bin/hermes-python - <<'PY'
+# safe workflow banner/guidance present.
+# invalid legacy/direct DB workflow_type normalized to null in get_task, kanban_show, kanban_list, CLI show JSON, and CLI list JSON.
+# injected marker absent from worker_context and JSON surfaces.
+PY
+# {"cli_list_workflow_type": null, "cli_show_workflow_type": null, "json_surfaces_contain_bad": false, "safe_has_banner": true, "safe_has_guidance": true, "tool_list_workflow_type": null, "tool_show_workflow_type": null, "unsafe_context_contains_bad": false, "unsafe_task_workflow_type": null}
 ```
 
 ### Purpose
