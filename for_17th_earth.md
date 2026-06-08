@@ -880,6 +880,35 @@ During the approved activation window:
 
 Read-only local-assets audit observed 20 cron jobs total, 17 active, 2 cron `skills[]` references, no missing active cron scripts, 71 Python scripts with parse errors `0`, and 26 shell scripts with `bash -n` failures `0`. The observed cron-owning profiles were `default`, `hwangchung`, `masok`, `mibang`, `songeon`, `wangpyeong`, and `wolyeong`.
 
+Post-activation R4 residual cleanup on 2026-06-08 classified the script-governance residual 18 findings without deleting watcher/helper files:
+
+- `cron_mibang_weekly_17thhermes_retention_cleanup.sh` is a thin wrapper through `hermes-python` into `/Users/draccoon/Workspace/Hermes/ops/scripts/`, not root-owned business logic; the audit now recognizes that marker.
+- 16 inactive residual watcher/helper files are exact path+hash baselined under `allowed_runtime_residuals`; changed hashes still become violations via `changed-allowed-runtime-residual`.
+- `allowed_runtime_residual()` and the top-level `audit()` loop fail closed on missing, empty, malformed, or uppercase hashes via `invalid-allowed-runtime-residual`; only non-empty lowercase 64-hex exact matches can suppress a residual.
+- 7 Hwangchung/Kkachi watcher files are `project-maintainer-follow`; all referenced cards are terminal, but 17H R4 does not rewrite/delete them directly.
+- 8 stale watcher residuals and 1 stale one-shot activation helper remain kept by exact hash until owner-approved removal/quarantine.
+
+Current R4 evidence:
+
+```bash
+SMOKE_TEST=1 /Users/draccoon/.local/bin/hermes-python /Users/draccoon/Workspace/Hermes/ops/scripts/shared/governance/audit_script_governance.py --details
+# OK_SCRIPT_GOVERNANCE_AUDIT violations=0 runtime_files=73 cron_scripts=16
+
+/Users/draccoon/.local/bin/hermes-python -m py_compile /Users/draccoon/Workspace/Hermes/ops/scripts/shared/governance/audit_script_governance.py
+# pass
+
+/Users/draccoon/.local/bin/hermes-python -m json.tool /Users/draccoon/Workspace/Hermes/ops/scripts/shared/governance/script_governance_baseline.json >/dev/null
+# pass
+
+# Runtime/profile Python syntax check: {'python_scripts_checked': 25, 'syntax_failures': []}
+# Runtime/profile/ops shell syntax check: {'shell_scripts_checked': 34, 'failure_count': 0}
+# Direct helper fail-close regression probe: OK_ALLOWED_RUNTIME_RESIDUAL_FAIL_CLOSED
+# Full audit fail-close regression probe: OK_R4_INVALID_ALLOWED_RESIDUAL_AUDIT_FAIL_CLOSED
+```
+
+Receipt: `/Users/draccoon/Workspace/Hermes/ops/scripts/inventory/2026-06-08-r4-script-governance-residual-cleanup-receipt.md`.
+Ops/workspace commit: `7ac4322 chore(governance): [R4] fail-close script residual allowlist`.
+
 Shared 17번째 지구 automation scripts are currently under `/Users/draccoon/Workspace/Hermes/ops/scripts/`; `/Users/draccoon/Workspace/Hermes/opt/` was checked and was not present in this snapshot. Treat cron wrappers in `~/.hermes/scripts/` and profile-local `scripts/` as runtime entrypoints, and the shared `ops/scripts/` tree as the durable common script source where applicable.
 
 This audit is a readiness snapshot only. Before live activation, re-run it against the candidate/live runtime and explicitly classify stale watchers, disabled jobs, hardcoded paths, and any KSCQ/KAC/retention/diary jobs that should be kept, paused, or retired.
