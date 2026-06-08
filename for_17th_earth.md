@@ -64,9 +64,10 @@ R-items are durable 17번째 지구 operating rules that govern release activati
 | ID | Rule title | Scope | Activation impact | Next-release instruction |
 |---|---|---|---|---|
 | R1 | [Config/profile activation policy](#r1-configprofile-activation-policy) | Default/named profile configs, schema migration, `hermes config check`, `hermes doctor`, config policy values | Treat as host-local config and doctor triage activation gate, not a runtime diff. | Verify raw config versions, run approved migrations/checks, set activation policy values explicitly, and classify remaining doctor warnings before restart. |
-| R2 | [Skill provenance, overrides, and compatibility policy](#r2-skill-provenance-overrides-and-compatibility-policy) | Bundled/upstream skills, optional skills, custom/local skills, hub-installed skills, profile-local skill copies, override/fork skills | Treat as host-local skill compatibility gate, not a runtime diff. | Audit bundled skill removals, custom/local skill validity, duplicate names, and active cron skill references; preserve upstream originals and fork needed local variants into custom/override skills. |
+| R2 | [Skill provenance, overrides, and compatibility policy](#r2-skill-provenance-overrides-and-compatibility-policy) | Bundled/upstream skills, optional skills, custom/local skills, hub-installed skills, profile-local skill copies, override/fork skills | Treat as host-local skill compatibility gate, not a runtime diff. R2 decides provenance/resolution/readiness, not release-specific usage-style rewriting. | Audit bundled skill removals, custom/local skill validity, duplicate names, and active cron skill references; preserve upstream originals and fork needed local variants into custom/override skills. Hand off profile-owned usage-style optimization to R5. |
 | R3 | [Web dashboard and desktop activation gate](#r3-web-dashboard-and-desktop-activation-gate) | Web dashboard, dashboard API/status, dashboard frontend build, PTY/WebSocket chat surface, Hermes Desktop build/launch/logs | Treat as host-local GUI surface activation gate, not a runtime diff. | Verify dashboard and desktop surfaces from the candidate/live runtime before declaring activation ready. |
-| R4 | [Cron and local automation assets activation gate](#r4-cron-and-local-automation-assets-activation-gate) | Active cron jobs, cron `skills[]`, cron scripts, `~/.hermes/scripts`, profile-local scripts, watcher jobs, hardcoded automation paths | Treat as host-local automation activation gate, not a runtime diff. | Verify active cron jobs, script existence/syntax, profile-relative script resolution, and hardcoded path compatibility before activation. |
+| R4 | [Cron and local automation assets activation gate](#r4-cron-and-local-automation-assets-activation-gate) | Active cron jobs, cron `skills[]`, cron scripts, `~/.hermes/scripts`, profile-local scripts, watcher jobs, hardcoded automation paths | Treat as host-local automation activation gate, not a runtime diff. R4 decides existence/syntax/resolution/governance/residuals, not release-specific usage-style rewriting. | Verify active cron jobs, script existence/syntax, profile-relative script resolution, and hardcoded path compatibility before activation. Hand off profile-owned cron/script usage-style optimization to R5. |
+| R5 | [Profile-owned local asset usage-style optimization gate](#r5-profile-owned-local-asset-usage-style-optimization-gate) | 17H-owned/profile-owned custom skills, profile-local skills after owner review, 17H-owned cron prompts/jobs, canonical scripts, and workflow guidance that should adopt new Hermes native surfaces | Treat as a post-activation local-asset optimization gate, not a runtime diff and not a readiness substitute for R2/R4. | After activation, run ownership-first self-audit and optimize only 17H-owned/profile-owned skill/cron/script content for the new release's native usage style; route maintainer-managed assets to upstream/project lanes. |
 
 ## D1 Tool Search pair
 
@@ -827,9 +828,11 @@ Read-only skill audit comparing the pre-update live/freeze commit to `v2026.6.5`
 
 Follow-up read-only local-assets audit on the default plus named profiles observed runtime-visible skill frontmatter errors `0` and runtime-visible duplicate skill profiles `0`. This does not replace activation-time skill update/repair decisions; it only records that the current visible skill inventory parses cleanly.
 
+R2 intentionally stops at provenance, resolver/readiness, frontmatter, duplicate-name, and upstream/override/fork decisions. Release-specific rewriting of profile-owned/custom skill content for new native Hermes usage patterns belongs to R5, even when the asset being optimized is a skill.
+
 ### Next-release instruction
 
-Re-check bundled and optional skill movement between the previous live release and the new upstream tag. Also re-check custom/local/hub/profile skill frontmatter, duplicate runtime-visible skill names, and active cron `skills[]` resolution. Keep bundled skill provenance, optional repair/install, curator effects on skills, and local skill fork/override decisions under R2 or a successor R-item.
+Re-check bundled and optional skill movement between the previous live release and the new upstream tag. Also re-check custom/local/hub/profile skill frontmatter, duplicate runtime-visible skill names, and active cron `skills[]` resolution. Keep bundled skill provenance, optional repair/install, curator effects on skills, and local skill fork/override decisions under R2 or a successor R-item. After R2 establishes ownership/resolution boundaries, run R5 for profile-owned usage-style optimization instead of folding that work into R2.
 
 ## R3 Web dashboard and desktop activation gate
 
@@ -915,7 +918,47 @@ This audit is a readiness snapshot only. Before live activation, re-run it again
 
 ### Next-release instruction
 
-Re-check active cron jobs, cron `skills[]`, cron scripts, profile-local script resolution, shared `/Users/draccoon/Workspace/Hermes/ops/scripts/` references, script syntax, hardcoded paths, and watcher retirement state for every future release activation. Keep cron/script/local automation readiness under R4 or a successor R-item unless a product-code change is actually required.
+Re-check active cron jobs, cron `skills[]`, cron scripts, profile-local script resolution, shared `/Users/draccoon/Workspace/Hermes/ops/scripts/` references, script syntax, hardcoded paths, and watcher retirement state for every future release activation. Keep cron/script/local automation readiness under R4 or a successor R-item unless a product-code change is actually required. After R4 establishes existence/syntax/resolution/governance boundaries, run R5 for profile-owned cron prompt/script usage-style optimization instead of folding that work into R4.
+
+## R5 Profile-owned local asset usage-style optimization gate
+
+### Rule
+
+R5 is the post-activation optimization gate for 17번째 지구 profile-owned local assets after a Hermes runtime release changes native usage style. It covers whether locally owned skills, cron prompts/jobs, and canonical scripts should be rewritten to use the new release's native surfaces and operating semantics more directly.
+
+Treat R5 as a local asset optimization gate, not a runtime diff and not a replacement for R2/R4 readiness:
+
+- R2 remains the provenance/resolver/readiness gate for skills: bundled vs optional vs custom vs hub vs profile-local, frontmatter, duplicate names, resolver visibility, upstream-follow, override/fork decisions, and active cron `skills[]` resolution.
+- R4 remains the readiness/governance gate for cron/scripts/watchers: job inventory, script existence, syntax, path resolution, stale watcher classification, residual allowlists, and local automation health.
+- R5 starts only after R2/R4 have established ownership and safety boundaries. It may modify 17H-owned/profile-owned content, but it must not mutate bundled/upstream/vendor/external-maintainer/project-maintainer assets as if they were 17H-owned.
+
+During R5:
+
+1. Preserve the Korean source command as SOT and create an English operational brief for worker/reviewer routing.
+2. Build an ownership-first inventory across runtime-visible local/custom/profile skills, 17H-owned cron prompts/jobs, and 17H-owned canonical scripts.
+3. Classify each asset before editing: `17h-owned-custom`, `17h-profile-local`, `17h-cron-prompt`, `17h-canonical-script`, `runtime-wrapper`, `upstream-bundled-follow`, `vendor-or-hub-follow`, `external-maintainer-follow`, `project-maintainer-follow`, or `unknown-owner-defer`.
+4. Optimize only 17H-owned/profile-owned assets for the target release's native surfaces. For v0.16 this includes Kanban `parents`, native review/claim flow, same-card handoff/reassign/request-changes seams, `goal_mode`, sticky blocks for external waits, notify subscriptions/bounded watchers, creator-final gates, and fail-closed backstops.
+5. Keep copied-skill dedup/governance separate from content optimization. Shared `skills.external_dirs` rollout and `.no-bundled-skills` reseed prevention prove resolver parity; they do not prove content has been rewritten for the new release.
+6. Do not edit Kkachi-family KAS/KAH/KAN/Kkachi or other project-maintainer assets under 17H authority. Route them to their maintainer lane or record upstream/project feedback.
+7. Validate with separate evidence surfaces: skill/frontmatter/governance audit, resolver smoke for load-bearing skills, cron JSON/prompt/script checks, script syntax/regression harness, and targeted workflow smoke if behavior changed.
+8. Use Kanban review with 사마의 for strategic risk and record 공명/creator final gate separately. Reviewer `done` is not final acceptance.
+
+### Current local activation note
+
+The v0.16.0 R5 first pass was completed on 2026-06-08 after shared skill-root dedup/governance stabilization:
+
+- Inventory/queue: `/Users/draccoon/Workspace/Hermes/ops/skills/_governance/v016-skill-content-optimization-queue-20260608-045637.md`.
+- Ownership boundary reference: `/Users/draccoon/Workspace/Hermes/ops/skills/dogfood/hermes-17e-update/references/17e-v016-skill-content-optimization-ownership-boundary-2026-06.md`.
+- Postpatch receipt: `/Users/draccoon/Workspace/Hermes/ops/skills/_governance/v016-skill-content-optimization-postpatch-receipt-20260608-050300.md`.
+- Postpatch inventory: `/Users/draccoon/Workspace/Hermes/ops/skills/_governance/v016-skill-content-optimization-postpatch-inventory-20260608-050300.json`.
+- First-pass scope: 12 files patched from the 17H-owned queue: 7 skills, 4 scripts, and 1 cron prompt/job surface. Bundled/vendor/hub/external-maintainer/project-maintainer assets were excluded or routed to their owner lanes.
+- Verification evidence: skill governance `status=ok`, `violation_count=0`; focused frontmatter checks passed; script `py_compile` passed; watcher/backstop regression harness `4/4 OK`; cron JSON parse passed; resolver smoke passed for representative shared and profile-local exception skills.
+- Review evidence: Samaui review card `t_8f56abcf` reached `STRATEGIC_RED_ACCEPT_WITH_RISK / STRATEGIC_ACCEPT / SAMAUI_ACCEPT` after request-changes fixes, and 공명 recorded creator-gate acceptance. Script-governance residuals discovered during the pass were split to R4 and later closed through R4 review.
+- Evidence precedence: if the initial queue and the postpatch receipt/inventory diverge, treat the postpatch receipt, postpatch inventory, final Samaui review, and 공명 creator gate as the final R5 completion evidence. The queue is planning/input evidence, not the final acceptance record.
+
+### Next-release instruction
+
+For every future Hermes runtime release, run R5 after R2/R4 establish ownership/readiness boundaries and after the live/candidate runtime surface is known. Rebuild the ownership-first inventory, optimize only 17H-owned/profile-owned skill/cron/script content for the new native usage style, preserve maintainer boundaries, validate with separate skill/cron/script evidence surfaces, and require 사마의 review plus 공명 creator gate before declaring the R5 pass complete.
 
 ## Current release-candidate baseline
 
