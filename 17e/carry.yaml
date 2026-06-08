@@ -134,7 +134,7 @@ entries:
           result: passed
   D2:
     title: Kanban review and same-card handoff helpers
-    status: partial-native-local-minimized-d2b-d2c-d2d-applied
+    status: partial-native-local-minimized-d2b-d2c-d2d-d2e-d2f-d2g-applied
     code_patch_required: true
     d2a_audit:
       native_present:
@@ -153,6 +153,7 @@ entries:
         D2-b: cooperative same-card handoff/reassign (applied)
         D2-c: same-card submit-for-review (applied)
         D2-d: request-changes/rework loop and final same-task-id smoke (applied)
+        D2-g: creator-accepted work result submission (applied)
       evidence:
         - command: git grep for old D2 helper/tool seams in current branch
           result: absent
@@ -231,6 +232,38 @@ entries:
           result: "same task id t_44cb7efb completed full loop; outcomes submitted_review, requested_changes, submitted_review, completed"
         - command: docker run --rm -i -v "$PWD:/repo:ro" -w /repo -e HERMES_HOME=/tmp/hermes-d2d-docker-smoke -e PYTHONPATH=/repo hermes-17e-d3-checkpoint-smoke:py311 python - <<'PY'
           result: "same task id t_4ae0b437 completed full loop; final_status done; no live secrets or production DB mounted"
+    d2g_patch:
+      status: keep-local-carry
+      local_action: add-creator-accepted-work-result-submission
+      applied:
+        - submit_task_result
+        - kanban_submit_result tool surface
+        - CLI submit-result surface
+        - request_changes provenance covers submitted_result
+        - worker guidance distinguishes complete vs submit_result vs submit_review
+      files:
+        - hermes_cli/kanban_db.py
+        - hermes_cli/kanban.py
+        - tools/kanban_tools.py
+        - toolsets.py
+        - agent/prompt_builder.py
+        - tests/hermes_cli/test_kanban_db.py
+        - tests/hermes_cli/test_kanban_cli.py
+        - tests/tools/test_kanban_tools.py
+        - for_17th_earth.md
+      evidence:
+        - command: Samaui review card t_9152144c
+          result: SAMAUI_ACCEPT / STRATEGIC_RED_ACCEPT_WITH_RISK; no mandatory fixes; non-blocking coverage/notifier hardening suggestions recorded in for_17th_earth.md
+        - command: targeted D2-g pytest selection
+          result: 7 passed, 1 warning
+        - command: PYTHONPATH=$PWD /Users/draccoon/.local/bin/hermes-python -m pytest -q tests/hermes_cli/test_kanban_db.py tests/hermes_cli/test_kanban_cli.py tests/tools/test_kanban_tools.py tests/hermes_cli/test_kanban_core_functionality.py
+          result: 539 passed, 1 skipped, 1 warning
+        - command: PYTHONPATH=$PWD /Users/draccoon/.local/bin/hermes-python -m py_compile hermes_cli/kanban_db.py hermes_cli/kanban.py tools/kanban_tools.py tests/hermes_cli/test_kanban_db.py tests/hermes_cli/test_kanban_cli.py tests/tools/test_kanban_tools.py toolsets.py agent/prompt_builder.py
+          result: passed
+        - command: git diff --check
+          result: passed
+        - command: HERMES_HOME=<disposable-home> PYTHONPATH=$PWD /Users/draccoon/.local/bin/hermes-python - <<'PY'
+          result: "same task id t_3ee697ce completed submit_result -> request_changes -> submit_result -> completed; outcomes submitted_result, requested_changes, submitted_result, completed"
   D3:
     title: Kanban assignee alias resolution
     status: keep-local-carry

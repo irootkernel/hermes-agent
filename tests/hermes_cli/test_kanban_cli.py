@@ -159,6 +159,35 @@ def test_run_slash_block_unblock_cycle(kanban_home):
     assert "Unblocked" in kc.run_slash(f"unblock {tid}")
 
 
+def test_run_slash_submit_result_routes_to_creator_acceptance(kanban_home, monkeypatch):
+    from hermes_cli import profiles
+
+    monkeypatch.setattr(profiles, "profile_exists", lambda name: name == "creator")
+    out = kc.run_slash("create 'worker result' --assignee wolong")
+    import re
+    tid = re.search(r"(t_[a-f0-9]+)", out).group(1)
+    kc.run_slash(f"claim {tid}")
+
+    submitted = kc.run_slash(
+        f"submit-result {tid} --reviewer creator --summary 'result ready' "
+        "--metadata '{\"tests_run\": 1}'"
+    )
+
+    assert "Submitted result" in submitted
+    assert "creator" in submitted
+    show = kc.run_slash(f"show {tid}")
+    assert "status:    review" in show
+    assert "assignee:  creator" in show
+    with kb.connect() as conn:
+        event = conn.execute(
+            "SELECT payload FROM task_events WHERE task_id = ? "
+            "AND kind = 'submitted_result'",
+            (tid,),
+        ).fetchone()
+        assert event is not None
+        assert json.loads(event["payload"])["submission_type"] == "result"
+
+
 def test_run_slash_json_output(kanban_home):
     out = kc.run_slash("create 'jsontask' --assignee alice --json")
     payload = json.loads(out)

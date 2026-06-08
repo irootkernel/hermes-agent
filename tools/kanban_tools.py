@@ -992,6 +992,47 @@ def _handle_submit_review(args: dict[str, Any], **kw) -> str:
         return tool_error(f"kanban_submit_review: {e}")
 
 
+def _handle_submit_result(args: dict[str, Any], **kw) -> str:
+    """Submit the current task's work result for creator acceptance."""
+    tid = _default_task_id(args.get("task_id"))
+    if not tid:
+        return tool_error("task_id is required (or set HERMES_KANBAN_TASK in the env)")
+    ownership_err = _enforce_worker_task_ownership(tid)
+    if ownership_err:
+        return ownership_err
+    metadata = args.get("metadata")
+    if metadata is not None and not isinstance(metadata, dict):
+        return tool_error(f"metadata must be an object/dict, got {type(metadata).__name__}")
+    metadata = _stamp_worker_session_metadata(tid, metadata)
+    board = args.get("board")
+    try:
+        kb, conn = _connect(board=board)
+        try:
+            ok = kb.submit_task_result(
+                conn,
+                tid,
+                reviewer=_normalize_profile(args.get("reviewer")),
+                summary=args.get("summary"),
+                metadata=metadata,
+                expected_run_id=_worker_run_id(tid),
+            )
+            if not ok:
+                return tool_error(f"could not submit result for {tid} (unknown id, invalid state, missing reviewer, or stale run)")
+            task = kb.get_task(conn, tid)
+            out = {"task_id": tid, "status": "review", "reviewer": task.assignee if task else None}
+            result_watch = _maybe_attach_session_notify_sub(kb, conn, tid)
+            if result_watch:
+                out["result_watch"] = result_watch
+            return _ok(**out)
+        finally:
+            conn.close()
+    except ValueError as e:
+        return tool_error(f"kanban_submit_result: {e}")
+    except Exception as e:
+        logger.exception("kanban_submit_result failed")
+        return tool_error(f"kanban_submit_result: {e}")
+
+
 def _handle_request_changes(args: dict[str, Any], **kw) -> str:
     """Send the current review task back to an implementer."""
     tid = _default_task_id(args.get("task_id"))
@@ -1567,6 +1608,38 @@ KANBAN_SUBMIT_REVIEW_SCHEMA = {
     },
 }
 
+KANBAN_SUBMIT_RESULT_SCHEMA = {
+    "name": "kanban_submit_result",
+    "description": (
+        "Submit the current Kanban task's work/research result back to the "
+        "creator or explicit reviewer for acceptance on the same card. The "
+        "current run is closed as submitted_result, the task moves to native "
+        "review status for the acceptor, and that acceptor can either complete "
+        "the task or use kanban_request_changes to return it to the original "
+        "worker for rework. Use this for non-review work results; use "
+        "kanban_submit_review when the task itself is asking a peer to review "
+        "an artifact."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "task_id": {"type": "string", "description": _DESC_TASK_ID_DEFAULT},
+            "reviewer": {
+                "type": "string",
+                "description": (
+                    "Creator/acceptor profile. Required unless the task "
+                    "created_by value resolves to a real profile."
+                ),
+            },
+            "summary": {"type": "string", "description": "Work result handoff summary."},
+            "metadata": {"type": "object", "description": "Optional structured result facts."},
+            "board": _board_schema_prop(),
+        },
+        "required": ["summary"],
+    },
+}
+
+
 KANBAN_REQUEST_CHANGES_SCHEMA = {
     "name": "kanban_request_changes",
     "description": (
@@ -1709,6 +1782,15 @@ registry.register(
     handler=_handle_submit_review,
     check_fn=_check_kanban_mode,
     emoji="🔎",
+)
+
+registry.register(
+    name="kanban_submit_result",
+    toolset="kanban",
+    schema=KANBAN_SUBMIT_RESULT_SCHEMA,
+    handler=_handle_submit_result,
+    check_fn=_check_kanban_mode,
+    emoji="📤",
 )
 
 registry.register(

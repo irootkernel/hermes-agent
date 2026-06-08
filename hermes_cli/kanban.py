@@ -528,6 +528,27 @@ def build_parser(parent_subparsers: argparse._SubParsersAction) -> argparse.Argu
                             help='JSON dict of structured facts (e.g. \'{"changed_files": [...], '
                                  '"tests_run": 12}\'). Stored on the closing run.')
 
+    p_submit_result = sub.add_parser(
+        "submit-result",
+        help="Submit a work result for creator acceptance on the same card",
+    )
+    p_submit_result.add_argument("task_id")
+    p_submit_result.add_argument(
+        "--reviewer",
+        default=None,
+        help="Creator/acceptor profile (required unless created_by resolves to a profile)",
+    )
+    p_submit_result.add_argument(
+        "--summary",
+        required=True,
+        help="Work result handoff summary for the acceptor",
+    )
+    p_submit_result.add_argument(
+        "--metadata",
+        default=None,
+        help="JSON dict of structured result facts stored on the released run",
+    )
+
     p_edit = sub.add_parser(
         "edit",
         help="Edit recovery fields on an already-completed task",
@@ -937,6 +958,7 @@ def kanban_command(args: argparse.Namespace) -> int:
             "claim":    _cmd_claim,
             "comment":  _cmd_comment,
             "complete": _cmd_complete,
+            "submit-result": _cmd_submit_result,
             "edit":     _cmd_edit,
             "block":    _cmd_block,
             "schedule": _cmd_schedule,
@@ -1925,6 +1947,41 @@ def _cmd_complete(args: argparse.Namespace) -> int:
                 else:
                     print(f"Completed {tid}")
     return 0 if not failed else 1
+
+
+def _cmd_submit_result(args: argparse.Namespace) -> int:
+    raw_meta = getattr(args, "metadata", None)
+    metadata = None
+    if raw_meta:
+        try:
+            metadata = json.loads(raw_meta)
+            if not isinstance(metadata, dict):
+                raise ValueError("must be a JSON object")
+        except (ValueError, json.JSONDecodeError) as exc:
+            print(f"kanban: --metadata: {exc}", file=sys.stderr)
+            return 2
+    with kb.connect_closing() as conn:
+        ok = kb.submit_task_result(
+            conn,
+            args.task_id,
+            reviewer=getattr(args, "reviewer", None),
+            summary=getattr(args, "summary", None),
+            metadata=metadata,
+            expected_run_id=_worker_run_id_for(args.task_id),
+        )
+        task = kb.get_task(conn, args.task_id)
+    if not ok:
+        print(
+            f"cannot submit result for {args.task_id} "
+            "(unknown id, invalid state, missing reviewer, or stale run)",
+            file=sys.stderr,
+        )
+        return 1
+    print(
+        f"Submitted result for {args.task_id}; "
+        f"routed to {task.assignee if task else '(unknown)'} for acceptance"
+    )
+    return 0
 
 
 def _cmd_edit(args: argparse.Namespace) -> int:

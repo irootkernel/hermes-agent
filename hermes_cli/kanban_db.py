@@ -2651,6 +2651,16 @@ def submit_task_for_review(
     return True
 
 
+def _decode_event_payload(row: sqlite3.Row | None) -> Optional[dict[str, Any]]:
+    if not row or not row["payload"]:
+        return None
+    try:
+        payload = json.loads(row["payload"])
+        return payload if isinstance(payload, dict) else None
+    except Exception:
+        return None
+
+
 def _latest_review_submit_payload(
     conn: sqlite3.Connection,
     task_id: str,
@@ -2660,13 +2670,105 @@ def _latest_review_submit_payload(
         "ORDER BY id DESC LIMIT 1",
         (task_id,),
     ).fetchone()
-    if not row or not row["payload"]:
-        return None
-    try:
-        payload = json.loads(row["payload"])
-        return payload if isinstance(payload, dict) else None
-    except Exception:
-        return None
+    return _decode_event_payload(row)
+
+
+def _latest_task_submission_payload(
+    conn: sqlite3.Connection,
+    task_id: str,
+) -> Optional[dict[str, Any]]:
+    row = conn.execute(
+        "SELECT payload FROM task_events WHERE task_id = ? "
+        "AND kind IN ('submitted_review', 'submitted_result') "
+        "ORDER BY id DESC LIMIT 1",
+        (task_id,),
+    ).fetchone()
+    return _decode_event_payload(row)
+
+
+def submit_task_result(
+    conn: sqlite3.Connection,
+    task_id: str,
+    *,
+    reviewer: Optional[str] = None,
+    summary: Optional[str] = None,
+    metadata: Optional[dict[str, Any]] = None,
+    expected_run_id: Optional[int] = None,
+) -> bool:
+    """Move a worker-owned task to creator acceptance review for its result.
+
+    This is the D2-g non-review work loop: the worker is submitting a concrete
+    work/research result back to the creator/reviewer, not asking for a peer
+    review of the creator's own artifact. The accepting reviewer may complete
+    the task directly, or use ``request_changes`` to return the same card to the
+    original worker for rework.
+    """
+    reviewer_was_requested = bool(reviewer and str(reviewer).strip())
+    requested_reviewer = (
+        _canonical_profile_assignee(reviewer)
+        if reviewer_was_requested
+        else None
+    )
+    if reviewer_was_requested and not requested_reviewer:
+        return False
+    with write_txn(conn):
+        row = conn.execute(
+            "SELECT status, assignee, created_by, current_run_id FROM tasks WHERE id = ?",
+            (task_id,),
+        ).fetchone()
+        if not row:
+            return False
+        if expected_run_id is not None and row["current_run_id"] != int(expected_run_id):
+            return False
+        if row["status"] not in {"running", "ready", "blocked"}:
+            return False
+        from_assignee = row["assignee"]
+        target_reviewer = requested_reviewer or _canonical_profile_assignee(row["created_by"])
+        if not target_reviewer:
+            return False
+        result_summary = summary or "submitted result for creator acceptance"
+        run_id = _end_run(
+            conn,
+            task_id,
+            outcome="submitted_result",
+            status="released",
+            summary=result_summary,
+            metadata=metadata,
+        )
+        if run_id is None and (result_summary or metadata):
+            run_id = _synthesize_ended_run(
+                conn,
+                task_id,
+                outcome="submitted_result",
+                summary=result_summary,
+                metadata=metadata,
+            )
+        conn.execute(
+            """
+            UPDATE tasks
+               SET status = 'review',
+                   assignee = ?,
+                   claim_lock = NULL,
+                   claim_expires = NULL,
+                   worker_pid = NULL,
+                   current_run_id = NULL
+             WHERE id = ?
+            """,
+            (target_reviewer, task_id),
+        )
+        _append_event(
+            conn,
+            task_id,
+            "submitted_result",
+            {
+                "from_assignee": from_assignee,
+                "reviewer": target_reviewer,
+                "summary": result_summary,
+                "submission_type": "result",
+            },
+            run_id=run_id,
+        )
+    return True
 
 
 def request_changes(
@@ -2693,7 +2795,7 @@ def request_changes(
             return False
         if row["status"] not in {"running", "review", "blocked"}:
             return False
-        submit_payload = _latest_review_submit_payload(conn, task_id) or {}
+        submit_payload = _latest_task_submission_payload(conn, task_id) or {}
         target = (
             requested_assignee
             or _canonical_assignee(submit_payload.get("from_assignee"))
@@ -3918,7 +4020,7 @@ def _run_claimed_from_review(conn: sqlite3.Connection, task_id: str, run_id: Opt
 
 def _latest_review_final_gate(conn: sqlite3.Connection, task_id: str) -> tuple[bool, Optional[str]]:
     """Return whether a final gate exists and its currently valid assignee."""
-    payload = _latest_review_submit_payload(conn, task_id) or {}
+    payload = _latest_task_submission_payload(conn, task_id) or {}
     if "final_assignee" not in payload:
         return False, None
     return True, _canonical_profile_assignee(payload.get("final_assignee"))

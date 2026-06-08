@@ -1635,6 +1635,153 @@ def test_kanban_submit_review_tool_rejects_invalid_reviewer(kanban_home, monkeyp
         ).fetchone()
 
 
+def test_submit_task_result_routes_to_creator_acceptance_without_final_gate(
+    kanban_home, monkeypatch
+):
+    """D2-g: worker result submission returns to creator for terminal acceptance."""
+    _allow_profiles(monkeypatch, "creator", "other")
+    with kb.connect() as conn:
+        tid = kb.create_task(
+            conn,
+            title="creator accepted work",
+            assignee="wolong",
+            created_by="other",
+        )
+        claimed = kb.claim_task(conn, tid, claimer="worker-lock")
+        assert claimed is not None
+
+        ok = kb.submit_task_result(
+            conn,
+            tid,
+            reviewer="creator",
+            summary="implemented requested fix",
+            metadata={"changed_files": ["app.py"]},
+            expected_run_id=claimed.current_run_id,
+        )
+
+        assert ok is True
+        task = kb.get_task(conn, tid)
+        assert task.status == "review"
+        assert task.assignee == "creator"
+        event = conn.execute(
+            "SELECT kind, payload FROM task_events WHERE task_id = ? "
+            "AND kind = 'submitted_result'",
+            (tid,),
+        ).fetchone()
+        assert event is not None
+        payload = json.loads(event["payload"])
+        assert payload == {
+            "from_assignee": "wolong",
+            "reviewer": "creator",
+            "summary": "implemented requested fix",
+            "submission_type": "result",
+        }
+
+        creator_claim = kb.claim_review_task(conn, tid, claimer="creator-lock")
+        assert creator_claim is not None
+        assert kb.complete_task(
+            conn,
+            tid,
+            result="creator accepted work result",
+            summary="accepted",
+            expected_run_id=creator_claim.current_run_id,
+        )
+        accepted = kb.get_task(conn, tid)
+        assert accepted.status == "done"
+        assert accepted.assignee == "creator"
+        assert accepted.result == "creator accepted work result"
+        assert not conn.execute(
+            "SELECT 1 FROM task_events WHERE task_id = ? AND kind = 'review_accepted'",
+            (tid,),
+        ).fetchone()
+
+
+def test_request_changes_returns_result_submission_to_worker(kanban_home, monkeypatch):
+    """D2-g result submissions use the same-card request-changes loop."""
+    _allow_profiles(monkeypatch, "creator")
+    with kb.connect() as conn:
+        tid = kb.create_task(conn, title="needs creator check", assignee="wolong")
+        claimed = kb.claim_task(conn, tid, claimer="worker-lock")
+        assert claimed is not None
+        assert kb.submit_task_result(
+            conn,
+            tid,
+            reviewer="creator",
+            summary="result ready",
+            expected_run_id=claimed.current_run_id,
+        )
+        creator_claim = kb.claim_review_task(conn, tid, claimer="creator-lock")
+        assert creator_claim is not None
+
+        ok = kb.request_changes(
+            conn,
+            tid,
+            reason="missing smoke evidence",
+            expected_run_id=creator_claim.current_run_id,
+        )
+
+        assert ok is True
+        task = kb.get_task(conn, tid)
+        assert task.status == "ready"
+        assert task.assignee == "wolong"
+        event = conn.execute(
+            "SELECT payload FROM task_events WHERE task_id = ? "
+            "AND kind = 'requested_changes' ORDER BY id DESC LIMIT 1",
+            (tid,),
+        ).fetchone()
+        assert json.loads(event["payload"]) == {
+            "from": "creator",
+            "to": "wolong",
+            "reason": "missing smoke evidence",
+        }
+
+
+def test_kanban_submit_result_tool_submits_current_worker_result(
+    kanban_home, monkeypatch
+):
+    from tools import kanban_tools
+    from tools.registry import registry
+
+    _allow_profiles(monkeypatch, "creator")
+    with kb.connect() as conn:
+        tid = kb.create_task(conn, title="tool result", assignee="wolong")
+        claimed = kb.claim_task(conn, tid, claimer="worker-lock")
+        assert claimed is not None
+        run_id = claimed.current_run_id
+
+    monkeypatch.setenv("HERMES_KANBAN_TASK", tid)
+    monkeypatch.setenv("HERMES_KANBAN_RUN_ID", str(run_id))
+    monkeypatch.setenv("HERMES_SESSION_ID", "session-1")
+
+    result = json.loads(
+        kanban_tools._handle_submit_result(
+            {
+                "reviewer": "creator",
+                "summary": "tool result ready",
+                "metadata": {"source": "test"},
+            }
+        )
+    )
+
+    assert result == {"ok": True, "task_id": tid, "status": "review", "reviewer": "creator"}
+    assert registry.get_entry("kanban_submit_result") is not None
+    assert registry.get_entry("kanban_submit_result").schema["name"] == "kanban_submit_result"
+    with kb.connect() as conn:
+        task = kb.get_task(conn, tid)
+        assert task.status == "review"
+        assert task.assignee == "creator"
+        run = conn.execute(
+            "SELECT status, outcome, metadata FROM task_runs WHERE id = ?",
+            (run_id,),
+        ).fetchone()
+        assert run["status"] == "released"
+        assert run["outcome"] == "submitted_result"
+        assert json.loads(run["metadata"]) == {
+            "source": "test",
+            "worker_session_id": "session-1",
+        }
+
+
 def test_request_changes_returns_review_to_original_implementer(kanban_home, monkeypatch):
     """request_changes uses submit-review provenance to restore implementer ownership."""
     _allow_profiles(monkeypatch, "samaui")

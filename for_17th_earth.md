@@ -141,6 +141,7 @@ Re-apply D2 as smaller local-minimize subitems:
 - D2-d: request-changes/rework loop (`request_changes`, `kanban_request_changes`) plus final same-task-id synthetic smoke — applied in `17e/v0.16.0-re`.
 - D2-e: creator/final gate after reviewer approval (`final_assignee` review payload and `review_accepted` same-card routing) — applied on `17e/live` after v0.16.0 activation.
 - D2-f: async review watcher coverage (`kanban_submit_review` session-source auto-subscribe plus notifier delivery for `requested_changes` / `review_accepted`) — applied on `17e/live` after D2-e.
+- D2-g: creator-accepted work result submission (`submit_task_result`, `kanban_submit_result`, CLI `submit-result`) — applied in this branch after D2-f.
 
 Audit evidence:
 
@@ -408,6 +409,62 @@ git diff --check -- tools/kanban_tools.py gateway/run.py tests/hermes_cli/test_k
 # passed
 ```
 
+### D2-g v0.16.0 patch decision
+
+Decision: `keep-local-carry` for creator-accepted work result submission. D2-b/c/d/e/f/g are now applied; native v0.16 review dispatch remains in use.
+
+Applied local seams:
+
+- `hermes_cli/kanban_db.py`: `submit_task_result(...)` closes the current worker run as `submitted_result` / `released`, records a `submitted_result` event with the original worker (`from_assignee`) and acceptor (`reviewer`), clears claim state, and moves the same task id into native `review` status for creator/acceptor approval. It intentionally does not write `final_assignee`, so the acceptor's `complete_task(...)` is terminal instead of being routed through the D2-e creator/final gate.
+- `request_changes(...)`: latest-submission provenance now considers both `submitted_review` and `submitted_result`, so acceptors can return result submissions to the original worker on the same card.
+- `tools/kanban_tools.py`: `kanban_submit_result` worker/orchestrator tool surface with same-task ownership guard, stale-run guard via `HERMES_KANBAN_RUN_ID`, worker session metadata stamping, and the same session-source watcher attachment behavior as review submission.
+- `hermes_cli/kanban.py`: CLI `submit-result <task_id> --reviewer <profile> --summary ... [--metadata JSON]` for operator/manual acceptance routing.
+- `toolsets.py` and tool visibility tests expose `kanban_submit_result`; `agent/prompt_builder.py` tells workers when to choose `kanban_complete`, `kanban_submit_result`, or `kanban_submit_review` while keeping the Kanban guidance under the existing prompt-size guard.
+
+Review note:
+
+- Samaui review card `t_9152144c`: `SAMAUI_ACCEPT / STRATEGIC_RED_ACCEPT_WITH_RISK` for D2-g release scope. No mandatory fixes requested. Non-blocking risks noted: add explicit negative coverage for invalid reviewer / missing creator / stale run, and add an explicit notifier regression for `kanban_submit_result` in a later hardening pass if D2-g remains long-lived local carry.
+
+Smoke evidence:
+
+```bash
+PYTHONPATH=$PWD /Users/draccoon/.local/bin/hermes-python -m pytest -q \
+  tests/hermes_cli/test_kanban_db.py::test_submit_task_result_routes_to_creator_acceptance_without_final_gate \
+  tests/hermes_cli/test_kanban_db.py::test_request_changes_returns_result_submission_to_worker \
+  tests/hermes_cli/test_kanban_db.py::test_kanban_submit_result_tool_submits_current_worker_result \
+  tests/hermes_cli/test_kanban_cli.py::test_run_slash_submit_result_routes_to_creator_acceptance \
+  tests/tools/test_kanban_tools.py::test_kanban_tools_visible_with_env_var \
+  tests/tools/test_kanban_tools.py::test_kanban_worker_env_overrides_profile_toolset_filter \
+  tests/tools/test_kanban_tools.py::test_kanban_tools_visible_with_toolset_config
+# 7 passed, 1 warning
+
+PYTHONPATH=$PWD /Users/draccoon/.local/bin/hermes-python -m pytest -q \
+  tests/hermes_cli/test_kanban_db.py \
+  tests/hermes_cli/test_kanban_cli.py \
+  tests/tools/test_kanban_tools.py \
+  tests/hermes_cli/test_kanban_core_functionality.py
+# 539 passed, 1 skipped, 1 warning
+
+PYTHONPATH=$PWD /Users/draccoon/.local/bin/hermes-python -m py_compile \
+  hermes_cli/kanban_db.py \
+  hermes_cli/kanban.py \
+  tools/kanban_tools.py \
+  tests/hermes_cli/test_kanban_db.py \
+  tests/hermes_cli/test_kanban_cli.py \
+  tests/tools/test_kanban_tools.py \
+  toolsets.py \
+  agent/prompt_builder.py
+# passed
+
+git diff --check
+# passed
+
+HERMES_HOME=<disposable-home> PYTHONPATH=$PWD /Users/draccoon/.local/bin/hermes-python - <<'PY'
+# submit_result -> creator review -> request_changes -> worker rework -> submit_result -> creator complete on one task id.
+PY
+# {"task_id": "t_3ee697ce", "after_first_submit": {"status": "review", "assignee": "creator"}, "after_changes": {"status": "ready", "assignee": "worker"}, "final": {"status": "done", "assignee": "creator", "result": "accepted"}, "outcomes": ["submitted_result", "requested_changes", "submitted_result", "completed"]}
+```
+
 ### Purpose
 
 17번째 지구 uses Kanban as a durable work bus. Worker questions, baton handoffs, review submission, request-changes, review acceptance/final-gate routing, and rework must remain on the same task id so comments, events, runs, and async notifications are auditable.
@@ -433,11 +490,13 @@ Required behavior:
 5. Native v0.16 review dispatch should be used where possible instead of replacing it.
 6. When a creator/final gate is recorded, reviewer approval must not be terminal `done`; the same card must route back to the final assignee and only the final assignee's completion closes the task.
 7. When review completion may be asynchronous, review submission must attach or preserve a watcher/notification path so `requested_changes`, `review_accepted`, and final completion return to the originating chat without manual polling.
+8. A worker can submit a non-review work/research result to the creator/acceptor on the same card without invoking the D2-e final-gate path; the acceptor either completes the same card or returns it with `request_changes`.
 
 ### Candidate missing surfaces to verify
 
 - `kanban_reassign`
 - `kanban_submit_review`
+- `kanban_submit_result`
 - `kanban_request_changes`
 - DB helpers/events/outcomes for `handed_off`, `submitted_review`, `requested_changes`, `review_accepted`
 - gateway notifier subscription coverage for review outcome events
@@ -445,10 +504,13 @@ Required behavior:
 ### Primary files
 
 - `hermes_cli/kanban_db.py`
+- `hermes_cli/kanban.py`
 - `tools/kanban_tools.py`
 - `toolsets.py`
+- `agent/prompt_builder.py`
 - `gateway/run.py`
 - `tests/hermes_cli/test_kanban_db.py`
+- `tests/hermes_cli/test_kanban_cli.py`
 - `tests/tools/test_kanban_tools.py`
 - `tests/gateway/test_kanban_notifier.py`
 - `tests/hermes_cli/test_kanban_core_functionality.py`
