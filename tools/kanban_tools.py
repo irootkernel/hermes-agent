@@ -129,6 +129,57 @@ def _stamp_worker_session_metadata(
     return stamped
 
 
+def _session_env(name: str) -> str:
+    """Read gateway-bound session metadata with env fallback.
+
+    Agent calls made inside the gateway carry platform/chat/thread/user through
+    ``gateway.session_context`` contextvars. Dispatcher-spawned workers and
+    tests may only have plain environment variables, so fall back there. Missing
+    values are expected on local/cron runs and simply mean no notify watcher can
+    be attached automatically.
+    """
+    try:
+        from gateway.session_context import get_session_env
+        value = get_session_env(name, "")
+        if value:
+            return str(value)
+    except Exception:
+        pass
+    return str(os.environ.get(name, "") or "")
+
+
+def _maybe_attach_session_notify_sub(kb, conn, task_id: str) -> Optional[dict[str, Any]]:
+    """Best-effort D2-f watcher attach for async review waits.
+
+    Returns a compact receipt when the current execution context has enough
+    source-routing metadata to subscribe the originating chat/thread to Kanban
+    review outcomes. Returns None when there is no messaging source (CLI, cron,
+    tests without HERMES_SESSION_*), preserving existing non-gateway behavior.
+    """
+    platform = _session_env("HERMES_SESSION_PLATFORM").strip().lower()
+    chat_id = _session_env("HERMES_SESSION_CHAT_ID").strip()
+    if not platform or not chat_id:
+        return None
+    thread_id = _session_env("HERMES_SESSION_THREAD_ID").strip()
+    user_id = _session_env("HERMES_SESSION_USER_ID").strip() or None
+    notifier_profile = os.environ.get("HERMES_PROFILE") or None
+    kb.add_notify_sub(
+        conn,
+        task_id=task_id,
+        platform=platform,
+        chat_id=chat_id,
+        thread_id=thread_id or None,
+        user_id=user_id,
+        notifier_profile=notifier_profile,
+    )
+    return {
+        "attached": True,
+        "platform": platform,
+        "chat_id": chat_id,
+        "thread_id": thread_id,
+    }
+
+
 def _enforce_worker_task_ownership(tid: str) -> Optional[str]:
     """Reject worker-driven destructive calls on foreign task IDs.
 
@@ -928,6 +979,9 @@ def _handle_submit_review(args: dict[str, Any], **kw) -> str:
             out = {"task_id": tid, "status": "review", "reviewer": task.assignee if task else None}
             if final_assignee:
                 out["final_assignee"] = final_assignee
+            review_watch = _maybe_attach_session_notify_sub(kb, conn, tid)
+            if review_watch:
+                out["review_watch"] = review_watch
             return _ok(**out)
         finally:
             conn.close()
@@ -1480,6 +1534,10 @@ KANBAN_SUBMIT_REVIEW_SCHEMA = {
         "Submit the current Kanban task for native review on the same card. "
         "The current run is closed as submitted_review, the task moves to "
         "review status, and the dispatcher can spawn the reviewer profile. "
+        "When a gateway/session source is available, this call also attaches "
+        "an idempotent notify watcher immediately so async review outcomes "
+        "(``requested_changes`` / ``review_accepted`` / final completion) "
+        "return to the originating chat. "
         "When a final assignee/creator gate is recorded, reviewer approval "
         "returns the same card to that final gate instead of marking it done."
     ),

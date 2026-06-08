@@ -1558,6 +1558,50 @@ def test_kanban_submit_review_tool_submits_current_worker_task(
         }
 
 
+def test_kanban_submit_review_tool_auto_subscribes_session_source(
+    kanban_home, monkeypatch
+):
+    """D2-f: async review submission attaches a notifier watcher immediately."""
+    from tools import kanban_tools
+
+    _allow_profiles(monkeypatch, "samaui")
+    with kb.connect() as conn:
+        tid = kb.create_task(conn, title="tool submit watched", assignee="wolong")
+        claimed = kb.claim_task(conn, tid, claimer="worker-lock")
+        assert claimed is not None
+        run_id = claimed.current_run_id
+
+    monkeypatch.setenv("HERMES_KANBAN_TASK", tid)
+    monkeypatch.setenv("HERMES_KANBAN_RUN_ID", str(run_id))
+    monkeypatch.setenv("HERMES_SESSION_PLATFORM", "discord")
+    monkeypatch.setenv("HERMES_SESSION_CHAT_ID", "chat-17e")
+    monkeypatch.setenv("HERMES_SESSION_THREAD_ID", "thread-d2f")
+    monkeypatch.setenv("HERMES_SESSION_USER_ID", "user-raccoon")
+    monkeypatch.setenv("HERMES_PROFILE", "wolong")
+
+    result = json.loads(
+        kanban_tools._handle_submit_review(
+            {"reviewer": "samaui", "summary": "review with watcher"}
+        )
+    )
+
+    assert result["ok"] is True
+    assert result["review_watch"] == {
+        "attached": True,
+        "platform": "discord",
+        "chat_id": "chat-17e",
+        "thread_id": "thread-d2f",
+    }
+    with kb.connect() as conn:
+        subs = kb.list_notify_subs(conn, tid)
+    assert len(subs) == 1
+    assert subs[0]["platform"] == "discord"
+    assert subs[0]["chat_id"] == "chat-17e"
+    assert subs[0]["thread_id"] == "thread-d2f"
+    assert subs[0]["user_id"] == "user-raccoon"
+    assert subs[0]["notifier_profile"] == "wolong"
+
+
 def test_kanban_submit_review_tool_rejects_invalid_reviewer(kanban_home, monkeypatch):
     from tools import kanban_tools
 

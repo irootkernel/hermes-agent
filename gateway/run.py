@@ -5200,11 +5200,12 @@ class GatewayRunner:
             return "default"
 
     async def _kanban_notifier_watcher(self, interval: float = 5.0) -> None:
-        """Poll ``kanban_notify_subs`` and deliver terminal events to users.
+        """Poll ``kanban_notify_subs`` and deliver watched Kanban events to users.
 
         For each subscription row, fetches ``task_events`` newer than the
-        stored cursor with kind in the terminal set (``completed``,
-        ``blocked``, ``gave_up``, ``crashed``, ``timed_out``). Sends one
+        stored cursor with kind in the watched set (``completed``,
+        ``blocked``, ``gave_up``, ``crashed``, ``timed_out``,
+        ``requested_changes``, ``review_accepted``). Sends one
         message per new event to ``(platform, chat_id, thread_id)``,
         then advances the cursor. When a task reaches a terminal state
         (``completed`` / ``archived``), the subscription is removed.
@@ -5249,7 +5250,15 @@ class GatewayRunner:
             logger.warning("kanban notifier: kanban_db not importable; notifier disabled")
             return
 
-        TERMINAL_KINDS = ("completed", "blocked", "gave_up", "crashed", "timed_out")
+        WATCHED_KINDS = (
+            "completed",
+            "blocked",
+            "gave_up",
+            "crashed",
+            "timed_out",
+            "requested_changes",
+            "review_accepted",
+        )
         # Subscriptions are removed only when the task reaches a truly final
         # status (done / archived). We used to also unsub on any terminal
         # event kind (gave_up / crashed / timed_out / blocked), but that
@@ -5357,7 +5366,7 @@ class GatewayRunner:
                                     platform=sub["platform"],
                                     chat_id=sub["chat_id"],
                                     thread_id=sub.get("thread_id") or "",
-                                    kinds=TERMINAL_KINDS,
+                                    kinds=WATCHED_KINDS,
                                 )
                                 if not events:
                                     continue
@@ -5463,6 +5472,28 @@ class GatewayRunner:
                                 f"⏱ {tag}Kanban {sub['task_id']} timed out "
                                 f"(max_runtime={limit}s); will retry"
                             )
+                        elif kind == "requested_changes":
+                            reason = ""
+                            if ev.payload and ev.payload.get("reason"):
+                                reason = f": {str(ev.payload['reason'])[:160]}"
+                            to_assignee = ""
+                            if ev.payload and ev.payload.get("to"):
+                                to_assignee = f" → @{str(ev.payload['to'])[:80]}"
+                            msg = (
+                                f"↩ {tag}Kanban {sub['task_id']} review changes requested"
+                                f"{to_assignee}{reason}"
+                            )
+                        elif kind == "review_accepted":
+                            to_assignee = ""
+                            if ev.payload and ev.payload.get("to"):
+                                to_assignee = f" → final gate @{str(ev.payload['to'])[:80]}"
+                            summary = ""
+                            if ev.payload and ev.payload.get("summary"):
+                                summary = f"\n{str(ev.payload['summary'])[:200]}"
+                            msg = (
+                                f"✓ {tag}Kanban {sub['task_id']} review accepted"
+                                f"{to_assignee}{summary}"
+                            )
                         else:
                             continue
                         metadata: dict[str, Any] = {}
@@ -5546,7 +5577,7 @@ class GatewayRunner:
                         # gave_up / crashed / timed_out the subscription is
                         # kept alive so the user gets notified again if the
                         # dispatcher respawns the task and it cycles into the
-                        # same state. See the longer comment on TERMINAL_KINDS
+                        # same state. See the longer WATCHED_KINDS comment
                         # above for the failure mode this prevents.
                         task_terminal = task and task.status in {"done", "archived"}
                         if task_terminal:

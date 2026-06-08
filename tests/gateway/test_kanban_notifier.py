@@ -233,3 +233,93 @@ def test_notifier_redelivers_same_kind_on_dispatch_cycle(tmp_path, monkeypatch):
         f"deliveries (texts: {[d['text'] for d in adapter.sent]})"
     )
     assert "crashed" in adapter.sent[1]["text"].lower()
+
+
+def test_notifier_delivers_review_request_changes(tmp_path, monkeypatch):
+    """D2-f: subscribed async review waiters hear request-changes outcomes."""
+    db_path = tmp_path / "review-request-changes.db"
+    monkeypatch.setenv("HERMES_KANBAN_DB", str(db_path))
+    kb.init_db()
+
+    from hermes_cli import profiles
+    monkeypatch.setattr(profiles, "profile_exists", lambda name: name in {"reviewer"})
+
+    conn = kb.connect()
+    try:
+        tid = kb.create_task(conn, title="review outcome", assignee="worker")
+        kb.add_notify_sub(conn, task_id=tid, platform="telegram", chat_id="chat-1")
+        claimed = kb.claim_task(conn, tid, claimer="worker-lock")
+        assert claimed is not None
+        assert kb.submit_task_for_review(
+            conn,
+            tid,
+            reviewer="reviewer",
+            summary="ready for review",
+            expected_run_id=claimed.current_run_id,
+        )
+        review_claim = kb.claim_review_task(conn, tid, claimer="reviewer-lock")
+        assert review_claim is not None
+        assert kb.request_changes(
+            conn,
+            tid,
+            reason="missing smoke evidence",
+            expected_run_id=review_claim.current_run_id,
+        )
+    finally:
+        conn.close()
+
+    adapter = RecordingAdapter()
+    asyncio.run(_run_one_notifier_tick(monkeypatch, _make_runner(adapter)))
+
+    assert len(adapter.sent) == 1
+    text = adapter.sent[0]["text"].lower()
+    assert "changes requested" in text
+    assert "missing smoke evidence" in text
+
+
+def test_notifier_delivers_review_accepted_final_gate(tmp_path, monkeypatch):
+    """D2-f: reviewer approval routed to creator/final gate is a watched event."""
+    db_path = tmp_path / "review-accepted.db"
+    monkeypatch.setenv("HERMES_KANBAN_DB", str(db_path))
+    kb.init_db()
+
+    from hermes_cli import profiles
+    monkeypatch.setattr(profiles, "profile_exists", lambda name: name in {"reviewer", "creator"})
+
+    conn = kb.connect()
+    try:
+        tid = kb.create_task(
+            conn,
+            title="review accepted",
+            assignee="worker",
+            created_by="creator",
+        )
+        kb.add_notify_sub(conn, task_id=tid, platform="telegram", chat_id="chat-1")
+        claimed = kb.claim_task(conn, tid, claimer="worker-lock")
+        assert claimed is not None
+        assert kb.submit_task_for_review(
+            conn,
+            tid,
+            reviewer="reviewer",
+            final_assignee="creator",
+            summary="ready for approval",
+            expected_run_id=claimed.current_run_id,
+        )
+        review_claim = kb.claim_review_task(conn, tid, claimer="reviewer-lock")
+        assert review_claim is not None
+        assert kb.complete_task(
+            conn,
+            tid,
+            summary="review approved",
+            expected_run_id=review_claim.current_run_id,
+        )
+    finally:
+        conn.close()
+
+    adapter = RecordingAdapter()
+    asyncio.run(_run_one_notifier_tick(monkeypatch, _make_runner(adapter)))
+
+    assert len(adapter.sent) == 1
+    text = adapter.sent[0]["text"].lower()
+    assert "review accepted" in text
+    assert "creator" in text
