@@ -2136,61 +2136,15 @@ def _canonical_assignee(assignee: Optional[str]) -> Optional[str]:
     return normalize_profile_name(assignee)
 
 
-def _kanban_assignee_aliases() -> dict[str, str]:
-    """Return normalized Kanban assignee→profile aliases from config.
-
-    Task assignees are durable board/audit lanes. Dispatcher subprocesses
-    require a real Hermes profile for ``hermes -p <profile>``.  The
-    ``kanban.assignee_aliases`` map bridges those two names without rewriting
-    ``tasks.assignee``.
-    """
-    try:
-        from hermes_cli.config import load_config
-        from hermes_cli.profiles import normalize_profile_name
-
-        config = load_config()
-        kanban_cfg = config.get("kanban") if isinstance(config, dict) else None
-        aliases = (
-            kanban_cfg.get("assignee_aliases")
-            if isinstance(kanban_cfg, dict)
-            else None
-        )
-        if not isinstance(aliases, dict):
-            return {}
-        resolved: dict[str, str] = {}
-        for key, value in aliases.items():
-            if key is None or value is None:
-                continue
-            source = normalize_profile_name(str(key))
-            target = normalize_profile_name(str(value))
-            if source and target:
-                resolved[source] = target
-        return resolved
-    except Exception:
-        return {}
-
-
 def resolve_assignee_profile(assignee: Optional[str]) -> Optional[str]:
-    """Resolve a Kanban audit-lane assignee to the Hermes profile to spawn.
+    """Return the canonical Hermes profile name for a Kanban assignee.
 
-    Alias cycles or excessively deep chains are treated as non-spawnable
-    configuration errors. Returning ``None`` keeps dispatcher behavior
-    fail-closed instead of accidentally spawning an intermediate lane.
+    Kanban dispatch now expects assignees to be real profile handles. Historical
+    ``kanban.assignee_aliases`` support was a 17번째 지구 carry for the
+    root-default Gongmyeong era and was retired once `wolong` became a real
+    profile wrapper.
     """
-    current = _canonical_assignee(assignee)
-    if not current:
-        return current
-    aliases = _kanban_assignee_aliases()
-    seen: set[str] = set()
-    for _ in range(8):
-        if current in seen:
-            return None
-        seen.add(current)
-        target = aliases.get(current)
-        if not target:
-            return current
-        current = target
-    return None
+    return _canonical_assignee(assignee)
 
 
 def _canonical_profile_assignee(assignee: Optional[str]) -> Optional[str]:

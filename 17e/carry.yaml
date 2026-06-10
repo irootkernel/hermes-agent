@@ -356,25 +356,30 @@ entries:
           result: "safe workflow banner/guidance present; invalid persisted workflow_type returned null from get_task, kanban_show, kanban_list, CLI show JSON, and CLI list JSON; injected marker absent from worker_context and JSON surfaces"
   D3:
     title: Kanban assignee alias resolution
-    status: keep-local-carry
-    local_action: reapply-minimal-dispatcher-seam
-    code_patch_required: true
-    config_contract:
-      kanban.assignee_aliases:
-        wolong: default
+    status: retired-local-code-removed-after-wrapper-migration
+    local_action: drop-assignee-alias-seam
+    code_patch_required: false
+    config_contract: retired
+    retirement_reason:
+      - hermes is a neutral CLI entrypoint
+      - wolong is now a real profile wrapper and no longer aliases to default
+      - heuktaeja/default is not expected to receive Kanban tasks
+      - Kanban assignees should be canonical runnable profile handles
     evidence:
-      upstream_absence:
+      historical_upstream_absence:
         - command: git grep -n "assignee_aliases\\|resolve_assignee_profile" e895d0ecf -- hermes_cli tests
           result: no matches
-      smoke:
-        - command: PYTHONPATH=$PWD /Users/draccoon/.local/bin/hermes-python -m pytest -q tests/hermes_cli/test_kanban_db.py
-          result: 217 passed
-        - command: PYTHONPATH=$PWD HERMES_HOME=<disposable-home> /Users/draccoon/.local/bin/hermes-python -m hermes_cli.main kanban dispatch --dry-run --max 5 --json
-          result: spawned task kept assignee wolong; skipped_nonspawnable empty
-        - command: PYTHONPATH=$PWD /Users/draccoon/.local/bin/hermes-python -m py_compile hermes_cli/kanban_db.py tests/hermes_cli/test_kanban_db.py
-          result: passed
-        - command: git diff --check
-          result: passed
+      retirement_smoke:
+        - command: env -u HERMES_HOME hermes config path
+          result: /Users/draccoon/.hermes/config.yaml
+        - command: wolong config path
+          result: /Users/draccoon/.hermes/profiles/wolong/config.yaml
+        - command: wolyeong config path
+          result: /Users/draccoon/.hermes/profiles/wolyeong/config.yaml
+        - command: live config search for kanban.assignee_aliases
+          result: no active config entries remain
+        - command: active root Kanban task search for alias assignees gongmyeong/공명/heuktaeja/흑태자
+          result: no active tasks found
   D4:
     title: Discord gateway config and owner-thread routing seams
     status: partial-native-local-minimized-owner-thread-applied

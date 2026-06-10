@@ -2657,74 +2657,24 @@ def test_dispatch_skips_nonspawnable_into_separate_bucket(kanban_home, monkeypat
     assert not res.spawned
 
 
-def _install_assignee_alias(monkeypatch, aliases=None, existing_profiles=None):
+def test_resolve_assignee_profile_returns_canonical_profile_handle(monkeypatch):
     from hermes_cli import config as hermes_config
-    from hermes_cli import profiles
 
-    aliases = aliases or {"wolong": "default"}
-    existing_profiles = existing_profiles or {"default"}
     monkeypatch.setattr(
         hermes_config,
         "load_config",
-        lambda: {"kanban": {"assignee_aliases": aliases}},
+        lambda: {"kanban": {"assignee_aliases": {"wolong": "default"}}},
     )
-    monkeypatch.setattr(profiles, "profile_exists", lambda name: name in existing_profiles)
+
+    assert kb.resolve_assignee_profile("Wolong") == "wolong"
+    assert kb.resolve_assignee_profile("wolong") == "wolong"
 
 
-def test_dispatch_dry_run_uses_assignee_alias_without_rewriting_lane(
-    kanban_home, monkeypatch
-):
-    _install_assignee_alias(monkeypatch)
-    with kb.connect() as conn:
-        t = kb.create_task(conn, title="alias", assignee="wolong")
-        res = kb.dispatch_once(conn, dry_run=True)
-    assert res.spawned == [(t, "wolong", "")]
-    assert t not in res.skipped_nonspawnable
-
-
-def test_spawnable_health_checks_use_assignee_alias_for_ready_and_review(
-    kanban_home, monkeypatch
-):
-    _install_assignee_alias(monkeypatch)
-    with kb.connect() as conn:
-        kb.create_task(conn, title="ready", assignee="wolong")
-        review = kb.create_task(conn, title="review", assignee="wolong")
-        conn.execute("UPDATE tasks SET status = 'review' WHERE id = ?", (review,))
-        assert kb.has_spawnable_ready(conn) is True
-        assert kb.has_spawnable_review(conn) is True
-
-
-def test_dispatch_review_dry_run_uses_assignee_alias_without_rewriting_lane(
-    kanban_home, monkeypatch
-):
-    _install_assignee_alias(monkeypatch)
-    with kb.connect() as conn:
-        t = kb.create_task(conn, title="review", assignee="wolong")
-        conn.execute("UPDATE tasks SET status = 'review' WHERE id = ?", (t,))
-        res = kb.dispatch_once(conn, dry_run=True)
-    assert res.spawned == [(t, "wolong", "")]
-    assert t not in res.skipped_nonspawnable
-
-
-def test_resolve_assignee_alias_cycle_fails_closed(monkeypatch):
-    _install_assignee_alias(monkeypatch, aliases={"alpha": "beta", "beta": "alpha"})
-
-    assert kb.resolve_assignee_profile("alpha") is None
-
-
-def test_resolve_assignee_alias_depth_limit_fails_closed(monkeypatch):
-    aliases = {f"lane{i}": f"lane{i + 1}" for i in range(9)}
-    _install_assignee_alias(monkeypatch, aliases=aliases)
-
-    assert kb.resolve_assignee_profile("lane0") is None
-
-
-def test_default_spawn_uses_resolved_alias_profile_arg(
+def test_default_spawn_uses_canonical_assignee_profile_arg(
     kanban_home, tmp_path, monkeypatch
 ):
     import subprocess
 
-    _install_assignee_alias(monkeypatch)
     monkeypatch.setattr(kb, "_resolve_hermes_argv", lambda: ["hermes"])
     monkeypatch.setattr(kb, "_kanban_worker_skill_available", lambda _home: False)
 
@@ -2756,8 +2706,8 @@ def test_default_spawn_uses_resolved_alias_profile_arg(
     assert popen_calls
     cmd, kwargs = popen_calls[0]
     profile_index = cmd.index("-p") + 1
-    assert cmd[profile_index] == "default"
-    assert kwargs["env"]["HERMES_PROFILE"] == "default"
+    assert cmd[profile_index] == "wolong"
+    assert kwargs["env"]["HERMES_PROFILE"] == "wolong"
     assert kwargs["env"]["HERMES_KANBAN_TASK"] == t
     assert task.assignee == "wolong"
 

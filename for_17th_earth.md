@@ -51,7 +51,7 @@ D-items are release-scoped runtime/code differences between upstream Hermes and 
 |---|---|---|---|---|
 | D1 | [Tool Search pair](#d1-tool-search-pair) | `upstream-absorbed` by `v2026.6.5` | Drop local D1 carry; do not apply Tool Search code patches on this release branch. | `git merge-base --is-ancestor` returned `0` for both `369075dc9` and `7427b9d58` against this branch. |
 | D2 | [Kanban review and same-card handoff helpers](#d2-kanban-review-and-same-card-handoff-helpers) | D2-a audited: `partial-native`; D2-b/c/d/e/f applied | Keep native v0.16 review queue/dispatch; re-applied only missing same-card transition/tool seams in D2-b/c/d/e/f. | Native `review` claim/dispatch exists; `handoff_task`, `submit_task_for_review`, `request_changes`, final creator-gate routing, and async review watcher coverage were absent at D2-a audit. |
-| D3 | [Kanban assignee alias resolution](#d3-kanban-assignee-alias-resolution) | `keep-local-carry` | Re-applied minimal dispatcher-only spawn-profile alias resolution. | v0.16.0 had no `kanban.assignee_aliases` / `resolve_assignee_profile` equivalent before this D3 commit. |
+| D3 | [Kanban assignee alias resolution](#d3-kanban-assignee-alias-resolution) | `retired` / local code removed after wrapper migration | Drop `kanban.assignee_aliases`; Kanban assignees must be canonical runnable profile handles. | `hermes` is neutral, `wolong` is a real profile wrapper, and 흑태자/default is not a Kanban task receiver. |
 | D4 | [Discord gateway config and owner-thread routing seams](#d4-discord-gateway-config-and-owner-thread-routing-seams) | generic config fixes `upstream-absorbed`; owner-thread seam applied | Drop duplicate generic config carries; re-applied only owner-thread routing and `auto_thread_free_response` opt-in. | Generic config commits are ancestors; `ThreadOwnerTracker` / owner-thread seam absent before D4 patch. |
 | D5 | [Plugin strategy retirement](#d5-plugin-strategy-retirement) | `retired` / no-code | Do not recreate `kkachi-hermes-plugin`; carry only this ledger/skill knowledge. | Repo audit found no active config/plan/plugin dependency outside this ledger/carry manifest. |
 | D6 | [CLI return-code passthrough](#d6-cli-return-code-passthrough) | `keep-local-carry` | Applied bool-safe top-level integer return-code passthrough. | Missing Kanban task now exits `1`; usage error exits `2`; bool return values are ignored. |
@@ -646,11 +646,47 @@ Manual/synthetic pass criteria:
 
 ## D3 Kanban assignee alias resolution
 
-### v0.16.0 decision
+### v0.16.0 follow-up retirement
 
-`keep-local-carry` for `17e/v0.16.0-re`.
+Decision: `retired` / local code removed after the wrapper migration.
 
-Upstream `v2026.6.5` has native Kanban review dispatch and spawnability checks, but not the 17번째 지구 assignee-lane to spawn-profile alias seam. This commit adds only the missing dispatcher seam: durable `tasks.assignee` remains the board/audit lane, while `kanban.assignee_aliases` is resolved for spawnability checks and `_default_spawn` profile selection.
+The original D3 carry existed for the root-default Gongmyeong era, where a
+board-facing `wolong` lane needed to spawn the runnable `default` profile. That
+condition no longer holds: `hermes` is a neutral CLI entrypoint, `wolong` is a
+real profile wrapper, and 흑태자/default is not expected to receive Kanban tasks.
+Kanban assignees should now be canonical runnable profile handles, not alias
+lanes.
+
+Applied retirement:
+
+- Removed live `kanban.assignee_aliases` entries from default and `wolong` profile configs.
+- Simplified `resolve_assignee_profile(...)` to canonical profile-name normalization only.
+- Removed alias-cycle/depth/alias-spawn tests and replaced them with canonical-profile spawn tests.
+
+Verification evidence:
+
+```bash
+# Wrapper/canonical profile checks from the approved migration:
+env -u HERMES_HOME hermes config path
+# /Users/draccoon/.hermes/config.yaml
+wolong config path
+# /Users/draccoon/.hermes/profiles/wolong/config.yaml
+wolyeong config path
+# /Users/draccoon/.hermes/profiles/wolyeong/config.yaml
+
+# Live config no longer contains kanban.assignee_aliases.
+# Active root Kanban tasks have no assignee in ('gongmyeong', '공명', 'heuktaeja', '흑태자').
+```
+
+### Historical v0.16.0 decision
+
+`keep-local-carry` for `17e/v0.16.0-re` before the wrapper migration.
+
+Upstream `v2026.6.5` had native Kanban review dispatch and spawnability checks,
+but not the 17번째 지구 assignee-lane to spawn-profile alias seam. The old D3
+commit added only the missing dispatcher seam: durable `tasks.assignee` remained
+the board/audit lane while `kanban.assignee_aliases` was resolved for
+spawnability checks and `_default_spawn` profile selection.
 
 Decision evidence:
 
@@ -659,11 +695,13 @@ git grep -n "assignee_aliases\|resolve_assignee_profile" e895d0ecf -- hermes_cli
 # no matches
 ```
 
-### Purpose
+### Historical purpose
 
-The board-facing assignee name and the actual spawnable Hermes profile can differ. In this deployment, `wolong` can be the durable board/audit lane for Gongmyeong while the actual runnable profile is `default`.
+The board-facing assignee name and the actual spawnable Hermes profile could differ. In the old deployment, `wolong` could be the durable board/audit lane for Gongmyeong while the actual runnable profile was `default`.
 
-### Config contract
+### Retired config contract
+
+Do not use this contract for new work:
 
 ```yaml
 kanban:
@@ -671,7 +709,13 @@ kanban:
     wolong: default
 ```
 
-Required behavior:
+Current required behavior:
+
+1. `tasks.assignee` should be a canonical runnable Hermes profile handle.
+2. Dispatcher spawnability checks and `_default_spawn` should use that same canonical profile handle.
+3. Non-profile/control-plane lanes remain `skipped_nonspawnable` and are not auto-spawned.
+
+Historical required behavior, retained only for future audit context:
 
 1. Preserve `tasks.assignee` as the board/audit lane.
 2. Resolve aliases only for dispatcher spawnability checks and `_default_spawn` profile selection.
@@ -681,7 +725,7 @@ Required behavior:
 
 ### Per-delta decision procedure
 
-In the D3 commit, verify whether v0.16.0 has an upstream equivalent for spawn-profile aliasing. If absent, re-apply the minimal dispatcher seam. Resolve D3 after D2 review/handoff analysis because review dispatch also needs alias resolution.
+For future releases, do not re-apply D3 unless a new, explicitly approved board-lane-to-profile separation requirement appears. First verify that canonical profile handles are sufficient for ready/review dispatch and creator/final-gate validation.
 
 ### Primary files
 
@@ -691,24 +735,24 @@ In the D3 commit, verify whether v0.16.0 has an upstream equivalent for spawn-pr
 ### Targeted smoke
 
 ```bash
-PYTHONPATH=$PWD /Users/draccoon/.local/bin/hermes-python -m pytest -q tests/hermes_cli/test_kanban_db.py
-# 217 passed
+PYTHONPATH=$PWD /Users/draccoon/.local/bin/hermes-python -m pytest -q \
+  tests/hermes_cli/test_kanban_db.py::test_resolve_assignee_profile_returns_canonical_profile_handle \
+  tests/hermes_cli/test_kanban_db.py::test_default_spawn_uses_canonical_assignee_profile_arg \
+  tests/hermes_cli/test_kanban_db.py::test_has_spawnable_ready_true_when_real_profile_present \
+  tests/hermes_cli/test_kanban_db.py::test_has_spawnable_review_true
 
-PYTHONPATH=$PWD HERMES_HOME=<disposable-home> /Users/draccoon/.local/bin/hermes-python -m hermes_cli.main kanban dispatch --dry-run --max 5 --json
-# spawned task kept assignee "wolong"; skipped_nonspawnable []
-
-PYTHONPATH=$PWD /Users/draccoon/.local/bin/hermes-python -m py_compile hermes_cli/kanban_db.py tests/hermes_cli/test_kanban_db.py
-# passed
+PYTHONPATH=$PWD /Users/draccoon/.local/bin/hermes-python -m py_compile \
+  hermes_cli/kanban_db.py \
+  tests/hermes_cli/test_kanban_db.py
 
 git diff --check
-# passed
 ```
 
 Manual pass criteria:
 
-- A task assigned to `wolong` is not bucketed as `skipped_nonspawnable` solely because the runnable profile is `default`.
-- The persisted board assignee remains `wolong`.
-- Alias cycle/depth-limit tests pass.
+- A task assigned to `wolong` is treated as spawnable because `wolong` is now a real profile.
+- Alias assignees such as `gongmyeong`, `공명`, `heuktaeja`, or `흑태자` are not required for active work.
+- The persisted board assignee remains the canonical profile handle.
 
 ## D4 Discord gateway config and owner-thread routing seams
 
