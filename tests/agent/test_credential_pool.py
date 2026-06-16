@@ -16,6 +16,12 @@ def _write_auth_store(tmp_path, payload: dict) -> None:
     (hermes_home / "auth.json").write_text(json.dumps(payload, indent=2))
 
 
+def _write_profile_env(tmp_path, content: str) -> None:
+    hermes_home = tmp_path / "hermes"
+    hermes_home.mkdir(parents=True, exist_ok=True)
+    (hermes_home / ".env").write_text(content)
+
+
 def _jwt_with_claims(claims: dict) -> str:
     def _part(payload: dict) -> str:
         raw = json.dumps(payload, separators=(",", ":")).encode("utf-8")
@@ -186,6 +192,212 @@ def test_random_strategy_uses_random_choice(tmp_path, monkeypatch):
     selected = pool.select()
     assert selected is not None
     assert selected.id == "cred-2"
+
+
+def test_credential_pin_selects_by_label_before_strategy(tmp_path, monkeypatch):
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes"))
+    _write_profile_env(tmp_path, "HERMES_CREDENTIAL_PIN_OPENAI_CODEX_LABEL=JYH\n")
+    _write_auth_store(
+        tmp_path,
+        {
+            "version": 1,
+            "credential_pool": {
+                "openai-codex": [
+                    {
+                        "id": "cred-hsy",
+                        "label": "HSY",
+                        "auth_type": "oauth",
+                        "priority": 0,
+                        "source": "device_code",
+                        "access_token": "hsy-token",
+                    },
+                    {
+                        "id": "cred-jyh",
+                        "label": "JYH",
+                        "auth_type": "oauth",
+                        "priority": 1,
+                        "source": "device_code",
+                        "access_token": "jyh-token",
+                    },
+                ]
+            },
+        },
+    )
+    (tmp_path / "hermes" / "config.yaml").write_text(
+        "credential_pool_strategies:\n"
+        "  openai-codex: random\n"
+    )
+    monkeypatch.setattr("agent.credential_pool.random.choice", lambda entries: entries[0])
+
+    from agent.credential_pool import load_pool
+
+    pool = load_pool("openai-codex")
+    selected = pool.select()
+
+    assert selected is not None
+    assert selected.id == "cred-jyh"
+    current = pool.current()
+    assert current is not None
+    assert current.id == "cred-jyh"
+
+
+def test_credential_pin_reads_profile_env_file(tmp_path, monkeypatch):
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes"))
+    monkeypatch.delenv("HERMES_CREDENTIAL_PIN_OPENAI_CODEX_LABEL", raising=False)
+    _write_auth_store(
+        tmp_path,
+        {
+            "version": 1,
+            "credential_pool": {
+                "openai-codex": [
+                    {
+                        "id": "cred-hsy",
+                        "label": "HSY",
+                        "auth_type": "oauth",
+                        "priority": 0,
+                        "source": "device_code",
+                        "access_token": "hsy-token",
+                    },
+                    {
+                        "id": "cred-jyh",
+                        "label": "JYH",
+                        "auth_type": "oauth",
+                        "priority": 1,
+                        "source": "device_code",
+                        "access_token": "jyh-token",
+                    },
+                ]
+            },
+        },
+    )
+    (tmp_path / "hermes" / ".env").write_text("HERMES_CREDENTIAL_PIN_OPENAI_CODEX_LABEL=JYH\n")
+
+    from agent.credential_pool import load_pool
+
+    pool = load_pool("openai-codex")
+    selected = pool.select()
+
+    assert selected is not None
+    assert selected.id == "cred-jyh"
+
+
+def test_credential_pin_id_takes_precedence_over_label(tmp_path, monkeypatch):
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes"))
+    _write_profile_env(
+        tmp_path,
+        "HERMES_CREDENTIAL_PIN_OPENAI_CODEX_ID=cred-hsy\n"
+        "HERMES_CREDENTIAL_PIN_OPENAI_CODEX_LABEL=JYH\n",
+    )
+    _write_auth_store(
+        tmp_path,
+        {
+            "version": 1,
+            "credential_pool": {
+                "openai-codex": [
+                    {
+                        "id": "cred-hsy",
+                        "label": "HSY",
+                        "auth_type": "oauth",
+                        "priority": 0,
+                        "source": "device_code",
+                        "access_token": "hsy-token",
+                    },
+                    {
+                        "id": "cred-jyh",
+                        "label": "JYH",
+                        "auth_type": "oauth",
+                        "priority": 1,
+                        "source": "device_code",
+                        "access_token": "jyh-token",
+                    },
+                ]
+            },
+        },
+    )
+    from agent.credential_pool import load_pool
+
+    pool = load_pool("openai-codex")
+    selected = pool.select()
+
+    assert selected is not None
+    assert selected.id == "cred-hsy"
+
+
+def test_credential_pin_duplicate_label_fails_closed(tmp_path, monkeypatch):
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes"))
+    _write_profile_env(tmp_path, "HERMES_CREDENTIAL_PIN_OPENAI_CODEX_LABEL=JYH\n")
+    _write_auth_store(
+        tmp_path,
+        {
+            "version": 1,
+            "credential_pool": {
+                "openai-codex": [
+                    {
+                        "id": "cred-a",
+                        "label": "JYH",
+                        "auth_type": "oauth",
+                        "priority": 0,
+                        "source": "device_code",
+                        "access_token": "a-token",
+                    },
+                    {
+                        "id": "cred-b",
+                        "label": "jyh",
+                        "auth_type": "oauth",
+                        "priority": 1,
+                        "source": "device_code",
+                        "access_token": "b-token",
+                    },
+                ]
+            },
+        },
+    )
+    from agent.credential_pool import load_pool
+
+    pool = load_pool("openai-codex")
+
+    assert pool.select() is None
+    assert pool.current() is None
+
+
+def test_credential_pin_unavailable_entry_fails_closed(tmp_path, monkeypatch):
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes"))
+    _write_profile_env(tmp_path, "HERMES_CREDENTIAL_PIN_OPENAI_CODEX_LABEL=JYH\n")
+    _write_auth_store(
+        tmp_path,
+        {
+            "version": 1,
+            "credential_pool": {
+                "openai-codex": [
+                    {
+                        "id": "cred-hsy",
+                        "label": "HSY",
+                        "auth_type": "oauth",
+                        "priority": 0,
+                        "source": "device_code",
+                        "access_token": "hsy-token",
+                    },
+                    {
+                        "id": "cred-jyh",
+                        "label": "JYH",
+                        "auth_type": "oauth",
+                        "priority": 1,
+                        "source": "device_code",
+                        "access_token": "jyh-token",
+                        "last_status": "exhausted",
+                        "last_status_at": time.time(),
+                        "last_error_code": 429,
+                    },
+                ]
+            },
+        },
+    )
+    from agent.credential_pool import load_pool
+
+    pool = load_pool("openai-codex")
+
+    assert pool.select() is None
+    assert pool.acquire_lease() is None
 
 
 

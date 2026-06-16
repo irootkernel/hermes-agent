@@ -102,6 +102,7 @@ def test_resolve_runtime_provider_falls_back_when_pool_empty(monkeypatch):
 
     monkeypatch.setattr(rp, "resolve_provider", lambda *a, **k: "openai-codex")
     monkeypatch.setattr(rp, "load_pool", lambda provider: _Pool())
+    monkeypatch.setattr(rp, "has_configured_credential_pin", lambda provider: False)
     monkeypatch.setattr(
         rp,
         "resolve_codex_runtime_credentials",
@@ -120,12 +121,81 @@ def test_resolve_runtime_provider_falls_back_when_pool_empty(monkeypatch):
     assert resolved.get("credential_pool") is None
 
 
+def test_resolve_runtime_provider_pinned_empty_pool_fails_closed(monkeypatch):
+    class _Pool:
+        def has_credentials(self):
+            return False
+
+    def _unexpected_fallback():
+        raise AssertionError("pinned provider must not fall back to unpinned auth")
+
+    monkeypatch.setattr(rp, "resolve_provider", lambda *a, **k: "openai-codex")
+    monkeypatch.setattr(rp, "load_pool", lambda provider: _Pool())
+    monkeypatch.setattr(rp, "has_configured_credential_pin", lambda provider: True)
+    monkeypatch.setattr(rp, "resolve_codex_runtime_credentials", _unexpected_fallback)
+
+    with pytest.raises(rp.AuthError) as excinfo:
+        rp.resolve_runtime_provider(requested="openai-codex")
+
+    assert excinfo.value.code == "credential_pin_unavailable"
+
+
+def test_resolve_runtime_provider_pinned_unavailable_entry_fails_closed(monkeypatch):
+    class _Pool:
+        def has_credentials(self):
+            return True
+
+        def has_configured_pin(self):
+            return True
+
+        def select(self):
+            return None
+
+    def _unexpected_fallback():
+        raise AssertionError("pinned provider must not fall back to unpinned auth")
+
+    monkeypatch.setattr(rp, "resolve_provider", lambda *a, **k: "openai-codex")
+    monkeypatch.setattr(rp, "load_pool", lambda provider: _Pool())
+    monkeypatch.setattr(rp, "resolve_codex_runtime_credentials", _unexpected_fallback)
+
+    with pytest.raises(rp.AuthError) as excinfo:
+        rp.resolve_runtime_provider(requested="openai-codex")
+
+    assert excinfo.value.code == "credential_pin_unavailable"
+
+
+def test_resolve_runtime_provider_pinned_entry_uses_pool(monkeypatch):
+    class _Entry:
+        access_token = "jyh-token"
+        source = "device_code"
+        base_url = "https://chatgpt.com/backend-api/codex"
+
+    class _Pool:
+        def has_credentials(self):
+            return True
+
+        def has_configured_pin(self):
+            return True
+
+        def select(self):
+            return _Entry()
+
+    monkeypatch.setattr(rp, "resolve_provider", lambda *a, **k: "openai-codex")
+    monkeypatch.setattr(rp, "load_pool", lambda provider: _Pool())
+
+    resolved = rp.resolve_runtime_provider(requested="openai-codex")
+
+    assert resolved["api_key"] == "jyh-token"
+    assert resolved["credential_pool"] is not None
+
+
 def test_resolve_runtime_provider_codex(monkeypatch):
     monkeypatch.setattr(
         rp,
         "load_pool",
         lambda provider: type("P", (), {"has_credentials": lambda self: False})(),
     )
+    monkeypatch.setattr(rp, "has_configured_credential_pin", lambda provider: False)
     monkeypatch.setattr(rp, "resolve_provider", lambda *a, **k: "openai-codex")
     monkeypatch.setattr(
         rp,

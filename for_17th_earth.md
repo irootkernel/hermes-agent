@@ -56,6 +56,7 @@ D-items are release-scoped runtime/code differences between upstream Hermes and 
 | D5 | [Plugin strategy retirement](#d5-plugin-strategy-retirement) | `retired` / no-code | Do not recreate `kkachi-hermes-plugin`; carry only this ledger/skill knowledge. | Repo audit found no active config/plan/plugin dependency outside this ledger/carry manifest. |
 | D6 | [CLI return-code passthrough](#d6-cli-return-code-passthrough) | `keep-local-carry` | Applied bool-safe top-level integer return-code passthrough. | Missing Kanban task now exits `1`; usage error exits `2`; bool return values are ignored. |
 | D7 | [Doctor actionable warning filter](#d7-doctor-actionable-warning-filter) | `keep-local-carry` | Applied config-scoped doctor Tool Availability output filtering. | Disabled optional toolsets are hidden from doctor warnings; selected/enabled missing toolsets still warn. |
+| D8 | [OpenAI-Codex credential pinning](#d8-openai-codex-credential-pinning) | `keep-local-carry` | Applied runtime `.env` credential-pin selection with fail-closed behavior. | Pinned OpenAI-Codex profiles resolve to HSY/JYH labels from profile `.env`; config.yaml `credential_pins` is ignored; duplicate/missing/unavailable pins do not fall back to another credential. |
 
 ## Rule section: operating rules (R-items)
 
@@ -981,6 +982,66 @@ PY
 ### Next-release instruction
 
 Re-check whether upstream doctor now scopes Tool Availability warnings to configured toolsets. If upstream absorbs equivalent behavior, mark D7 `upstream-absorbed`; otherwise keep the smallest filter seam and preserve fail-open behavior.
+
+## D8 OpenAI-Codex credential pinning
+
+### v0.16.0 decision
+
+`keep-local-carry` for `17e/v0.16.0-re`.
+
+17번째 지구 runs multiple GPT-5.5/OpenAI-Codex profiles against a shared Hermes `auth.json` credential pool. D8 adds a small generic runtime selection seam so a profile can pin a provider to one pooled credential by stable `id` or human label from profile-local `.env`, avoiding churn when `config.yaml` schema/version migrations rewrite config files:
+
+```dotenv
+HERMES_CREDENTIAL_PIN_OPENAI_CODEX_LABEL=JYH
+```
+
+`HERMES_CREDENTIAL_PIN_<PROVIDER>_ID` takes precedence over `HERMES_CREDENTIAL_PIN_<PROVIDER>_LABEL`; a bare `HERMES_CREDENTIAL_PIN_<PROVIDER>` is treated as a label. Label matching is case-insensitive but must be unique. `config.yaml` `credential_pins` is intentionally unsupported and ignored. If the configured pin is missing, duplicated, exhausted/dead, or has no runtime token, the runtime fails closed instead of falling back to a different OpenAI-Codex account. With no pin configured, existing credential-pool strategies (`fill_first`, `round_robin`, `random`, `least_used`) retain their previous behavior.
+
+### Applied seam
+
+- `agent/credential_pool.py`: parse profile-local `.env` credential pin variables only, resolve pinned entries, and make `select()`, `peek()`, and `acquire_lease()` respect the pin before pool strategy rotation.
+- `hermes_cli/runtime_provider.py`: if a provider has a configured pin but the pinned pool entry is unavailable, raise `AuthError(code="credential_pin_unavailable")` rather than falling through to singleton auth-store credentials.
+- `agent/auxiliary_client.py`: Codex auxiliary token resolution respects the same fail-closed pin behavior instead of reading the unpinned auth-store singleton when the pinned pool selection fails.
+- Profile activation state: 40 GPT-5.5/OpenAI-Codex profiles received `HERMES_CREDENTIAL_PIN_OPENAI_CODEX_LABEL` in profile `.env` (`JYH`: 25, `HSY`: 15). `gongmyeong`/`공명` resolve to the `wolong` profile, and `wolong` is pinned to `JYH`. Security-bearing `.env` activation files are not backed up for this operation; stale credential-pin backup directories were deleted.
+
+### Evidence
+
+```bash
+PYTHONPATH=. /Users/draccoon/.local/bin/hermes-python -m pytest \
+  tests/agent/test_credential_pool.py::test_credential_pin_selects_by_label_before_strategy \
+  tests/agent/test_credential_pool.py::test_credential_pin_reads_profile_env_file \
+  tests/agent/test_credential_pool.py::test_credential_pin_id_takes_precedence_over_label \
+  tests/agent/test_credential_pool.py::test_credential_pin_duplicate_label_fails_closed \
+  tests/agent/test_credential_pool.py::test_credential_pin_unavailable_entry_fails_closed \
+  tests/hermes_cli/test_runtime_provider_resolution.py::test_resolve_runtime_provider_pinned_empty_pool_fails_closed \
+  tests/hermes_cli/test_runtime_provider_resolution.py::test_resolve_runtime_provider_pinned_unavailable_entry_fails_closed \
+  tests/agent/test_auxiliary_client.py::TestReadCodexAccessToken::test_pinned_pool_without_selected_entry_fails_closed \
+  -q -o 'addopts='
+# 8 passed
+```
+
+Related-file smoke:
+
+```bash
+PYTHONPATH=. /Users/draccoon/.local/bin/hermes-python -m pytest \
+  tests/agent/test_credential_pool.py \
+  tests/hermes_cli/test_runtime_provider_resolution.py \
+  tests/agent/test_auxiliary_client.py::TestReadCodexAccessToken \
+  -q -o 'addopts='
+# 223 passed
+```
+
+Profile `.env` verification after apply without security-file backup:
+
+```text
+JYH profiles: 25
+HSY profiles: 15
+errors: []
+```
+
+### Next-release instruction
+
+Re-check whether upstream supports per-profile credential pinning for pooled OAuth credentials. If upstream absorbs equivalent fail-closed id/label pinning, mark D8 `upstream-absorbed`; otherwise preserve the smallest runtime selection seam and keep profile-level pins in host-local `.env` activation state, not in config.yaml migrations or product repo defaults.
 
 ## R1 Config/profile activation policy
 

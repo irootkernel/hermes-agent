@@ -99,7 +99,7 @@ class _OpenAIProxy:
 
 OpenAI = _OpenAIProxy()  # module-level name, resolves lazily on call/isinstance
 
-from agent.credential_pool import load_pool
+from agent.credential_pool import has_configured_credential_pin, load_pool
 from hermes_cli.config import get_hermes_home
 from hermes_constants import OPENROUTER_BASE_URL
 from utils import base_url_host_matches, base_url_hostname, normalize_proxy_env_vars
@@ -1359,6 +1359,9 @@ def _read_codex_access_token() -> Optional[str]:
         token = _pool_runtime_api_key(entry)
         if token:
             return token
+        if has_configured_credential_pin("openai-codex"):
+            logger.debug("Codex credential pin configured but no pinned pool token is available")
+            return None
 
     try:
         from hermes_cli.auth import _read_codex_tokens

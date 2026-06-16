@@ -483,3 +483,92 @@ entries:
           result: "67 passed, 1 warning"
         - command: docker run --rm -i -v "$PWD:/repo:ro" -w /repo -e HERMES_HOME=/tmp/hermes-d7-docker-smoke -e PYTHONPATH=/repo hermes-17e-d3-checkpoint-smoke:py311 python - <<'PY'
           result: "read-only repo smoke passed; disabled optional homeassistant hidden, selected optional x_search warning preserved"
+  D8:
+    title: OpenAI-Codex credential pinning
+    status: keep-local-carry
+    local_action: add-fail-closed-credential-pin-selection
+    code_patch_required: true
+    applied:
+      - profile .env credential pin parser for provider-level id/label pins; config.yaml credential_pins is unsupported and ignored
+      - CredentialPool select, peek, and acquire_lease honor pins before pool strategy rotation
+      - HERMES_CREDENTIAL_PIN_<PROVIDER>_ID takes precedence over HERMES_CREDENTIAL_PIN_<PROVIDER>_LABEL
+      - label pins match case-insensitively but require uniqueness across the full pool
+      - missing, ambiguous, exhausted, dead, or tokenless pins fail closed with no alternate credential fallback
+      - runtime_provider raises credential_pin_unavailable for unavailable pinned credentials
+      - auxiliary Codex token selection does not read unpinned singleton auth when a configured pin is unavailable
+      - host-local GPT-5.5 profile .env files pinned to HSY or JYH labels; security-bearing .env files were not backed up and stale credential-pin backups were deleted
+    files:
+      - agent/credential_pool.py
+      - hermes_cli/runtime_provider.py
+      - agent/auxiliary_client.py
+      - tests/agent/test_credential_pool.py
+      - tests/hermes_cli/test_runtime_provider_resolution.py
+      - tests/agent/test_auxiliary_client.py
+      - for_17th_earth.md
+      - 17e/carry.yaml
+    host_local_env:
+      backup_policy: no .env/config credential-pin backups retained for this operation
+      deleted_stale_backup_dirs:
+        - /Users/draccoon/Workspace/Hermes/17thHermes/50_health/team/heuktaeja/backups/20260616-181010-openai-codex-env-pins
+        - /Users/draccoon/Workspace/Hermes/17thHermes/50_health/team/heuktaeja/backups/20260616-180420-openai-codex-credential-pins
+      env_var: HERMES_CREDENTIAL_PIN_OPENAI_CODEX_LABEL
+      aliases:
+        gongmyeong: wolong
+        공명: wolong
+      labels:
+        JYH:
+          count: 25
+          profiles:
+            - default
+            - wolong
+            - bongchu
+            - samaui
+            - jooyoo
+            - hwata
+            - nosuk
+            - sunuk
+            - goong
+            - jalong
+            - kangyoo
+            - jangryo
+            - dengai
+            - seoseo
+            - jangwan
+            - dongyun
+            - kwanwoo
+            - hahudon
+            - maryang
+            - magyun
+            - biui
+            - jangbi
+            - janghap
+            - beopjeong
+            - jangso
+        HSY:
+          count: 15
+          profiles:
+            - macho
+            - hwangchung
+            - yeopo
+            - yukson
+            - seohwang
+            - hahuyeon
+            - wolyeong
+            - gahu
+            - mibang
+            - jonghoe
+            - yeomong
+            - jingung
+            - wiyeon
+            - ijeok
+            - yuyeop
+    evidence:
+      smoke:
+        - command: targeted D8 env-pin pytest selection
+          result: "8 passed"
+        - command: related D8 credential/runtime/auxiliary pytest files
+          result: "223 passed"
+        - command: profile .env pin verification after apply without security-file backup and with config pin removal
+          result: "JYH profiles 25; HSY profiles 15; config pin errors 0; env errors 0"
+        - command: live profile pool selection verification from profile .env pins
+          result: "40/40 selected expected HSY/JYH labels; errors []"

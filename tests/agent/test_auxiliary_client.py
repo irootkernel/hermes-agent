@@ -180,12 +180,28 @@ class TestReadCodexAccessToken:
 
         valid_jwt = "eyJhbGciOiJSUzI1NiJ9.eyJleHAiOjk5OTk5OTk5OTl9.sig"
         with patch("agent.auxiliary_client._select_pool_entry", return_value=(True, None)), \
+             patch("agent.auxiliary_client.has_configured_credential_pin", return_value=False), \
              patch("hermes_cli.auth._read_codex_tokens", return_value={
                  "tokens": {"access_token": valid_jwt, "refresh_token": "refresh"}
              }):
             result = _read_codex_access_token()
 
         assert result == valid_jwt
+
+    def test_pinned_pool_without_selected_entry_fails_closed(self, tmp_path, monkeypatch):
+        hermes_home = tmp_path / "hermes"
+        hermes_home.mkdir(parents=True, exist_ok=True)
+        monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+
+        def _unexpected_read():
+            raise AssertionError("pinned Codex auxiliary token must not fall back to unpinned auth")
+
+        with patch("agent.auxiliary_client._select_pool_entry", return_value=(True, None)), \
+             patch("agent.auxiliary_client.has_configured_credential_pin", return_value=True), \
+             patch("hermes_cli.auth._read_codex_tokens", _unexpected_read):
+            result = _read_codex_access_token()
+
+        assert result is None
 
     def test_missing_returns_none(self, tmp_path, monkeypatch):
         hermes_home = tmp_path / "hermes"
