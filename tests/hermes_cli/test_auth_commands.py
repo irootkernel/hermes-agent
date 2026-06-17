@@ -37,6 +37,80 @@ def _clear_provider_env(monkeypatch):
         monkeypatch.delenv(key, raising=False)
 
 
+def test_auth_add_codex_label_reauth_updates_only_matching_pool_entry(tmp_path, monkeypatch):
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes"))
+    _write_auth_store(
+        tmp_path,
+        {
+            "version": 1,
+            "providers": {
+                "openai-codex": {
+                    "tokens": {"access_token": "jyh-old-at", "refresh_token": "jyh-old-rt"},
+                    "last_refresh": "2026-06-01T00:00:00Z",
+                    "label": "JYH",
+                },
+            },
+            "credential_pool": {
+                "openai-codex": [
+                    {
+                        "id": "cred-hsy",
+                        "label": "HSY",
+                        "auth_type": "oauth",
+                        "priority": 0,
+                        "source": "manual:device_code",
+                        "access_token": "hsy-old-at",
+                        "refresh_token": "hsy-old-rt",
+                        "last_status": "exhausted",
+                        "last_error_code": 401,
+                    },
+                    {
+                        "id": "cred-jyh",
+                        "label": "JYH",
+                        "auth_type": "oauth",
+                        "priority": 1,
+                        "source": "device_code",
+                        "access_token": "jyh-old-at",
+                        "refresh_token": "jyh-old-rt",
+                    },
+                ]
+            },
+        },
+    )
+    monkeypatch.setattr(
+        "hermes_cli.auth._codex_device_code_login",
+        lambda: {
+            "tokens": {"access_token": "hsy-new-at", "refresh_token": "hsy-new-rt"},
+            "last_refresh": "2026-06-17T14:00:00Z",
+        },
+    )
+
+    from hermes_cli.auth_commands import auth_add_command
+
+    class _Args:
+        provider = "openai-codex"
+        auth_type = "oauth"
+        api_key = None
+        label = "HSY"
+        timeout = None
+        no_browser = True
+
+    auth_add_command(_Args())
+
+    payload = json.loads((tmp_path / "hermes" / "auth.json").read_text())
+    entries = payload["credential_pool"]["openai-codex"]
+    hsy = next(item for item in entries if item["label"] == "HSY")
+    jyh = next(item for item in entries if item["label"] == "JYH")
+
+    assert hsy["access_token"] == "hsy-new-at"
+    assert hsy["refresh_token"] == "hsy-new-rt"
+    assert hsy["last_refresh"] == "2026-06-17T14:00:00Z"
+    assert hsy["last_status"] is None
+    assert hsy["last_error_code"] is None
+    assert jyh["access_token"] == "jyh-old-at"
+    assert jyh["refresh_token"] == "jyh-old-rt"
+    assert payload["providers"]["openai-codex"]["tokens"]["access_token"] == "jyh-old-at"
+
+
 def test_auth_add_api_key_persists_manual_entry(tmp_path, monkeypatch):
     monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes"))
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)

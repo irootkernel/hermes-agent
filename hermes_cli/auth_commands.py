@@ -308,18 +308,27 @@ def auth_add_command(args) -> None:
 
     if provider == "openai-codex":
         creds = auth_mod._codex_device_code_login()
-        label = (getattr(args, "label", None) or "").strip() or label_from_token(
+        requested_label = (getattr(args, "label", None) or "").strip()
+        label = requested_label or label_from_token(
             creds["tokens"]["access_token"],
             _oauth_default_label(provider, len(pool.entries()) + 1),
         )
-        auth_mod._save_codex_tokens(
-            creds["tokens"],
-            last_refresh=creds.get("last_refresh"),
-            label=label,
-        )
-        pool = load_pool(provider)
-        entry = next((item for item in pool.entries() if item.source == "device_code"), None)
-        shown_label = entry.label if entry is not None else label
+        if requested_label:
+            entry_payload = auth_mod._save_codex_pool_entry(
+                creds["tokens"],
+                last_refresh=creds.get("last_refresh"),
+                label=requested_label,
+            )
+            shown_label = str(entry_payload.get("label") or requested_label)
+        else:
+            auth_mod._save_codex_tokens(
+                creds["tokens"],
+                last_refresh=creds.get("last_refresh"),
+                label=label,
+            )
+            pool = load_pool(provider)
+            entry = next((item for item in pool.entries() if item.source == "device_code"), None)
+            shown_label = entry.label if entry is not None else label
         print(f'Saved {provider} OAuth device-code credentials: "{shown_label}"')
         return
 

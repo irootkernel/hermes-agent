@@ -1002,6 +1002,7 @@ HERMES_CREDENTIAL_PIN_OPENAI_CODEX_LABEL=JYH
 - `agent/credential_pool.py`: parse profile-local `.env` credential pin variables only, resolve pinned entries, and make `select()`, `peek()`, and `acquire_lease()` respect the pin before pool strategy rotation.
 - `hermes_cli/runtime_provider.py`: if a provider has a configured pin but the pinned pool entry is unavailable, raise `AuthError(code="credential_pin_unavailable")` rather than falling through to singleton auth-store credentials.
 - `agent/auxiliary_client.py`: Codex auxiliary token resolution respects the same fail-closed pin behavior instead of reading the unpinned auth-store singleton when the pinned pool selection fails.
+- `hermes_cli/auth.py` and `hermes_cli/auth_commands.py`: labelled `hermes auth add openai-codex --label <name>` re-auth now updates only the matching `credential_pool.openai-codex` entry, creating a labelled `manual:device_code` entry when needed, and leaves other Codex OAuth labels plus the provider singleton untouched.
 - Profile activation state: 40 GPT-5.5/OpenAI-Codex profiles received `HERMES_CREDENTIAL_PIN_OPENAI_CODEX_LABEL` in profile `.env` (`JYH`: 25, `HSY`: 15). `gongmyeong`/`공명` resolve to the `wolong` profile, and `wolong` is pinned to `JYH`. Security-bearing `.env` activation files are not backed up for this operation; stale credential-pin backup directories were deleted.
 
 ### Evidence
@@ -1029,6 +1030,24 @@ PYTHONPATH=. /Users/draccoon/.local/bin/hermes-python -m pytest \
   tests/agent/test_auxiliary_client.py::TestReadCodexAccessToken \
   -q -o 'addopts='
 # 223 passed
+```
+
+Related auth-add re-auth smoke:
+
+```bash
+PYTHONPATH=$PWD /Users/draccoon/.local/bin/hermes-python -m pytest -q \
+  tests/hermes_cli/test_auth_codex_provider.py \
+  tests/hermes_cli/test_auth_commands.py
+# 75 passed
+```
+
+```bash
+PYTHONPATH=$PWD /Users/draccoon/.local/bin/hermes-python -m py_compile \
+  hermes_cli/auth.py \
+  hermes_cli/auth_commands.py \
+  tests/hermes_cli/test_auth_codex_provider.py \
+  tests/hermes_cli/test_auth_commands.py
+# passed
 ```
 
 Profile `.env` verification after apply without security-file backup:

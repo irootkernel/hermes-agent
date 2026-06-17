@@ -14,6 +14,7 @@ from hermes_cli.auth import (
     PROVIDER_REGISTRY,
     _read_codex_tokens,
     _save_codex_tokens,
+    _save_codex_pool_entry,
     _import_codex_cli_tokens,
     _login_openai_codex,
     refresh_codex_oauth_pure,
@@ -380,6 +381,66 @@ def test_save_codex_tokens_syncs_manual_device_code_entries(tmp_path, monkeypatc
     api_key = next(e for e in pool if e["source"] == "manual:api_key")
     assert api_key["access_token"] == "user-api-key"
     assert "refresh_token" not in api_key or api_key.get("refresh_token") is None
+
+
+def test_save_codex_pool_entry_updates_only_matching_label(tmp_path, monkeypatch):
+    hermes_home = tmp_path / "hermes"
+    hermes_home.mkdir(parents=True, exist_ok=True)
+    (hermes_home / "auth.json").write_text(json.dumps({
+        "version": 1,
+        "providers": {
+            "openai-codex": {
+                "tokens": {"access_token": "jyh-at", "refresh_token": "jyh-rt"},
+                "last_refresh": "2026-06-01T00:00:00Z",
+                "label": "JYH",
+            },
+        },
+        "credential_pool": {
+            "openai-codex": [
+                {
+                    "id": "hsy",
+                    "label": "HSY",
+                    "source": "manual:device_code",
+                    "auth_type": "oauth",
+                    "priority": 0,
+                    "access_token": "hsy-old-at",
+                    "refresh_token": "hsy-old-rt",
+                    "last_status": "exhausted",
+                    "last_error_code": 401,
+                },
+                {
+                    "id": "jyh",
+                    "label": "JYH",
+                    "source": "device_code",
+                    "auth_type": "oauth",
+                    "priority": 1,
+                    "access_token": "jyh-at",
+                    "refresh_token": "jyh-rt",
+                },
+            ],
+        },
+    }))
+    monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+
+    _save_codex_pool_entry(
+        {"access_token": "hsy-new-at", "refresh_token": "hsy-new-rt"},
+        last_refresh="2026-06-17T15:00:00Z",
+        label="HSY",
+    )
+
+    auth = json.loads((hermes_home / "auth.json").read_text())
+    pool = auth["credential_pool"]["openai-codex"]
+    hsy = next(e for e in pool if e["label"] == "HSY")
+    jyh = next(e for e in pool if e["label"] == "JYH")
+
+    assert hsy["access_token"] == "hsy-new-at"
+    assert hsy["refresh_token"] == "hsy-new-rt"
+    assert hsy["last_refresh"] == "2026-06-17T15:00:00Z"
+    assert hsy["last_status"] is None
+    assert hsy["last_error_code"] is None
+    assert jyh["access_token"] == "jyh-at"
+    assert jyh["refresh_token"] == "jyh-rt"
+    assert auth["providers"]["openai-codex"]["tokens"]["access_token"] == "jyh-at"
 
 
 def test_import_codex_cli_tokens(tmp_path, monkeypatch):

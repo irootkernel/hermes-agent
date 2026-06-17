@@ -497,12 +497,17 @@ entries:
       - runtime_provider raises credential_pin_unavailable for unavailable pinned credentials
       - auxiliary Codex token selection does not read unpinned singleton auth when a configured pin is unavailable
       - host-local GPT-5.5 profile .env files pinned to HSY or JYH labels; security-bearing .env files were not backed up and stale credential-pin backups were deleted
+      - labelled `hermes auth add openai-codex --label <name>` re-auth updates only the matching Codex pool entry and preserves other labels/provider singleton
     files:
       - agent/credential_pool.py
       - hermes_cli/runtime_provider.py
+      - hermes_cli/auth.py
+      - hermes_cli/auth_commands.py
       - agent/auxiliary_client.py
       - tests/agent/test_credential_pool.py
       - tests/hermes_cli/test_runtime_provider_resolution.py
+      - tests/hermes_cli/test_auth_codex_provider.py
+      - tests/hermes_cli/test_auth_commands.py
       - tests/agent/test_auxiliary_client.py
       - for_17th_earth.md
       - 17e/carry.yaml
@@ -572,3 +577,7 @@ entries:
           result: "JYH profiles 25; HSY profiles 15; config pin errors 0; env errors 0"
         - command: live profile pool selection verification from profile .env pins
           result: "40/40 selected expected HSY/JYH labels; errors []"
+        - command: PYTHONPATH=$PWD /Users/draccoon/.local/bin/hermes-python -m pytest -q tests/hermes_cli/test_auth_codex_provider.py tests/hermes_cli/test_auth_commands.py
+          result: "75 passed"
+        - command: PYTHONPATH=$PWD /Users/draccoon/.local/bin/hermes-python -m py_compile hermes_cli/auth.py hermes_cli/auth_commands.py tests/hermes_cli/test_auth_codex_provider.py tests/hermes_cli/test_auth_commands.py
+          result: passed
