@@ -405,6 +405,9 @@ entries:
         - Discord owner marking for slash-created and auto-created threads
         - mention-free thread routing based on ownership, not participation
         - discord.auto_thread_free_response / DISCORD_AUTO_THREAD_FREE_RESPONSE opt-in
+        - role mentions fail closed for owner/default free-response routing until explicit role-to-bot routing exists
+        - direct bot mentions still route to the addressed bot after the role-mention guard
+        - parent text-channel free-response does not claim mention-free routing in child threads owned by another bot
       files:
         - gateway/platforms/helpers.py
         - plugins/platforms/discord/adapter.py
@@ -414,10 +417,18 @@ entries:
       evidence:
         - command: git grep -n "ThreadOwnerTracker\\|auto_thread_free_response\\|_is_owned_discord_thread" HEAD -- gateway plugins tests
           result: no matches before D4 patch
+        - command: PYTHONPATH=$PWD /Users/draccoon/.local/bin/hermes-python -m pytest -q tests/gateway/test_discord_free_response.py::test_discord_role_mention_suppresses_free_response_owner_default
+          result: "RED before fix: failed because _auto_create_thread was awaited once; GREEN after fix: 1 passed"
+        - command: PYTHONPATH=$PWD /Users/draccoon/.local/bin/hermes-python -m pytest -q tests/gateway/test_discord_free_response.py::test_discord_parent_free_response_does_not_claim_foreign_owned_text_thread
+          result: "RED before fix: failed because handle_message was awaited once; GREEN after fix: 1 passed"
         - command: PYTHONPATH=$PWD /Users/draccoon/.local/bin/hermes-python -m pytest -q tests/gateway/test_discord_free_response.py tests/gateway/test_discord_channel_controls.py tests/gateway/test_discord_thread_persistence.py tests/gateway/test_config.py
-          result: 119 passed
+          result: 121 passed
         - command: PYTHONPATH=$PWD /Users/draccoon/.local/bin/hermes-python -m py_compile gateway/platforms/helpers.py plugins/platforms/discord/adapter.py tests/gateway/test_discord_free_response.py tests/gateway/test_discord_channel_controls.py tests/gateway/test_discord_thread_persistence.py
           result: passed
+        - command: git diff --check -- plugins/platforms/discord/adapter.py tests/gateway/test_discord_free_response.py
+          result: passed
+        - command: live Discord direct bot mention smoke, 2026-06-19
+          result: "주군 confirmed direct @주유 mention received a 주유 reply; remaining gap is role-to-bot/group dispatch"
         - command: docker run --rm -i -v "$PWD:/repo:ro" -w /repo -e HERMES_HOME=/tmp/hermes-d4-docker-smoke -e PYTHONPATH=/repo hermes-17e-d3-checkpoint-smoke:py311 python - <<'PY'
           result: "owned thread accepted; foreign-owned participated thread rejected; free-response auto-thread opt-in created owned thread; no live secrets or production DB mounted"
   D5:

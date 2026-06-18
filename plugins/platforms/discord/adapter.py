@@ -824,7 +824,8 @@ class DiscordAdapter(BasePlatformAdapter):
                 # This replaces the older DISCORD_IGNORE_NO_MENTION logic
                 # with bot-aware filtering that works correctly when multiple
                 # agents share a channel.
-                if not isinstance(message.channel, discord.DMChannel) and message.mentions:
+                _role_mentioned = adapter_self._discord_message_has_role_mentions(message)
+                if not isinstance(message.channel, discord.DMChannel) and (message.mentions or _role_mentioned):
                     _self_mentioned = (
                         self._client.user is not None
                         and self._client.user in message.mentions
@@ -833,6 +834,12 @@ class DiscordAdapter(BasePlatformAdapter):
                         m.bot and m != self._client.user
                         for m in message.mentions
                     )
+                    # Role mentions are explicit routing for another lane/group.
+                    # Without a bot-specific mention, the channel owner/default
+                    # responder must fail closed instead of treating this as
+                    # ambient free-response chatter.
+                    if _role_mentioned and not _self_mentioned:
+                        return
                     # If other bots are mentioned but we're not → not for us
                     if _other_bots_mentioned and not _self_mentioned:
                         return
@@ -846,11 +853,15 @@ class DiscordAdapter(BasePlatformAdapter):
                     if _ignore_no_mention and not _self_mentioned and not _other_bots_mentioned:
                         _channel_id = str(message.channel.id)
                         _parent_id = None
+                        _parent = getattr(message.channel, "parent", None)
                         if hasattr(message.channel, "parent_id") and message.channel.parent_id:
                             _parent_id = str(message.channel.parent_id)
                         _free_channels = adapter_self._discord_free_response_channels()
                         _channel_ids = {_channel_id}
-                        if _parent_id:
+                        # Text-channel free-response ownership must not leak into
+                        # child threads. Forum threads keep parent inheritance so
+                        # forum free-response bindings continue to apply to posts.
+                        if _parent_id and adapter_self._is_forum_parent(_parent):
                             _channel_ids.add(_parent_id)
                         if "*" not in _free_channels and not (_channel_ids & _free_channels):
                             return
@@ -3943,6 +3954,15 @@ class DiscordAdapter(BasePlatformAdapter):
             return bool(configured)
         return os.getenv("DISCORD_AUTO_THREAD_FREE_RESPONSE", "false").lower() in {"true", "1", "yes", "on"}
 
+    def _discord_message_has_role_mentions(self, message: Any) -> bool:
+        """Return whether a Discord message explicitly mentions one or more roles."""
+        if getattr(message, "role_mentions", None):
+            return True
+        if getattr(message, "raw_role_mentions", None):
+            return True
+        content = getattr(message, "content", "") or ""
+        return bool(re.search(r"<@&\d+>", content))
+
     def _discord_thread_owner_key(self) -> Optional[str]:
         """Return the stable owner key for this Discord bot instance."""
         if not self._client or not getattr(self._client, "user", None):
@@ -4795,7 +4815,22 @@ class DiscordAdapter(BasePlatformAdapter):
                 logger.debug("[%s] Ignoring message in ignored channel: %s", self.name, channel_ids)
                 return
 
+            # A Discord role mention targets a lane/group, not the channel's
+            # default responder. Until a deployment has an explicit role→bot
+            # router, fail closed so free-response/auto-thread owner routing
+            # cannot steal a role-addressed task.
+            if self._discord_message_has_role_mentions(message) and not mention_prefix:
+                logger.debug("[%s] Ignoring role-mentioned message without bot mention", self.name)
+                return
+
             free_channels = self._discord_free_response_channels()
+            free_response_channel_ids = {str(message.channel.id)}
+            parent = getattr(message.channel, "parent", None) if is_thread else None
+            # Parent text-channel free-response applies to the channel itself,
+            # not to every child thread opened by another bot. Forum threads are
+            # the intentional exception: forum posts inherit the forum binding.
+            if parent_channel_id and (not is_thread or self._is_forum_parent(parent)):
+                free_response_channel_ids.add(parent_channel_id)
             if parent_channel_id:
                 channel_ids.add(parent_channel_id)
 
@@ -4807,7 +4842,7 @@ class DiscordAdapter(BasePlatformAdapter):
             is_voice_linked_channel = current_channel_id in voice_linked_ids
             is_free_channel = (
                 "*" in free_channels
-                or bool(channel_ids & free_channels)
+                or bool(free_response_channel_ids & free_channels)
                 or is_voice_linked_channel
             )
 

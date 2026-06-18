@@ -126,12 +126,14 @@ def adapter(monkeypatch):
     return adapter
 
 
-def make_message(*, channel, content: str, mentions=None, msg_type=None):
+def make_message(*, channel, content: str, mentions=None, role_mentions=None, raw_role_mentions=None, msg_type=None):
     author = SimpleNamespace(id=42, display_name="Jezza", name="Jezza")
     return SimpleNamespace(
         id=123,
         content=content,
         mentions=list(mentions or []),
+        role_mentions=list(role_mentions or []),
+        raw_role_mentions=list(raw_role_mentions or []),
         attachments=[],
         reference=None,
         created_at=datetime.now(timezone.utc),
@@ -466,6 +468,22 @@ async def test_discord_unknown_thread_still_requires_mention(adapter, monkeypatc
 
 
 @pytest.mark.asyncio
+async def test_discord_parent_free_response_does_not_claim_foreign_owned_text_thread(adapter, monkeypatch):
+    """A text-channel free-response parent must not make every child thread ownerless/free."""
+    monkeypatch.setenv("DISCORD_REQUIRE_MENTION", "true")
+    monkeypatch.setenv("DISCORD_FREE_RESPONSE_CHANNELS", "1516594793046605864")
+    monkeypatch.setenv("DISCORD_AUTO_THREAD", "false")
+
+    parent = FakeTextChannel(channel_id=1516594793046605864, name="discussions")
+    thread = FakeThread(channel_id=1517186717663101089, name="jooyoo-owned", parent=parent)
+    message = make_message(channel=thread, content="mention-free follow-up in another bot's thread")
+
+    await adapter._handle_message(message)
+
+    adapter.handle_message.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_discord_auto_thread_tracks_participation(adapter, monkeypatch):
     """Auto-created threads should be tracked and owned for future mention-free replies."""
     monkeypatch.delenv("DISCORD_AUTO_THREAD", raising=False)
@@ -542,6 +560,29 @@ async def test_discord_free_response_channel_skips_auto_thread(adapter, monkeypa
     event = adapter.handle_message.await_args.args[0]
     assert event.text == "casual chat in free-response channel"
     assert event.source.chat_type == "group"
+
+
+@pytest.mark.asyncio
+async def test_discord_role_mention_suppresses_free_response_owner_default(adapter, monkeypatch):
+    """Role mentions are explicit routing and must not be treated as owner-default chatter."""
+    monkeypatch.setenv("DISCORD_REQUIRE_MENTION", "true")
+    monkeypatch.setenv("DISCORD_FREE_RESPONSE_CHANNELS", "789")
+    monkeypatch.delenv("DISCORD_AUTO_THREAD", raising=False)  # default true
+    monkeypatch.setenv("DISCORD_AUTO_THREAD_FREE_RESPONSE", "true")
+
+    adapter._auto_create_thread = AsyncMock(return_value=FakeThread(channel_id=790))
+
+    message = make_message(
+        channel=FakeTextChannel(channel_id=789),
+        content="<@&1504385394358353983> route to role, not owner",
+        role_mentions=[SimpleNamespace(id=1504385394358353983, name="KAN")],
+        raw_role_mentions=[1504385394358353983],
+    )
+
+    await adapter._handle_message(message)
+
+    adapter._auto_create_thread.assert_not_awaited()
+    adapter.handle_message.assert_not_awaited()
 
 
 @pytest.mark.asyncio

@@ -794,6 +794,8 @@ Applied local seams:
 4. `discord.thread_require_mention: true` remains a stronger gate for every threaded message.
 5. `discord.auto_thread_free_response` / `DISCORD_AUTO_THREAD_FREE_RESPONSE` defaults false and opt-in permits auto-threading from free-response command-center channels.
 6. `no_thread_channels` remains an override.
+7. Role mentions (`message.role_mentions`, `message.raw_role_mentions`, or raw `<@&...>` content) are explicit routing for another lane/group. Until a role→bot router exists, owner/default free-response routing fails closed instead of auto-threading or answering a role-mentioned task.
+8. Parent text-channel `free_response_channels` applies to the parent channel itself, not every child thread. In a child thread, mention-free routing is owner-only unless the parent is a forum channel/post binding or the bot is directly mentioned.
 
 Do not clone or replace the whole Discord adapter as a plugin.
 
@@ -801,11 +803,42 @@ Do not clone or replace the whole Discord adapter as a plugin.
 
 ```bash
 PYTHONPATH=$PWD /Users/draccoon/.local/bin/hermes-python -m pytest -q \
+  tests/gateway/test_discord_free_response.py::test_discord_parent_free_response_does_not_claim_foreign_owned_text_thread
+# RED before parent-thread free-response fix: failed because handle_message was awaited once
+# GREEN after fix: 1 passed
+
+PYTHONPATH=$PWD /Users/draccoon/.local/bin/hermes-python -m pytest -q \
+  tests/gateway/test_discord_free_response.py::test_discord_role_mention_suppresses_free_response_owner_default
+# RED before role-mention fix: failed because `_auto_create_thread` was awaited once
+# GREEN after fix: 1 passed
+
+PYTHONPATH=$PWD /Users/draccoon/.local/bin/hermes-python -m pytest -q \
   tests/gateway/test_discord_free_response.py \
   tests/gateway/test_discord_channel_controls.py \
   tests/gateway/test_discord_thread_persistence.py \
   tests/gateway/test_config.py
-# 119 passed
+# 121 passed
+
+PYTHONPATH=$PWD /Users/draccoon/.local/bin/hermes-python -m py_compile \
+  plugins/platforms/discord/adapter.py \
+  tests/gateway/test_discord_free_response.py
+# passed
+
+git diff --check -- \
+  plugins/platforms/discord/adapter.py \
+  tests/gateway/test_discord_free_response.py
+# passed
+```
+
+Earlier D4 smoke remains valid:
+
+```bash
+PYTHONPATH=$PWD /Users/draccoon/.local/bin/hermes-python -m pytest -q \
+  tests/gateway/test_discord_free_response.py \
+  tests/gateway/test_discord_channel_controls.py \
+  tests/gateway/test_discord_thread_persistence.py \
+  tests/gateway/test_config.py
+# 119 passed before role-mention regression test was added
 
 PYTHONPATH=$PWD /Users/draccoon/.local/bin/hermes-python -m py_compile \
   gateway/platforms/helpers.py \
@@ -835,6 +868,11 @@ Manual/live smoke only after explicit restart approval:
 2. Restart only affected running Discord gateways.
 3. In a free-response command-center channel, send an unmentioned message and confirm the bot creates/responds in an owned thread when enabled.
 4. In the created thread, confirm the owning bot can answer mention-free while another bot that was only mentioned later does not take over default routing.
+5. In a bot-owned thread under a text-channel free-response parent such as `discussions`, send a mention-free message and confirm non-owner bots stay silent.
+6. Send a role-mentioned message with no direct bot mention and confirm the owner/default bot stays silent; this is fail-closed until an explicit role→bot router exists.
+7. Send a direct bot mention such as `@주유 하이` and confirm the addressed bot still responds. This verifies the D4 role-mention guard did not break normal direct bot mentions.
+
+Live operator note for the 2026-06-19 D4 follow-up: 주군 confirmed that direct `@주유` mention received a 주유 reply after the guard was applied. The remaining gap is role→bot/group dispatch, not direct bot mention handling.
 
 ## D5 Plugin strategy retirement
 
