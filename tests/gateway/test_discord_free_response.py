@@ -109,6 +109,7 @@ def adapter(monkeypatch):
         "DISCORD_FREE_RESPONSE_CHANNELS",
         "DISCORD_AUTO_THREAD",
         "DISCORD_AUTO_THREAD_FREE_RESPONSE",
+        "DISCORD_DEFAULT_THREAD_OWNER_PARENT_CHANNELS",
         "DISCORD_NO_THREAD_CHANNELS",
         "DISCORD_ALLOWED_CHANNELS",
         "DISCORD_IGNORED_CHANNELS",
@@ -481,6 +482,46 @@ async def test_discord_parent_free_response_does_not_claim_foreign_owned_text_th
     await adapter._handle_message(message)
 
     adapter.handle_message.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_discord_env_parent_thread_owner_channel_claims_unowned_text_thread(adapter, monkeypatch):
+    """Profile-local env can designate parent channels whose user-created threads belong to this bot."""
+    monkeypatch.setenv("DISCORD_REQUIRE_MENTION", "true")
+    monkeypatch.setenv("DISCORD_FREE_RESPONSE_CHANNELS", "1504318862903083089")
+    monkeypatch.setenv("DISCORD_DEFAULT_THREAD_OWNER_PARENT_CHANNELS", "1504318862903083089")
+    monkeypatch.setenv("DISCORD_AUTO_THREAD", "false")
+    monkeypatch.delenv("DISCORD_THREAD_REQUIRE_MENTION", raising=False)
+
+    parent = FakeTextChannel(channel_id=1504318862903083089, name="일기-회고")
+    thread = FakeThread(channel_id=1517727428280062023, name="user diary reply", parent=parent)
+    message = make_message(channel=thread, content="멘션 없는 일기 회고 답변")
+
+    await adapter._handle_message(message)
+
+    adapter.handle_message.assert_awaited_once()
+    event = adapter.handle_message.await_args.args[0]
+    assert event.text == "멘션 없는 일기 회고 답변"
+    assert event.source.chat_type == "thread"
+    assert event.source.chat_id == "1517727428280062023"
+    assert adapter._thread_owners.is_owner("1517727428280062023", "999")
+
+
+@pytest.mark.asyncio
+async def test_discord_env_parent_thread_owner_respects_thread_require_mention(adapter, monkeypatch):
+    """The env parent-thread fallback must not bypass thread_require_mention=true."""
+    monkeypatch.setenv("DISCORD_REQUIRE_MENTION", "true")
+    monkeypatch.setenv("DISCORD_DEFAULT_THREAD_OWNER_PARENT_CHANNELS", "1504318862903083089")
+    monkeypatch.setenv("DISCORD_THREAD_REQUIRE_MENTION", "true")
+
+    parent = FakeTextChannel(channel_id=1504318862903083089, name="일기-회고")
+    thread = FakeThread(channel_id=1517727428280062023, name="user diary reply", parent=parent)
+    message = make_message(channel=thread, content="멘션 없는 일기 회고 답변")
+
+    await adapter._handle_message(message)
+
+    adapter.handle_message.assert_not_awaited()
+    assert adapter._thread_owners.owner_for("1517727428280062023") is None
 
 
 @pytest.mark.asyncio

@@ -3954,6 +3954,17 @@ class DiscordAdapter(BasePlatformAdapter):
             return bool(configured)
         return os.getenv("DISCORD_AUTO_THREAD_FREE_RESPONSE", "false").lower() in {"true", "1", "yes", "on"}
 
+    def _discord_default_thread_owner_parent_channels(self) -> set[str]:
+        """Return parent channel IDs whose user-created threads this bot may claim.
+
+        This is intentionally env-only so downstream deployments can opt into
+        profile-local channel-owner semantics without expanding upstream
+        config.yaml surface. It covers channels like 17H diary review where one
+        profile is the sole default responder for user-created child threads.
+        """
+        raw = os.getenv("DISCORD_DEFAULT_THREAD_OWNER_PARENT_CHANNELS", "")
+        return {part.strip() for part in raw.split(",") if part.strip()}
+
     def _discord_message_has_role_mentions(self, message: Any) -> bool:
         """Return whether a Discord message explicitly mentions one or more roles."""
         if getattr(message, "role_mentions", None):
@@ -4764,6 +4775,8 @@ class DiscordAdapter(BasePlatformAdapter):
         #   discord.allowed_channels: If set, bot ONLY responds in these channels (whitelist)
         #   discord.no_thread_channels: Channel IDs where bot responds directly without creating thread
         #   discord.auto_thread: Auto-create thread on @mention in channels (default: true)
+        #   DISCORD_DEFAULT_THREAD_OWNER_PARENT_CHANNELS: env-only parent IDs
+        #     whose manually-created child threads may be claimed by this bot
 
         thread_id = None
         parent_channel_id = None
@@ -4845,6 +4858,23 @@ class DiscordAdapter(BasePlatformAdapter):
                 or bool(free_response_channel_ids & free_channels)
                 or is_voice_linked_channel
             )
+
+            # 17H-style channel-owner fallback: some parent channels have a
+            # single intended default responder even when the user creates the
+            # child thread manually (so the bot never had a chance to mark owner
+            # during auto-thread creation). Keep this env-only and claim only
+            # unowned threads so shared/free-response parents cannot be stolen.
+            if (
+                is_thread
+                and thread_id
+                and parent_channel_id
+                and not self._discord_thread_require_mention()
+                and self._thread_owners.owner_for(thread_id) is None
+                and parent_channel_id in self._discord_default_thread_owner_parent_channels()
+            ):
+                owner_key = self._discord_thread_owner_key()
+                if owner_key:
+                    self._thread_owners.mark_owner(thread_id, owner_key)
 
             # Skip the mention check if this bot owns the thread's default
             # responder slot (normally because it auto-created the thread)

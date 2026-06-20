@@ -382,7 +382,7 @@ entries:
           result: no active tasks found
   D4:
     title: Discord gateway config and owner-thread routing seams
-    status: partial-native-local-minimized-owner-thread-applied
+    status: partial-native-local-minimized-owner-thread-env-parent-fallback-applied
     code_patch_required: true
     absorbed_generic_config:
       status: upstream-absorbed
@@ -408,6 +408,7 @@ entries:
         - role mentions fail closed for owner/default free-response routing until explicit role-to-bot routing exists
         - direct bot mentions still route to the addressed bot after the role-mention guard
         - parent text-channel free-response does not claim mention-free routing in child threads owned by another bot
+        - env-only DISCORD_DEFAULT_THREAD_OWNER_PARENT_CHANNELS lets a profile claim unowned user-created child threads under explicitly listed single-owner parent channels such as 일기-회고 without adding an upstream config.yaml key
       files:
         - gateway/platforms/helpers.py
         - plugins/platforms/discord/adapter.py
@@ -417,7 +418,13 @@ entries:
       evidence:
         - command: git grep -n "ThreadOwnerTracker\\|auto_thread_free_response\\|_is_owned_discord_thread" HEAD -- gateway plugins tests
           result: no matches before D4 patch
-        - command: PYTHONPATH=$PWD /Users/draccoon/.local/bin/hermes-python -m pytest -q tests/gateway/test_discord_free_response.py::test_discord_role_mention_suppresses_free_response_owner_default
+        - command: PYTHONPATH=$PWD .venv/bin/python -m pytest tests/gateway/test_discord_free_response.py::test_discord_env_parent_thread_owner_channel_claims_unowned_text_thread tests/gateway/test_discord_free_response.py::test_discord_env_parent_thread_owner_respects_thread_require_mention -q -o 'addopts='
+          result: "RED before env-parent fallback: first test failed because handle_message was awaited 0 times; GREEN after fix: 2 passed"
+        - command: PYTHONPATH=$PWD .venv/bin/python -m pytest -q -o 'addopts=' tests/gateway/test_discord_free_response.py tests/gateway/test_discord_channel_controls.py tests/gateway/test_discord_thread_persistence.py tests/gateway/test_config.py
+          result: 123 passed
+        - command: disposable HERMES_HOME smoke with DISCORD_DEFAULT_THREAD_OWNER_PARENT_CHANNELS=1504318862903083089 under an 일기-회고 child thread
+          result: "handled=1; owner=1504341442716237844; no live secrets/profile DB mounted"
+        - command: PYTHONPATH=$PWD /Users/draccoon/.local/bin/hermes-python -m pytest -q tests/gateway/test_discord_role_mention_suppresses_free_response_owner_default
           result: "RED before fix: failed because _auto_create_thread was awaited once; GREEN after fix: 1 passed"
         - command: PYTHONPATH=$PWD /Users/draccoon/.local/bin/hermes-python -m pytest -q tests/gateway/test_discord_free_response.py::test_discord_parent_free_response_does_not_claim_foreign_owned_text_thread
           result: "RED before fix: failed because handle_message was awaited once; GREEN after fix: 1 passed"

@@ -52,7 +52,7 @@ D-items are release-scoped runtime/code differences between upstream Hermes and 
 | D1 | [Tool Search pair](#d1-tool-search-pair) | `upstream-absorbed` by `v2026.6.5` | Drop local D1 carry; do not apply Tool Search code patches on this release branch. | `git merge-base --is-ancestor` returned `0` for both `369075dc9` and `7427b9d58` against this branch. |
 | D2 | [Kanban review and same-card handoff helpers](#d2-kanban-review-and-same-card-handoff-helpers) | D2-a audited: `partial-native`; D2-b/c/d/e/f applied | Keep native v0.16 review queue/dispatch; re-applied only missing same-card transition/tool seams in D2-b/c/d/e/f. | Native `review` claim/dispatch exists; `handoff_task`, `submit_task_for_review`, `request_changes`, final creator-gate routing, and async review watcher coverage were absent at D2-a audit. |
 | D3 | [Kanban assignee alias resolution](#d3-kanban-assignee-alias-resolution) | `retired` / local code removed after wrapper migration | Drop `kanban.assignee_aliases`; Kanban assignees must be canonical runnable profile handles. | `hermes` is neutral, `wolong` is a real profile wrapper, and 흑태자/default is not a Kanban task receiver. |
-| D4 | [Discord gateway config and owner-thread routing seams](#d4-discord-gateway-config-and-owner-thread-routing-seams) | generic config fixes `upstream-absorbed`; owner-thread seam applied | Drop duplicate generic config carries; re-applied only owner-thread routing and `auto_thread_free_response` opt-in. | Generic config commits are ancestors; `ThreadOwnerTracker` / owner-thread seam absent before D4 patch. |
+| D4 | [Discord gateway config and owner-thread routing seams](#d4-discord-gateway-config-and-owner-thread-routing-seams) | generic config fixes `upstream-absorbed`; owner-thread seam + env-only parent thread owner fallback applied | Drop duplicate generic config carries; re-applied only owner-thread routing, `auto_thread_free_response` opt-in, and `DISCORD_DEFAULT_THREAD_OWNER_PARENT_CHANNELS` env-only fallback for single-owner parent channels. | Generic config commits are ancestors; `ThreadOwnerTracker` / owner-thread seam absent before D4 patch; user-created threads under channel-owner parents such as `일기-회고` must be supportable without expanding upstream config schema. |
 | D5 | [Plugin strategy retirement](#d5-plugin-strategy-retirement) | `retired` / no-code | Do not recreate `kkachi-hermes-plugin`; carry only this ledger/skill knowledge. | Repo audit found no active config/plan/plugin dependency outside this ledger/carry manifest. |
 | D6 | [CLI return-code passthrough](#d6-cli-return-code-passthrough) | `keep-local-carry` | Applied bool-safe top-level integer return-code passthrough. | Missing Kanban task now exits `1`; usage error exits `2`; bool return values are ignored. |
 | D7 | [Doctor actionable warning filter](#d7-doctor-actionable-warning-filter) | `keep-local-carry` | Applied config-scoped doctor Tool Availability output filtering. | Disabled optional toolsets are hidden from doctor warnings; selected/enabled missing toolsets still warn. |
@@ -763,7 +763,7 @@ Multiple Discord bot/profile gateways can see the same server, channel, and thre
 
 ### D4 v0.16.0 patch decision
 
-Decision: `partial-native-local-minimized-owner-thread-applied`.
+Decision: `partial-native-local-minimized-owner-thread-env-parent-fallback-applied`.
 
 Generic config carries are `upstream-absorbed` by this release branch, so do not re-apply duplicate patches for:
 
@@ -796,12 +796,39 @@ Applied local seams:
 6. `no_thread_channels` remains an override.
 7. Role mentions (`message.role_mentions`, `message.raw_role_mentions`, or raw `<@&...>` content) are explicit routing for another lane/group. Until a role→bot router exists, owner/default free-response routing fails closed instead of auto-threading or answering a role-mentioned task.
 8. Parent text-channel `free_response_channels` applies to the parent channel itself, not every child thread. In a child thread, mention-free routing is owner-only unless the parent is a forum channel/post binding or the bot is directly mentioned.
+9. Env-only `DISCORD_DEFAULT_THREAD_OWNER_PARENT_CHANNELS` supports 17H channel-owner lanes without expanding upstream `config.yaml`: when an unowned user-created text thread belongs to a listed parent channel and `thread_require_mention` is false, the current bot claims the thread owner slot and answers mention-free. This is for single-owner parent channels such as `일기-회고`; do not use it for shared parents like `discussions` unless 주군 explicitly accepts the default-responder semantics.
 
 Do not clone or replace the whole Discord adapter as a plugin.
 
 ### Release-candidate smoke
 
 ```bash
+PYTHONPATH=$PWD .venv/bin/python -m pytest \
+  tests/gateway/test_discord_free_response.py::test_discord_env_parent_thread_owner_channel_claims_unowned_text_thread \
+  tests/gateway/test_discord_free_response.py::test_discord_env_parent_thread_owner_respects_thread_require_mention \
+  -q -o 'addopts='
+# RED before env-parent fallback: first test failed because handle_message was awaited 0 times
+# GREEN after fix: 2 passed
+
+PYTHONPATH=$PWD .venv/bin/python -m pytest -q -o 'addopts=' \
+  tests/gateway/test_discord_free_response.py \
+  tests/gateway/test_discord_channel_controls.py \
+  tests/gateway/test_discord_thread_persistence.py \
+  tests/gateway/test_config.py
+# 123 passed
+
+PYTHONPATH=$PWD .venv/bin/python -m py_compile \
+  gateway/platforms/helpers.py \
+  plugins/platforms/discord/adapter.py \
+  tests/gateway/test_discord_free_response.py \
+  tests/gateway/test_discord_channel_controls.py \
+  tests/gateway/test_discord_thread_persistence.py
+# passed
+
+# Disposable HERMES_HOME env-only smoke, no live secrets/profile DB:
+# DISCORD_DEFAULT_THREAD_OWNER_PARENT_CHANNELS=1504318862903083089 on a user-created
+# child thread under `일기-회고` -> handled=1, owner=1504341442716237844.
+
 PYTHONPATH=$PWD /Users/draccoon/.local/bin/hermes-python -m pytest -q \
   tests/gateway/test_discord_free_response.py::test_discord_parent_free_response_does_not_claim_foreign_owned_text_thread
 # RED before parent-thread free-response fix: failed because handle_message was awaited once
@@ -817,7 +844,7 @@ PYTHONPATH=$PWD /Users/draccoon/.local/bin/hermes-python -m pytest -q \
   tests/gateway/test_discord_channel_controls.py \
   tests/gateway/test_discord_thread_persistence.py \
   tests/gateway/test_config.py
-# 121 passed
+# 121 passed at the 2026-06-19 D4 role-mention follow-up
 
 PYTHONPATH=$PWD /Users/draccoon/.local/bin/hermes-python -m py_compile \
   plugins/platforms/discord/adapter.py \
@@ -864,13 +891,15 @@ PYTHONPATH=$PWD /Users/draccoon/.local/bin/hermes-python -m py_compile \
 
 Manual/live smoke only after explicit restart approval:
 
-1. Confirm affected profile config contains `discord.auto_thread_free_response: true` only where intended.
-2. Restart only affected running Discord gateways.
-3. In a free-response command-center channel, send an unmentioned message and confirm the bot creates/responds in an owned thread when enabled.
-4. In the created thread, confirm the owning bot can answer mention-free while another bot that was only mentioned later does not take over default routing.
-5. In a bot-owned thread under a text-channel free-response parent such as `discussions`, send a mention-free message and confirm non-owner bots stay silent.
-6. Send a role-mentioned message with no direct bot mention and confirm the owner/default bot stays silent; this is fail-closed until an explicit role→bot router exists.
-7. Send a direct bot mention such as `@주유 하이` and confirm the addressed bot still responds. This verifies the D4 role-mention guard did not break normal direct bot mentions.
+1. For single-owner parent channels that should accept user-created child threads, set profile-local env only, for example `DISCORD_DEFAULT_THREAD_OWNER_PARENT_CHANNELS=1504318862903083089` on 월영 for `일기-회고`. Do not add a `config.yaml` schema key for this downstream policy.
+2. Confirm affected profile config contains `discord.auto_thread_free_response: true` only where intended.
+3. Restart only affected running Discord gateways.
+4. In a free-response command-center channel, send an unmentioned message and confirm the bot creates/responds in an owned thread when enabled.
+5. In the created thread, confirm the owning bot can answer mention-free while another bot that was only mentioned later does not take over default routing.
+6. In a bot-owned thread under a text-channel free-response parent such as `discussions`, send a mention-free message and confirm non-owner bots stay silent.
+7. In a user-created child thread under `일기-회고`, send a mention-free message and confirm 월영 claims that thread owner slot and replies.
+8. Send a role-mentioned message with no direct bot mention and confirm the owner/default bot stays silent; this is fail-closed until an explicit role→bot router exists.
+9. Send a direct bot mention such as `@주유 하이` and confirm the addressed bot still responds. This verifies the D4 role-mention guard did not break normal direct bot mentions.
 
 Live operator note for the 2026-06-19 D4 follow-up: 주군 confirmed that direct `@주유` mention received a 주유 reply after the guard was applied. The remaining gap is role→bot/group dispatch, not direct bot mention handling.
 
