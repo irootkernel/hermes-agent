@@ -228,6 +228,73 @@ _CTX_MAX_BODY_BYTES     = 8 * 1024   # 8 KB per task.body (opening post)
 _CTX_MAX_COMMENT_BYTES  = 2 * 1024   # 2 KB per comment
 
 
+# D2-i workflow context banners. Closed operator-authored strings only: the
+# selected workflow is injected into worker prompts, so arbitrary task metadata
+# must never be rendered as instructions. Unknown persisted values are sanitized
+# on read; unknown create-time values fail closed.
+WORKFLOW_CONTEXT_BANNERS: dict[str, tuple[str, ...]] = {
+    "creator_adjudicated_review": (
+        "This is a creator-adjudicated review loop.",
+        "Stay on the same card: inspect the requested work, then use kanban_submit_review for an explicit peer-review verdict.",
+        "Do not mutate the reviewed artifact unless the task explicitly assigns you implementation work.",
+    ),
+    "creator_accepted_work": (
+        "This is a creator-accepted work loop.",
+        "Do the assigned implementation/work, record concrete evidence, then use kanban_submit_result to route the same card to the creator/acceptor.",
+        "Do not mark the card done yourself unless the creator/acceptor role is explicitly yours.",
+    ),
+    "parallel_color_review": (
+        "This is a parallel color review loop.",
+        "Treat this lane as read/review-only unless the task explicitly says otherwise; deliver an independent verdict with evidence.",
+        "Serialized mutation/synthesis belongs to the designated owner lane, not to parallel reviewers.",
+    ),
+    "round_based_color_consensus": (
+        "This is a round-based color consensus loop.",
+        "Answer the current round's question with your role-specific rationale, options, and risks; wait for fan-in before assuming consensus.",
+        "Do not flatten other colors' authority or mutate shared artifacts outside the round's explicit scope.",
+    ),
+    "fanout_fanin": (
+        "This is a fan-out/fan-in workflow.",
+        "Complete your independent shard with concise evidence and structured metadata for the downstream synthesizer.",
+        "Do not wait on sibling shards unless the task body explicitly declares a dependency.",
+    ),
+    "serial_dependency_chain": (
+        "This is a serial dependency chain.",
+        "Consume parent-task handoffs first, then produce the next stage's handoff with enough evidence for the child task.",
+        "If a required parent output is missing or invalid, block/comment instead of guessing.",
+    ),
+    "single_card_baton": (
+        "This is a single-card iterative baton pass.",
+        "Keep the conversation, questions, handoff, and evidence on this same card; reassign or request changes rather than creating a duplicate thread.",
+        "Preserve traceability by summarizing exactly what changed before passing the baton.",
+    ),
+}
+VALID_WORKFLOW_TYPES = frozenset(WORKFLOW_CONTEXT_BANNERS)
+
+
+def safe_workflow_type(value: Optional[str]) -> Optional[str]:
+    """Return a known workflow type or None for empty/unknown persisted data."""
+    if value is None:
+        return None
+    workflow_type = str(value).strip()
+    if not workflow_type:
+        return None
+    return workflow_type if workflow_type in VALID_WORKFLOW_TYPES else None
+
+
+def _normalize_workflow_type(value: Optional[str]) -> Optional[str]:
+    """Validate create-time workflow type values for prompt-safe rendering."""
+    if value is None:
+        return None
+    workflow_type = safe_workflow_type(value)
+    if workflow_type is not None:
+        return workflow_type
+    raise ValueError(
+        "workflow_type must be one of "
+        f"{sorted(VALID_WORKFLOW_TYPES)}, got {str(value).strip()!r}"
+    )
+
+
 # ---------------------------------------------------------------------------
 # Paths
 # ---------------------------------------------------------------------------
@@ -816,6 +883,10 @@ class Task:
     # dispatcher defers other ready tasks with the same key until the lock
     # clears. NULL/empty means no mutex participation.
     mutex_key: Optional[str] = None
+    # Closed workflow banner type injected into worker context. Unknown
+    # persisted values are sanitized to None in from_row so hand-edited legacy
+    # DB data cannot become prompt instructions.
+    workflow_type: Optional[str] = None
 
     @classmethod
     def from_row(cls, row: sqlite3.Row) -> "Task":
@@ -893,6 +964,10 @@ class Task:
             ),
             mutex_key=(
                 row["mutex_key"] if "mutex_key" in keys else None
+            ),
+            workflow_type=(
+                safe_workflow_type(row["workflow_type"])
+                if "workflow_type" in keys else None
             ),
         )
 
@@ -1059,7 +1134,9 @@ CREATE TABLE IF NOT EXISTS tasks (
     -- Coarse-grained serialization key for tasks that mutate the same
     -- artifact/resource. While a task with a non-empty key is running,
     -- the dispatcher defers other ready tasks with the same key.
-    mutex_key            TEXT
+    mutex_key            TEXT,
+    -- Closed workflow banner type injected into worker context.
+    workflow_type        TEXT
 );
 
 CREATE TABLE IF NOT EXISTS task_links (
@@ -1723,6 +1800,13 @@ def _migrate_add_optional_columns(conn: sqlite3.Connection) -> None:
             conn, "tasks", "mutex_key", "mutex_key TEXT"
         )
 
+    if "workflow_type" not in cols:
+        # Closed workflow banner type for prompt-safe worker guidance. Existing
+        # rows get NULL and therefore no banner.
+        _add_column_if_missing(
+            conn, "tasks", "workflow_type", "workflow_type TEXT"
+        )
+
     # Indexes over additive ``tasks`` columns must be created after the
     # columns exist. Keeping them in SCHEMA_SQL breaks legacy boards: SQLite
     # parses each statement in ``executescript`` against the live schema, so a
@@ -1739,6 +1823,9 @@ def _migrate_add_optional_columns(conn: sqlite3.Connection) -> None:
     )
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_tasks_mutex_key ON tasks(mutex_key)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_tasks_workflow_type ON tasks(workflow_type)"
     )
 
     # task_events gained a run_id column; back-fill it as NULL for
@@ -2119,6 +2206,7 @@ def create_task(
     initial_status: str = "running",
     session_id: Optional[str] = None,
     mutex_key: Optional[str] = None,
+    workflow_type: Optional[str] = None,
     board: Optional[str] = None,
 ) -> str:
     """Create a new task and optionally link it under parent tasks.
@@ -2162,6 +2250,7 @@ def create_task(
     if branch_name and workspace_kind != "worktree":
         raise ValueError("branch_name is only valid for worktree workspaces")
     mutex_key = _normalize_mutex_key(mutex_key)
+    workflow_type = _normalize_workflow_type(workflow_type)
     parents = tuple(p for p in parents if p)
 
     # Normalise + validate skills: strip whitespace, drop empties, dedupe
@@ -2286,8 +2375,8 @@ def create_task(
                         created_by, created_at, workspace_kind, workspace_path,
                         branch_name, tenant, idempotency_key, max_runtime_seconds,
                         skills, max_retries, goal_mode, goal_max_turns, session_id,
-                        mutex_key
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        mutex_key, workflow_type
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         task_id,
@@ -2310,6 +2399,7 @@ def create_task(
                         int(goal_max_turns) if goal_max_turns is not None else None,
                         session_id,
                         mutex_key,
+                        workflow_type,
                     ),
                 )
                 for pid in parents:
@@ -2330,6 +2420,7 @@ def create_task(
                         "skills": list(skills_list) if skills_list else None,
                         "goal_mode": bool(goal_mode) or None,
                         "mutex_key": mutex_key,
+                        "workflow_type": workflow_type,
                     },
                 )
             return task_id
@@ -7737,6 +7828,15 @@ def build_worker_context(conn: sqlite3.Connection, task_id: str) -> str:
     if task.branch_name:
         lines.append(f"Branch:   {task.branch_name}")
     lines.append("")
+
+    if task.workflow_type:
+        banner = WORKFLOW_CONTEXT_BANNERS.get(task.workflow_type)
+        if banner:
+            lines.append("## Workflow context")
+            lines.append(f"Workflow type: {task.workflow_type}")
+            for item in banner:
+                lines.append(f"- {item}")
+            lines.append("")
 
     if task.body and task.body.strip():
         lines.append("## Body")

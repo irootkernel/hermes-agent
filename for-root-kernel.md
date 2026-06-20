@@ -89,7 +89,7 @@ Each D item is presented to 주군 before patching; only owner-approved items ar
   - D2-f: async review watcher/outcome notification support. Applied: `kanban_submit_review` now returns `review_watch` and best-effort auto-subscribes the originating gateway/session source; CLI/cron/unattached contexts report `review_watch={attached:false}`. Gateway Kanban notifier now sends `requested_changes` and `review_accepted` events, says `final gate required` on reviewer acceptance, and keeps the subscription until the task is truly `done`/`archived`.
   - D2-g: creator-accepted result loop. Applied: `submit_task_result` + `kanban_submit_result` + CLI `submit-result` keep the same task id, close the active worker run as `submitted_result` / `released`, move the card to native `review` for the creator/acceptor, record result provenance for later request-changes, and leave final task completion to the acceptor's later `kanban_complete`.
   - D2-h: `mutex_key` serialization for shared artifacts/resources. Applied: nullable `tasks.mutex_key` plus migration/index, `create_task(mutex_key=...)`, dispatcher deferral for running or same-tick spawned same-key tasks, direct `claim_task` mutex guard, `skipped_mutex_locked` diagnostics, `has_spawnable_ready` mutex-deferred suppression, CLI `--mutex-key`, and `kanban_create` schema/handler/output support.
-  - D2-i: workflow context banners for K-style Kanban workflows.
+  - D2-i: workflow context banners for K-style Kanban workflows. Applied: closed `workflow_type` enum, nullable `tasks.workflow_type` plus migration/index, prompt-safe worker `## Workflow context` banners, create-time fail-closed validation, invalid persisted value sanitization, CLI `--workflow-type`, and `kanban_create`/list/show tool surfaces.
 - Docker gate: disposable Kanban DB workflows and targeted Kanban tests; no production `kanban.db`.
 - D2-b RED/GREEN evidence:
   - Focused RED before implementation: 5 expected failures for missing `handoff_task`, missing `_handle_reassign`, and missing `kanban_reassign` schema exposure.
@@ -123,6 +123,11 @@ Each D item is presented to 주군 before patching; only owner-approved items ar
   - Focused host GREEN: D2-h DB/tool/CLI bundle → `8 passed`.
   - Host D2 smoke regression: `tests/hermes_cli/test_kanban_db.py tests/tools/test_kanban_tools.py tests/hermes_cli/test_kanban_cli.py tests/hermes_cli/test_kanban_core_functionality.py` → `552 passed, 1 skipped, 1 warning`; warning was pre-existing Discord `audioop` deprecation.
   - Docker disposable smoke: D2-h 8-test bundle → `8 passed` with read-only repo mount, disposable `HERMES_HOME`, and no live secrets.
+- D2-i evidence:
+  - RED smoke before implementation: focused DB/tool/CLI tests failed 10/10 for missing `workflow_type` parameter/column/field/CLI/schema/output/sanitization surfaces.
+  - Focused host GREEN: D2-i DB/tool/CLI bundle → `10 passed`.
+  - Host D2 smoke regression: `tests/hermes_cli/test_kanban_db.py tests/tools/test_kanban_tools.py tests/hermes_cli/test_kanban_cli.py tests/hermes_cli/test_kanban_core_functionality.py` → `561 passed, 1 skipped, 1 warning`; warning was pre-existing Discord `audioop` deprecation.
+  - Docker disposable smoke: D2-i 10-test bundle → `10 passed, 1 warning`; warning was read-only `.pytest_cache` write failure on the read-only repo mount.
 
 ### D3 — Kanban assignee alias dispatch seam
 
