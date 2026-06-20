@@ -109,6 +109,8 @@ def adapter(monkeypatch):
         "DISCORD_REQUIRE_MENTION",
         "DISCORD_THREAD_REQUIRE_MENTION",
         "DISCORD_FREE_RESPONSE_CHANNELS",
+        "DISCORD_AUTO_THREAD_FREE_RESPONSE",
+        "DISCORD_DEFAULT_THREAD_OWNER_PARENT_CHANNELS",
         "DISCORD_AUTO_THREAD",
         "DISCORD_NO_THREAD_CHANNELS",
         "DISCORD_ALLOWED_CHANNELS",
@@ -127,12 +129,14 @@ def adapter(monkeypatch):
     return adapter
 
 
-def make_message(*, channel, content: str, mentions=None, msg_type=None):
+def make_message(*, channel, content: str, mentions=None, role_mentions=None, raw_role_mentions=None, msg_type=None):
     author = SimpleNamespace(id=42, display_name="Jezza", name="Jezza")
     return SimpleNamespace(
         id=123,
         content=content,
         mentions=list(mentions or []),
+        role_mentions=list(role_mentions or []),
+        raw_role_mentions=list(raw_role_mentions or []),
         attachments=[],
         reference=None,
         created_at=datetime.now(timezone.utc),
@@ -430,13 +434,14 @@ async def test_discord_auto_thread_can_be_disabled(adapter, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_discord_bot_thread_skips_mention_requirement(adapter, monkeypatch):
-    """Messages in a thread the bot has participated in should not require @mention."""
+    """Messages in an owned thread should not require @mention."""
     monkeypatch.setenv("DISCORD_REQUIRE_MENTION", "true")
     monkeypatch.delenv("DISCORD_FREE_RESPONSE_CHANNELS", raising=False)
     monkeypatch.setenv("DISCORD_AUTO_THREAD", "false")
 
-    # Simulate bot having previously participated in thread 456
+    # Simulate bot having previously created/owned thread 456.
     adapter._threads.mark("456")
+    adapter._thread_owners.mark_owner("456", "999")
 
     thread = FakeThread(channel_id=456, name="existing thread")
     message = make_message(channel=thread, content="follow-up without mention")
@@ -467,7 +472,7 @@ async def test_discord_unknown_thread_still_requires_mention(adapter, monkeypatc
 
 @pytest.mark.asyncio
 async def test_discord_auto_thread_tracks_participation(adapter, monkeypatch):
-    """Auto-created threads should be tracked for future mention-free replies."""
+    """Auto-created threads should be tracked and owned for future mention-free replies."""
     monkeypatch.delenv("DISCORD_AUTO_THREAD", raising=False)
     monkeypatch.setenv("DISCORD_REQUIRE_MENTION", "false")
 
@@ -479,6 +484,7 @@ async def test_discord_auto_thread_tracks_participation(adapter, monkeypatch):
     await adapter._handle_message(message)
 
     assert "555" in adapter._threads
+    assert adapter._thread_owners.is_owner("555", "999")
 
 
 @pytest.mark.asyncio
@@ -550,6 +556,77 @@ async def test_discord_free_response_channel_skips_auto_thread(adapter, monkeypa
     assert event.source.chat_type == "group"
 
 
+@pytest.mark.asyncio
+async def test_discord_role_mention_suppresses_free_response_owner_default(adapter, monkeypatch):
+    """Role mentions are explicit routing and must not be treated as owner-default chatter."""
+    monkeypatch.setenv("DISCORD_REQUIRE_MENTION", "true")
+    monkeypatch.setenv("DISCORD_FREE_RESPONSE_CHANNELS", "789")
+    monkeypatch.delenv("DISCORD_AUTO_THREAD", raising=False)
+    monkeypatch.setenv("DISCORD_AUTO_THREAD_FREE_RESPONSE", "true")
+
+    adapter._auto_create_thread = AsyncMock(return_value=FakeThread(channel_id=790))
+
+    message = make_message(
+        channel=FakeTextChannel(channel_id=789),
+        content="<@&1504385394358353983> route to role, not owner",
+        role_mentions=[SimpleNamespace(id=1504385394358353983, name="KAN")],
+        raw_role_mentions=[1504385394358353983],
+    )
+
+    await adapter._handle_message(message)
+
+    adapter._auto_create_thread.assert_not_awaited()
+    adapter.handle_message.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_discord_auto_thread_free_response_allows_owned_threads(adapter, monkeypatch):
+    """Configured free-response command channels may still spawn owned threads."""
+    monkeypatch.setenv("DISCORD_REQUIRE_MENTION", "true")
+    monkeypatch.setenv("DISCORD_FREE_RESPONSE_CHANNELS", "789")
+    monkeypatch.delenv("DISCORD_AUTO_THREAD", raising=False)
+    monkeypatch.setenv("DISCORD_AUTO_THREAD_FREE_RESPONSE", "true")
+
+    fake_thread = FakeThread(channel_id=790, name="free-response-thread")
+    adapter._auto_create_thread = AsyncMock(return_value=fake_thread)
+
+    message = make_message(
+        channel=FakeTextChannel(channel_id=789),
+        content="free-response command that should get a thread",
+    )
+
+    await adapter._handle_message(message)
+
+    adapter._auto_create_thread.assert_awaited_once()
+    adapter.handle_message.assert_awaited_once()
+    event = adapter.handle_message.await_args.args[0]
+    assert event.source.chat_type == "thread"
+    assert event.source.chat_id == "790"
+    assert "790" in adapter._threads
+    assert adapter._thread_owners.is_owner("790", "999")
+
+
+@pytest.mark.asyncio
+async def test_discord_auto_thread_free_response_config_extra(adapter, monkeypatch):
+    """auto_thread_free_response can be set via PlatformConfig.extra."""
+    monkeypatch.setenv("DISCORD_REQUIRE_MENTION", "true")
+    monkeypatch.setenv("DISCORD_FREE_RESPONSE_CHANNELS", "789")
+    monkeypatch.delenv("DISCORD_AUTO_THREAD", raising=False)
+    monkeypatch.delenv("DISCORD_AUTO_THREAD_FREE_RESPONSE", raising=False)
+    adapter.config.extra["auto_thread_free_response"] = True
+
+    fake_thread = FakeThread(channel_id=791, name="free-response-thread")
+    adapter._auto_create_thread = AsyncMock(return_value=fake_thread)
+
+    message = make_message(
+        channel=FakeTextChannel(channel_id=789),
+        content="config-extra controlled thread",
+    )
+
+    await adapter._handle_message(message)
+
+    adapter._auto_create_thread.assert_awaited_once()
+    assert adapter._thread_owners.is_owner("791", "999")
 
 
 @pytest.mark.asyncio
@@ -578,11 +655,69 @@ async def test_discord_thread_default_keeps_responding_after_participation(adapt
 
     thread = FakeThread(channel_id=456, name="follow-up")
     adapter._threads.mark("456")  # bot has previously participated
+    adapter._thread_owners.mark_owner("456", "999")
 
     message = make_message(channel=thread, content="follow-up without mention")
     await adapter._handle_message(message)
 
     adapter.handle_message.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_discord_thread_participation_without_ownership_requires_mention(adapter, monkeypatch):
+    """A later-mentioned participant does not become the no-mention owner."""
+    monkeypatch.setenv("DISCORD_REQUIRE_MENTION", "true")
+    monkeypatch.delenv("DISCORD_FREE_RESPONSE_CHANNELS", raising=False)
+    monkeypatch.delenv("DISCORD_THREAD_REQUIRE_MENTION", raising=False)
+
+    thread = FakeThread(channel_id=456, name="foreign-owned")
+    adapter._threads.mark("456")
+    adapter._thread_owners.mark_owner("456", "another-bot")
+
+    message = make_message(channel=thread, content="ambient chatter")
+    await adapter._handle_message(message)
+
+    adapter.handle_message.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_discord_env_parent_thread_owner_channel_claims_unowned_text_thread(adapter, monkeypatch):
+    """Profile-local env can designate parent channels whose user-created threads belong to this bot."""
+    monkeypatch.setenv("DISCORD_REQUIRE_MENTION", "true")
+    monkeypatch.setenv("DISCORD_FREE_RESPONSE_CHANNELS", "1504318862903083089")
+    monkeypatch.setenv("DISCORD_DEFAULT_THREAD_OWNER_PARENT_CHANNELS", "1504318862903083089")
+    monkeypatch.setenv("DISCORD_AUTO_THREAD", "false")
+    monkeypatch.delenv("DISCORD_THREAD_REQUIRE_MENTION", raising=False)
+
+    parent = FakeTextChannel(channel_id=1504318862903083089, name="일기-회고")
+    thread = FakeThread(channel_id=1517727428280062023, name="user diary reply", parent=parent)
+    message = make_message(channel=thread, content="멘션 없는 일기 회고 답변")
+
+    await adapter._handle_message(message)
+
+    adapter.handle_message.assert_awaited_once()
+    event = adapter.handle_message.await_args.args[0]
+    assert event.text == "멘션 없는 일기 회고 답변"
+    assert event.source.chat_type == "thread"
+    assert event.source.chat_id == "1517727428280062023"
+    assert adapter._thread_owners.is_owner("1517727428280062023", "999")
+
+
+@pytest.mark.asyncio
+async def test_discord_env_parent_thread_owner_respects_thread_require_mention(adapter, monkeypatch):
+    """The env parent-thread fallback must not bypass thread_require_mention=true."""
+    monkeypatch.setenv("DISCORD_REQUIRE_MENTION", "true")
+    monkeypatch.setenv("DISCORD_DEFAULT_THREAD_OWNER_PARENT_CHANNELS", "1504318862903083089")
+    monkeypatch.setenv("DISCORD_THREAD_REQUIRE_MENTION", "true")
+
+    parent = FakeTextChannel(channel_id=1504318862903083089, name="일기-회고")
+    thread = FakeThread(channel_id=1517727428280062023, name="user diary reply", parent=parent)
+    message = make_message(channel=thread, content="멘션 없는 일기 회고 답변")
+
+    await adapter._handle_message(message)
+
+    adapter.handle_message.assert_not_awaited()
+    assert adapter._thread_owners.owner_for("1517727428280062023") is None
 
 
 @pytest.mark.asyncio
@@ -594,6 +729,7 @@ async def test_discord_thread_require_mention_gates_followups(adapter, monkeypat
 
     thread = FakeThread(channel_id=456, name="multi-bot thread")
     adapter._threads.mark("456")  # bot has previously participated
+    adapter._thread_owners.mark_owner("456", "999")
 
     message = make_message(channel=thread, content="ambient chatter — not for me")
     await adapter._handle_message(message)
@@ -610,6 +746,7 @@ async def test_discord_thread_require_mention_still_responds_when_mentioned(adap
 
     thread = FakeThread(channel_id=456, name="multi-bot thread")
     adapter._threads.mark("456")
+    adapter._thread_owners.mark_owner("456", "999")
     bot_user = adapter._client.user
 
     message = make_message(
@@ -632,6 +769,7 @@ async def test_discord_thread_require_mention_via_config_extra(adapter, monkeypa
 
     thread = FakeThread(channel_id=456, name="multi-bot thread")
     adapter._threads.mark("456")
+    adapter._thread_owners.mark_owner("456", "999")
 
     message = make_message(channel=thread, content="ambient — should be ignored")
     await adapter._handle_message(message)
@@ -1033,6 +1171,7 @@ async def test_discord_participated_thread_backfills_without_mention(adapter, mo
 
     thread = FakeThread(channel_id=456, name="follow-up")
     adapter._threads.mark("456")
+    adapter._thread_owners.mark_owner("456", "999")
 
     message = make_message(channel=thread, content="follow-up without mention")
     await adapter._handle_message(message)

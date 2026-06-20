@@ -59,7 +59,7 @@ These are treated as first-class upstream capabilities. Root Kernel carries shou
 
 ## D-item direction gates
 
-No D item below is approved for code application yet. Each will be presented to 주군 before patching.
+Each D item is presented to 주군 before patching; only owner-approved items are applied and recorded below.
 
 ### D1 — Tool Search pair
 
@@ -88,8 +88,20 @@ No D item below is approved for code application yet. Each will be presented to 
 
 - v0.16 state: local keep with owner-thread gates, role-mention fail-close, env-only parent owner fallback.
 - v0.17 release note relevance: gateway core/rendering changes and new messaging platform refactors.
-- Initial recommendation: adopt v0.17 gateway/Discord structure as base; retain only explicit Root Kernel safety guarantees if upstream still lacks them.
-- Docker gate: fake Discord routing tests; no live Discord token/send.
+- Owner decision: option B approved — adopt v0.17 Discord/gateway structure as the base, then retain only the missing Root Kernel safety guarantees.
+- Applied seams:
+  - `ThreadOwnerTracker` records a persistent thread-id → default owner mapping separate from participation.
+  - Auto-created Discord threads are marked as both participated and owned by the current bot profile.
+  - Mention-free thread replies require ownership, not mere participation; later-mentioned foreign bots do not become default responders.
+  - Role mentions without this bot's direct mention fail closed so default/free-response routing cannot steal role-addressed tasks.
+  - Parent text-channel free-response does not leak into ordinary child text threads; forum-thread inheritance remains allowed.
+  - `DISCORD_DEFAULT_THREAD_OWNER_PARENT_CHANNELS` remains env-only for profile-local parent channels whose user-created child threads belong to this bot.
+  - `DISCORD_AUTO_THREAD_FREE_RESPONSE` / `auto_thread_free_response` explicitly opt free-response channels back into owned auto-thread creation.
+- Verification:
+  - `tests/gateway/test_discord_free_response.py`: 49 passed.
+  - Docker clean-env routing bundle: 86 passed, 1 read-only pytest-cache warning.
+  - Clean Discord-env full `tests/gateway/test_discord*.py`: 412 passed, 2 pre-existing voice coroutine warnings.
+- Docker/live gate: fake Discord object tests only; no live Discord token/send used.
 
 ### D5 — Support-only plugin strategy
 
