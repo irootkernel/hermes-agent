@@ -2998,3 +2998,141 @@ def test_codex_oauth_nonterminal_refresh_does_not_quarantine(tmp_path, monkeypat
     tokens = auth_payload["providers"]["openai-codex"].get("tokens", {})
     assert tokens.get("access_token") == "old-access-token"
     assert tokens.get("refresh_token") == "old-refresh-token"
+
+
+
+def _write_codex_pool_for_pin(tmp_path, entries):
+    _write_auth_store(
+        tmp_path,
+        {
+            "version": 1,
+            "providers": {},
+            "credential_pool": {"openai-codex": entries},
+        },
+    )
+
+
+def _codex_entry(entry_id, label, priority, *, token=None, status=None):
+    payload = {
+        "id": entry_id,
+        "label": label,
+        "auth_type": "oauth",
+        "priority": priority,
+        "source": "manual:device_code",
+        "access_token": token or f"{entry_id}-token",
+        "refresh_token": f"{entry_id}-refresh",
+        "base_url": "https://chatgpt.com/backend-api/codex",
+    }
+    if status:
+        payload.update(
+            {
+                "last_status": status,
+                "last_status_at": time.time(),
+                "last_error_code": 401,
+            }
+        )
+    return payload
+
+
+def test_codex_profile_env_label_pin_selects_matching_entry(tmp_path, monkeypatch):
+    hermes_home = tmp_path / "hermes"
+    monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+    _write_codex_pool_for_pin(
+        tmp_path,
+        [
+            _codex_entry("jyh", "JYH", 0),
+            _codex_entry("hsy", "HSY", 1),
+        ],
+    )
+    (hermes_home / ".env").write_text("HERMES_CREDENTIAL_PIN_OPENAI_CODEX_LABEL=HSY\n")
+
+    from agent.credential_pool import load_pool
+
+    entry = load_pool("openai-codex").select()
+
+    assert entry is not None
+    assert entry.id == "hsy"
+    assert entry.label == "HSY"
+
+
+def test_codex_profile_env_id_pin_wins_over_label(tmp_path, monkeypatch):
+    hermes_home = tmp_path / "hermes"
+    monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+    _write_codex_pool_for_pin(
+        tmp_path,
+        [
+            _codex_entry("jyh", "JYH", 0),
+            _codex_entry("hsy", "HSY", 1),
+        ],
+    )
+    (hermes_home / ".env").write_text(
+        "HERMES_CREDENTIAL_PIN_OPENAI_CODEX_ID=jyh\n"
+        "HERMES_CREDENTIAL_PIN_OPENAI_CODEX_LABEL=HSY\n"
+    )
+
+    from agent.credential_pool import load_pool
+
+    entry = load_pool("openai-codex").select()
+
+    assert entry is not None
+    assert entry.id == "jyh"
+
+
+def test_codex_profile_env_pin_ignores_parent_process_env(tmp_path, monkeypatch):
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes"))
+    monkeypatch.setenv("HERMES_CREDENTIAL_PIN_OPENAI_CODEX_LABEL", "HSY")
+    _write_codex_pool_for_pin(
+        tmp_path,
+        [
+            _codex_entry("jyh", "JYH", 0),
+            _codex_entry("hsy", "HSY", 1),
+        ],
+    )
+
+    from agent.credential_pool import load_pool
+
+    entry = load_pool("openai-codex").select()
+
+    assert entry is not None
+    assert entry.id == "jyh"
+
+
+def test_codex_duplicate_label_pin_fails_closed(tmp_path, monkeypatch):
+    hermes_home = tmp_path / "hermes"
+    monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+    _write_codex_pool_for_pin(
+        tmp_path,
+        [
+            _codex_entry("hsy-a", "HSY", 0),
+            _codex_entry("hsy-b", "HSY", 1),
+            _codex_entry("jyh", "JYH", 2),
+        ],
+    )
+    (hermes_home / ".env").write_text("HERMES_CREDENTIAL_PIN_OPENAI_CODEX_LABEL=HSY\n")
+
+    from agent.credential_pool import load_pool
+
+    pool = load_pool("openai-codex")
+
+    assert pool.select() is None
+    assert pool.current() is None
+
+
+def test_codex_exhausted_pinned_entry_fails_closed(tmp_path, monkeypatch):
+    hermes_home = tmp_path / "hermes"
+    monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+    _write_codex_pool_for_pin(
+        tmp_path,
+        [
+            _codex_entry("hsy", "HSY", 0, status="exhausted"),
+            _codex_entry("jyh", "JYH", 1),
+        ],
+    )
+    (hermes_home / ".env").write_text("HERMES_CREDENTIAL_PIN_OPENAI_CODEX_LABEL=HSY\n")
+
+    from agent.credential_pool import load_pool
+
+    pool = load_pool("openai-codex")
+
+    assert pool.select() is None
+    assert pool.acquire_lease() is None

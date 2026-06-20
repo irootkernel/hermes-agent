@@ -1981,3 +1981,71 @@ def test_auth_remove_codex_manual_device_code_suppresses_canonical(tmp_path, mon
 
     auth_remove_command(SimpleNamespace(provider="openai-codex", target="1"))
     assert is_source_suppressed("openai-codex", "device_code")
+
+
+
+def test_auth_add_openai_codex_label_updates_matching_entry_only(tmp_path, monkeypatch, capsys):
+    hermes_home = tmp_path / "hermes"
+    monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+    _write_auth_store(
+        tmp_path,
+        {
+            "version": 1,
+            "providers": {
+                "openai-codex": {
+                    "tokens": {"access_token": "jyh-singleton-at", "refresh_token": "jyh-singleton-rt"},
+                    "last_refresh": "2026-06-01T00:00:00Z",
+                },
+            },
+            "credential_pool": {
+                "openai-codex": [
+                    {
+                        "id": "hsy",
+                        "label": "HSY",
+                        "source": "manual:device_code",
+                        "auth_type": "oauth",
+                        "priority": 0,
+                        "access_token": "hsy-old-at",
+                        "refresh_token": "hsy-old-rt",
+                    },
+                    {
+                        "id": "jyh",
+                        "label": "JYH",
+                        "source": "manual:device_code",
+                        "auth_type": "oauth",
+                        "priority": 1,
+                        "access_token": "jyh-at",
+                        "refresh_token": "jyh-rt",
+                    },
+                ],
+            },
+        },
+    )
+    monkeypatch.setattr(
+        "hermes_cli.auth._codex_device_code_login",
+        lambda: {
+            "tokens": {"access_token": "hsy-new-at", "refresh_token": "hsy-new-rt"},
+            "last_refresh": "2026-06-17T15:00:00Z",
+            "base_url": "https://chatgpt.com/backend-api/codex",
+        },
+    )
+
+    from hermes_cli.auth_commands import auth_add_command
+
+    class _Args:
+        provider = "openai-codex"
+        auth_type = "oauth"
+        api_key = None
+        label = "HSY"
+
+    auth_add_command(_Args())
+    capsys.readouterr()
+
+    payload = json.loads((hermes_home / "auth.json").read_text())
+    pool = payload["credential_pool"]["openai-codex"]
+    hsy_entries = [entry for entry in pool if entry.get("label") == "HSY"]
+    assert len(hsy_entries) == 1
+    assert hsy_entries[0]["access_token"] == "hsy-new-at"
+    jyh = next(entry for entry in pool if entry.get("label") == "JYH")
+    assert jyh["access_token"] == "jyh-at"
+    assert payload["providers"]["openai-codex"]["tokens"]["access_token"] == "jyh-singleton-at"

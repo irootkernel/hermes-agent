@@ -3987,3 +3987,37 @@ class TestAuxiliaryMaxTokensParam:
         ):
             assert auxiliary_max_tokens_param(4096, model="") == {"max_tokens": 4096}
             assert auxiliary_max_tokens_param(4096, model=None) == {"max_tokens": 4096}
+
+
+
+def test_codex_auxiliary_does_not_fallback_to_singleton_when_pin_unavailable(tmp_path, monkeypatch):
+    hermes_home = tmp_path / "hermes"
+    hermes_home.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+    (hermes_home / ".env").write_text("HERMES_CREDENTIAL_PIN_OPENAI_CODEX_LABEL=HSY\n")
+    valid_singleton = _jwt_with_claims({"exp": int(time.time()) + 3600})
+    (hermes_home / "auth.json").write_text(json.dumps({
+        "version": 1,
+        "providers": {
+            "openai-codex": {
+                "tokens": {"access_token": valid_singleton, "refresh_token": "singleton-rt"},
+                "last_refresh": "2026-06-01T00:00:00Z",
+            },
+        },
+        "credential_pool": {
+            "openai-codex": [
+                {
+                    "id": "jyh",
+                    "label": "JYH",
+                    "auth_type": "oauth",
+                    "priority": 0,
+                    "source": "manual:device_code",
+                    "access_token": _jwt_with_claims({"exp": int(time.time()) + 3600}),
+                    "refresh_token": "jyh-rt",
+                    "base_url": "https://chatgpt.com/backend-api/codex",
+                }
+            ]
+        },
+    }))
+
+    assert _read_codex_access_token() is None

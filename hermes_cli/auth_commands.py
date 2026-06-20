@@ -313,35 +313,18 @@ def auth_add_command(args) -> None:
             creds["tokens"]["access_token"],
             _oauth_default_label(provider, len(pool.entries()) + 1),
         )
-        # Add a distinct, self-contained pool entry per account (matching the
-        # xai-oauth / google-gemini-cli / qwen-oauth patterns) instead of
-        # routing through the singleton ``_save_codex_tokens`` save path.
-        # The singleton round-trip collapsed every added account into the
-        # latest login: a second ``hermes auth add openai-codex`` overwrote
-        # the first account's singleton-mirrored ``device_code`` entry rather
-        # than creating an independent one (#39236). ``manual:device_code``
-        # entries refresh from their own token pair, so they need no singleton
-        # shadow.
-        entry = PooledCredential(
-            provider=provider,
-            id=uuid.uuid4().hex[:6],
-            label=label,
-            auth_type=AUTH_TYPE_OAUTH,
-            priority=0,
-            source=SOURCE_MANUAL_DEVICE_CODE,
-            access_token=creds["tokens"]["access_token"],
-            refresh_token=creds["tokens"].get("refresh_token"),
-            base_url=creds.get("base_url"),
-            last_refresh=creds.get("last_refresh"),
-        )
+        # Preserve v0.17's distinct-account pool behavior, but make an explicit
+        # label a true labelled re-auth: update exactly that entry, create it if
+        # missing, and fail closed on duplicates instead of adding a second copy.
         first_credential = not pool.entries()
-        pool.add_entry(entry)
-        # Adding the first Codex credential should make it the active provider
-        # (the old singleton save path did this implicitly via
-        # _save_provider_state). Subsequent adds leave the active provider as-is.
+        entry = auth_mod._save_codex_pool_entry(
+            creds["tokens"],
+            last_refresh=creds.get("last_refresh"),
+            label=label,
+        )
         if first_credential:
             auth_mod.mark_provider_active_if_unset(provider)
-        print(f'Added {provider} OAuth credential #{len(pool.entries())}: "{entry.label}"')
+        print(f'Added {provider} OAuth credential #{len(load_pool(provider).entries())}: "{entry.get("label", label)}"')
         return
 
     if provider == "xai-oauth":

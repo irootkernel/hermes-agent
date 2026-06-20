@@ -2775,3 +2775,25 @@ def test_host_derived_key_helper_basic_cases():
     for k in ("DEEPSEEK_API_KEY", "GROQ_API_KEY", "MISTRAL_API_KEY",
               "OPENAI_API_KEY", "OPENROUTER_API_KEY"):
         _os.environ.pop(k, None)
+
+
+
+def test_resolve_runtime_provider_fails_closed_when_pinned_pool_selection_fails(monkeypatch):
+    class _Pool:
+        def has_credentials(self):
+            return True
+
+        def has_configured_pin(self):
+            return True
+
+        def select(self):
+            return None
+
+    monkeypatch.setattr(rp, "resolve_provider", lambda *a, **k: "openai-codex")
+    monkeypatch.setattr(rp, "has_configured_credential_pin", lambda provider: True)
+    monkeypatch.setattr(rp, "load_pool", lambda provider: _Pool())
+
+    with pytest.raises(rp.AuthError) as exc:
+        rp.resolve_runtime_provider(requested="openai-codex")
+
+    assert exc.value.code == "credential_pin_unavailable"

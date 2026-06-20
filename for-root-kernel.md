@@ -135,9 +135,38 @@ No D item below is approved for code application yet. Each will be presented to 
 ### D8 — OpenAI Codex credential pinning and labelled reauth
 
 - v0.16 state: local keep.
-- v0.17 release note relevance: provider/auth changes including credential pool behavior.
-- Initial recommendation: audit v0.17 provider/auth pool changes; switch to native if it now covers multi-account profile affinity, otherwise keep Root Kernel profile-local `.env` pin fail-close semantics and labelled reauth scoping.
-- Docker gate: fake-token credential pool and auth command tests; no live `auth.json` or tokens.
+- v0.17 decision: minimized local keep applied.
+- Upstream overlap retained:
+  - v0.17 release notes mention provider/auth work: Codex OAuth pool accounts stay distinct on add/re-auth.
+  - Current `auth_commands.py` already creates distinct `manual:device_code` pool entries for `hermes auth add openai-codex`.
+  - Current `_sync_codex_pool_entries()` already avoids overwriting independent `manual:device_code` entries whose token material does not match the previous singleton.
+- Remaining Root Kernel seam:
+  - `HERMES_CREDENTIAL_PIN_OPENAI_CODEX_ID` / `_LABEL` are read only from profile-local `.env`, not ambient process env.
+  - `ID` wins over `LABEL`; labels must be exact and unique.
+  - pinned missing/duplicate/exhausted/dead/unavailable entries fail closed; no fallback to singleton or another OpenAI account.
+  - main runtime and auxiliary Codex token resolution honor the same pin.
+  - `hermes auth add openai-codex --label <LABEL>` updates exactly one matching refreshable pool entry, creates a labelled `manual:device_code` entry when absent, fails closed on duplicate labels, and leaves other labels plus the provider singleton unchanged.
+- Files changed:
+  - `agent/credential_pool.py`
+  - `agent/auxiliary_client.py`
+  - `hermes_cli/runtime_provider.py`
+  - `hermes_cli/auth.py`
+  - `hermes_cli/auth_commands.py`
+  - `tests/agent/test_credential_pool.py`
+  - `tests/agent/test_auxiliary_client.py`
+  - `tests/hermes_cli/test_runtime_provider_resolution.py`
+  - `tests/hermes_cli/test_auth_codex_provider.py`
+  - `tests/hermes_cli/test_auth_commands.py`
+- Host smoke:
+  - D8 focused fake-token tests: `11 passed`.
+  - related credential/runtime/auth command suite: `302 passed`.
+  - auxiliary Codex token targeted tests: `10 passed`.
+- Docker smoke:
+  - D8 focused fake-token tests: `11 passed, 1 warning`.
+  - related credential/runtime/auth/auxiliary targeted suite: `312 passed, 1 warning`.
+  - disposable `HERMES_HOME` no-token selection smoke: `selected_label HSY`, `selected_id hsy`.
+  - Docker warnings were pytest cache write attempts on a read-only repo mount.
+- Live boundary: no live `.env`, `auth.json`, token, profile home, gateway process, or `rk/live` state was changed.
 
 ## Docker smoke rule
 

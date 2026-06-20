@@ -236,14 +236,48 @@ entries:
   D8:
     title: OpenAI Codex credential pinning and labelled reauth
     previous_v0_16_status: local-keep
-    v0_17_status: pending-owner-direction
-    default_recommendation: audit-provider-auth-changes-first-then-retain-profile-local-pin-fail-close-if-upstream-lacks-it
-    decision_question: If v0.17 provider auth/pool now covers multi-account affinity, switch to native; otherwise keep Root Kernel profile-local .env pins and labelled reauth semantics?
-    pre_apply_required: Auth/provider/Codex pool audit before patching.
+    v0_17_status: local-minimize-applied
+    default_recommendation: retain-profile-local-env-pin-plus-labelled-reauth-update-in-place
+    owner_decision: Retain D8 as a minimized Root Kernel local patch. v0.17 native behavior keeps Codex pool accounts distinct on add/re-auth, but does not provide profile-local credential affinity pins or label-targeted update-in-place semantics required for Root Kernel multi-profile GPT/Codex operation.
+    code_patch_required: true
+    files_changed:
+      - agent/credential_pool.py
+      - agent/auxiliary_client.py
+      - hermes_cli/runtime_provider.py
+      - hermes_cli/auth.py
+      - hermes_cli/auth_commands.py
+      - tests/agent/test_credential_pool.py
+      - tests/agent/test_auxiliary_client.py
+      - tests/hermes_cli/test_runtime_provider_resolution.py
+      - tests/hermes_cli/test_auth_codex_provider.py
+      - tests/hermes_cli/test_auth_commands.py
+    upstream_overlap:
+      - "v0.17 release notes mention provider/auth work: keep Codex OAuth pool accounts distinct on add/re-auth."
+      - v0.17 auth_commands.py already creates distinct openai-codex manual:device_code pool entries instead of collapsing every add into the singleton.
+      - v0.17 _sync_codex_pool_entries preserves independent manual:device_code entries whose token material does not match the previous singleton.
+      - No v0.17 source support found for HERMES_CREDENTIAL_PIN_OPENAI_CODEX_ID, HERMES_CREDENTIAL_PIN_OPENAI_CODEX_LABEL, get_credential_pin, has_configured_credential_pin, or credential_pins.
+    local_seam:
+      - "profile-local .env only pins: HERMES_CREDENTIAL_PIN_OPENAI_CODEX_ID wins over HERMES_CREDENTIAL_PIN_OPENAI_CODEX_LABEL; a bare HERMES_CREDENTIAL_PIN_OPENAI_CODEX is accepted as label convenience."
+      - process environment variables are ignored for pin assignment to prevent parent gateway/profile bleed-through.
+      - CredentialPool select/peek/acquire_lease resolve pins id-first/label-exact and fail closed on missing, duplicate, exhausted, dead, or otherwise unavailable pinned entries.
+      - runtime_provider raises AuthError(code=credential_pin_unavailable) instead of falling back to singleton or another pool entry when a pin is configured but unavailable.
+      - auxiliary Codex token resolution also stops before singleton fallback when a pin is configured but no pinned pool token is available.
+      - hermes auth add openai-codex --label LABEL updates exactly one matching device_code/manual:device_code pool entry, creates a labelled manual:device_code entry if absent, fails closed on duplicate labels, and leaves other labels plus the provider singleton unchanged.
+    host_smoke:
+      - command: PYTHONPATH=$PWD /Users/draccoon/.local/bin/hermes-python -m pytest -q tests/agent/test_credential_pool.py::test_codex_profile_env_label_pin_selects_matching_entry ... tests/hermes_cli/test_auth_commands.py::test_auth_add_openai_codex_label_updates_matching_entry_only -o addopts=
+        result: 11 passed on host disposable fake-token tests.
+      - command: PYTHONPATH=$PWD /Users/draccoon/.local/bin/hermes-python -m pytest -q tests/agent/test_credential_pool.py tests/hermes_cli/test_runtime_provider_resolution.py tests/hermes_cli/test_auth_codex_provider.py tests/hermes_cli/test_auth_commands.py -o addopts=
+        result: 302 passed on host targeted related suite.
+      - command: PYTHONPATH=$PWD /Users/draccoon/.local/bin/hermes-python -m pytest -q tests/agent/test_auxiliary_client.py::TestReadCodexAccessToken tests/agent/test_auxiliary_client.py::test_codex_auxiliary_does_not_fallback_to_singleton_when_pin_unavailable -o addopts=
+        result: 10 passed on host targeted auxiliary Codex token tests.
     docker_smoke:
-      - fake-token credential pool selection and labelled reauth tests in Docker.
-      - no live auth.json or tokens.
+      - command: docker run --rm -i -v "$PWD:/repo:ro" -w /repo ... uv sync --frozen --extra dev && pytest D8 targeted 11-test list -o addopts=
+        result: 11 passed, 1 warning in Docker disposable env; warning was pytest cache write blocked by read-only repo mount.
+      - command: docker run --rm -i -v "$PWD:/repo:ro" -w /repo ... uv sync --frozen --extra dev && pytest tests/agent/test_credential_pool.py tests/hermes_cli/test_runtime_provider_resolution.py tests/hermes_cli/test_auth_codex_provider.py tests/hermes_cli/test_auth_commands.py tests/agent/test_auxiliary_client.py::TestReadCodexAccessToken tests/agent/test_auxiliary_client.py::test_codex_auxiliary_does_not_fallback_to_singleton_when_pin_unavailable -o addopts=
+        result: 312 passed, 1 warning in Docker disposable env; warning was pytest cache write blocked by read-only repo mount.
+      - command: docker run --rm -i -v "$PWD:/repo:ro" -w /repo ... disposable HERMES_HOME with .env label pin and fake openai-codex pool
+        result: selected_label HSY and selected_id hsy; no live auth.json, token, profile home, or gateway state mounted.
+    next_release_instruction: Re-check upstream OpenAI Codex multi-account affinity. If upstream supports profile-local pinning with fail-closed id/unique-label semantics plus label-targeted reauth that preserves other labels and the provider singleton, mark D8 upstream-absorbed; otherwise retain the minimized Root Kernel seam.
 next_steps:
-  - Commit baseline scaffold only after git diff and YAML parse pass.
-  - Present D1/D5/D3 direction questions first because they are likely absorbed or retired.
+  - Continue remaining D-item owner gates in order: D4 Discord owner/thread routing audit, then D2 Kanban review/handoff subitems.
   - Do not move rk/live or /Users/draccoon/.hermes/hermes-agent until D/R gates and Docker smoke are complete and approved.

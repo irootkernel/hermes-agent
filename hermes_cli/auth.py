@@ -3507,6 +3507,112 @@ def _sync_codex_pool_entries(
         entry["last_error_reset_at"] = None
 
 
+def _clear_codex_pool_entry_status(entry: Dict[str, Any]) -> None:
+    entry["last_status"] = None
+    entry["last_status_at"] = None
+    entry["last_error_code"] = None
+    entry["last_error_reason"] = None
+    entry["last_error_message"] = None
+    entry["last_error_reset_at"] = None
+
+
+def _apply_codex_tokens_to_pool_entry(
+    entry: Dict[str, Any],
+    tokens: Dict[str, str],
+    last_refresh: Optional[str],
+) -> None:
+    access_token = tokens.get("access_token")
+    if access_token:
+        entry["access_token"] = access_token
+    refresh_token = tokens.get("refresh_token")
+    if refresh_token:
+        entry["refresh_token"] = refresh_token
+    if last_refresh:
+        entry["last_refresh"] = last_refresh
+    _clear_codex_pool_entry_status(entry)
+
+
+def _save_codex_pool_entry(
+    tokens: Dict[str, str],
+    last_refresh: Optional[str] = None,
+    label: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Save Codex OAuth tokens to one labelled credential_pool entry only.
+
+    ``hermes auth add openai-codex --label <name>`` is used for multi-account
+    operation. A labelled re-auth must not mirror the newly issued token pair
+    into the provider singleton or unrelated labels, otherwise distinct ChatGPT
+    accounts collapse into the account that was authenticated last.
+    """
+    access_token = tokens.get("access_token")
+    if not access_token:
+        raise AuthError(
+            "Codex OAuth login did not return an access token.",
+            provider="openai-codex",
+            code="codex_auth_missing_access_token",
+            relogin_required=True,
+        )
+    if last_refresh is None:
+        last_refresh = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    target_label = str(label or "").strip()
+    if not target_label:
+        raise AuthError(
+            "A label is required when saving a single Codex pool entry.",
+            provider="openai-codex",
+            code="codex_label_required",
+            relogin_required=False,
+        )
+
+    refreshable_sources = {"device_code", "manual:device_code"}
+    with _auth_store_lock():
+        auth_store = _load_auth_store()
+        pool = auth_store.setdefault("credential_pool", {})
+        if not isinstance(pool, dict):
+            pool = {}
+            auth_store["credential_pool"] = pool
+        entries = pool.setdefault("openai-codex", [])
+        if not isinstance(entries, list):
+            entries = []
+            pool["openai-codex"] = entries
+
+        matches = [
+            entry
+            for entry in entries
+            if isinstance(entry, dict)
+            and entry.get("source") in refreshable_sources
+            and str(entry.get("label") or "") == target_label
+        ]
+        if len(matches) > 1:
+            raise AuthError(
+                f'Ambiguous Codex credential label "{target_label}". Use a unique label before re-authenticating.',
+                provider="openai-codex",
+                code="codex_label_ambiguous",
+                relogin_required=False,
+            )
+
+        if matches:
+            entry = matches[0]
+        else:
+            priorities = [
+                item["priority"]
+                for item in entries
+                if isinstance(item, dict) and isinstance(item.get("priority"), int)
+            ]
+            entry = {
+                "id": uuid.uuid4().hex[:6],
+                "label": target_label,
+                "auth_type": "oauth",
+                "priority": max(priorities, default=-1) + 1,
+                "source": "manual:device_code",
+                "base_url": DEFAULT_CODEX_BASE_URL,
+            }
+            entries.append(entry)
+
+        _apply_codex_tokens_to_pool_entry(entry, tokens, last_refresh)
+        _save_auth_store(auth_store)
+        return dict(entry)
+
+
 def _save_codex_tokens(tokens: Dict[str, str], last_refresh: str = None, label: str = None) -> None:
     """Save Codex OAuth tokens to Hermes auth store (~/.hermes/auth.json)."""
     if last_refresh is None:
