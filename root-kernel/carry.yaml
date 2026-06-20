@@ -1,0 +1,227 @@
+schema_version: 1
+release:
+  branch: rk/v0.17.0
+  upstream_tag: v2026.6.19
+  upstream_version: v0.17.0
+  upstream_commit: 2bd1977d8fad185c9b4be47884f7e87f1add0ce3
+  previous_downstream_branch: rk/v0.16.0
+  previous_downstream_commit: c3c60ccb192526b0f459a1a6bc198dd1b9f0f554
+  release_note_evidence: root-kernel/evidence/release-note-v2026.6.19.md
+baseline_evidence:
+  source_freeze:
+    - command: git fetch --tags upstream '+refs/tags/v2026.6.19:refs/tags/v2026.6.19'
+      result: tag present; v2026.6.19^{} resolved to 2bd1977d8fad185c9b4be47884f7e87f1add0ce3
+    - command: git branch backup/17e-v0.16.0-before-v0.17.0-20260620-175015 17e/v0.16.0
+      result: backup ref created at c3c60ccb192526b0f459a1a6bc198dd1b9f0f554
+    - command: git switch -c 17e/v0.17.0 v2026.6.19^{}
+      result: candidate branch created at exact upstream release commit
+  docker_baseline:
+    - command: docker run --rm -i -v "$PWD:/repo:ro" -w /repo -e HERMES_HOME=/tmp/hermes-home -e PYTHONPATH=/repo ghcr.io/astral-sh/uv:0.11.6-python3.13-trixie python - <ast-parse-smoke>
+      result: docker ast parse ok for hermes_cli/main.py, hermes_cli/config.py, hermes_cli/doctor.py, hermes_cli/kanban_db.py, tools/kanban_tools.py
+    - command: docker run --rm -i -v "$PWD:/repo:ro" -w /repo -e HOME=/tmp/hermes-user -e HERMES_HOME=/tmp/hermes-home -e UV_CACHE_DIR=/tmp/uv-cache -e UV_PROJECT_ENVIRONMENT=/tmp/hermes-venv -e PYTHONPATH=/repo ghcr.io/astral-sh/uv:0.11.6-python3.13-trixie bash -lc 'uv sync --frozen --no-install-project && /tmp/hermes-venv/bin/python -m hermes_cli.main --version'
+      result: Hermes Agent v0.17.0 (2026.6.19) CLI version smoke succeeded in disposable Docker env
+  namespace_migration:
+    - command: git branch backup/rk-namespace-migration-before-rename-20260620-183211 17e/v0.17.0 && git branch backup/rk-v0.16.0-before-rename-20260620-183211 17e/v0.16.0
+      result: rollback refs created before local namespace rename; v0.17 rollback at 2bd1977d8fad185c9b4be47884f7e87f1add0ce3 and v0.16 rollback at c3c60ccb192526b0f459a1a6bc198dd1b9f0f554
+    - command: git branch -m 17e/v0.16.0 rk/v0.16.0 && git branch -m 17e/v0.17.0 rk/v0.17.0
+      result: local branch namespace moved to Root Kernel refs without rewriting commits
+    - command: git tag rk/tag/v0.16.0 17e/tag/v0.16.0 && git tag -d 17e/tag/v0.16.0
+      result: local fixed checkout tag namespace moved to rk/tag/v0.16.0; no remote refs changed
+    - command: mv 17e root-kernel && mv for_17th_earth.md for-root-kernel.md
+      result: local release artifacts renamed to Root Kernel paths
+policy:
+  status_decisions_are_per_delta_commits: true
+  no_patch_before_owner_direction_alignment: true
+  prefer_upstream_native_features_first: true
+  local_carries_are_minimal_fail_closed_rk_extensions: true
+  drop_means_mark_absorbed_or_retired_not_delete: true
+  verification_scope: targeted_smoke_not_full_macos_suite
+  docker_smoke_required_before_live_checkout_migration: true
+  live_checkout_migration_target: /Users/draccoon/.hermes/hermes-agent
+  d_items_are_runtime_diffs_only: true
+  r_items_are_activation_or_host_local_gates: true
+release_notes_signals:
+  summary:
+    - v0.17.0 is the Reach Release with new communication channels, desktop/dashboard upgrades, async subagents, automation blueprints, image editing, memory/curator changes, and major refactors.
+    - cli.py, gateway/run.py, and run_agent.py underwent large refactors, so old carry patches must not be replayed blindly.
+    - New messaging platforms include iMessage via Photon, Raft, WhatsApp Business Cloud API, and SimpleX; Discord carries must be checked against gateway core/rendering changes.
+    - Core/tool changes include background async subagents, search_files densification, removed agent-callable send_message, read_file document extraction, context/compression changes, memory batch operations, and write_approval.
+    - Curator routine curation is now deterministic/token-free unless consolidation is enabled; R1/R2/R5 activation policy should absorb this rather than recreate old local behavior.
+  decision_impact:
+    D2: Re-audit native team/automation/Kanban surfaces before carrying old same-card review helpers.
+    D4: Re-audit gateway/Discord adapter refactors before carrying owner-thread routing seams.
+    D6: Re-audit extracted CLI parser/main return-code boundaries before patching.
+    D7: Re-audit doctor/tool warning behavior with new optional tools and write_approval.
+    D8: Re-audit auth/provider changes before carrying profile-local Codex credential pins.
+docker_smoke_policy:
+  required_before_activation: true
+  activation_boundary: Do not migrate /Users/draccoon/.hermes/hermes-agent, reinstall editable runtime, move rk/live, or restart gateways until Docker smoke for the candidate branch has passed or blockers are explicitly accepted.
+  default_shape:
+    - read-only repository mount where possible
+    - disposable HERMES_HOME inside container
+    - no live .env, auth.json, tokens, production state.db, or production kanban.db mounts
+    - PYTHONPATH or editable install must point at the candidate repo, not the live checkout
+    - feature smoke must exercise actual CLI/tool behavior, not only static diff inspection
+  allowed:
+    - targeted pytest for touched D-items
+    - disposable Kanban DB same-task workflow smoke
+    - disposable credential-pool fake-token smoke
+    - gateway/Discord routing unit smoke with fake objects
+    - doctor/CLI subprocess smoke
+  forbidden_without_separate_approval:
+    - live messaging tokens in container
+    - production profile homes or production databases in container
+    - gateway restarts or live platform sends
+rules:
+  R1:
+    title: Config/profile activation policy
+    status: pending-r-pre-audit
+    scope:
+      - default and named profile config.yaml files
+      - config schema/version migration
+      - hermes config check and hermes doctor
+      - new v0.17 write_approval, automation blueprint, dashboard/profile-builder defaults
+    activation_impact: host-local config and doctor triage gate; not a runtime carry
+    next_action: read-only profile config audit after D candidate settles; mutate only in activation window.
+  R2:
+    title: Skill provenance, overrides, and compatibility policy
+    status: pending-r-pre-audit
+    scope:
+      - bundled/upstream skills
+      - optional skills
+      - shared ops skills.external_dirs
+      - profile-local overrides and active cron skills
+      - v0.17 Skills Hub and write_approval behavior
+    activation_impact: host-local skill compatibility gate; not a runtime carry
+    next_action: compare v0.16 and v0.17 bundled/optional skills; do not restore removed upstream skills as D-items.
+  R3:
+    title: Web dashboard and desktop activation gate
+    status: pending-r-pre-audit
+    scope:
+      - dashboard profile builder and auth changes
+      - desktop watch-windows/model selector/theme updates
+      - web_dist and desktop build/smoke
+    activation_impact: host-local GUI surface gate; not a runtime carry
+    next_action: candidate Docker/host build smoke only after D candidate; persistent launchd/dashboard changes require approval.
+  R4:
+    title: Cron, automation blueprints, and local script activation gate
+    status: pending-r-pre-audit
+    scope:
+      - active cron jobs and scripts
+      - automation blueprints introduced in v0.17
+      - shared /Users/draccoon/Workspace/Hermes/ops/scripts automation tree
+      - watcher jobs and hardcoded checkout paths
+    activation_impact: host-local automation gate; not a runtime carry unless product code must change.
+    next_action: read-only cron/script inventory and classify whether automation blueprints replace any local cron prompts.
+  R5:
+    title: Profile-owned local asset optimization after v0.17 activation
+    status: deferred-until-after-d-candidate
+    scope:
+      - Root Kernel-owned skills
+      - Root Kernel-owned cron prompts
+      - canonical ops scripts
+      - usage-style updates for v0.17 native surfaces
+    activation_impact: post-candidate local asset pass; not a prerequisite for D-code branch creation.
+entries:
+  D1:
+    title: Tool Search pair
+    previous_v0_16_status: upstream-absorbed
+    v0_17_status: resolved-no-local-carry-no-future-consideration
+    owner_decision: Use upstream-native Tool Search/search_files behavior. Do not reintroduce a Root Kernel local patch.
+    future_release_instruction: Do not reconsider D1 as a Root Kernel carry in future releases. It was already resolved/absorbed in v0.16.0 and is no longer part of the active carry set unless a wholly new, independent regression is discovered and assigned a new D-ID.
+    code_patch_required: false
+    audit_evidence:
+      - command: docker run ... pytest -q tests/tools/test_tool_search.py -o addopts=
+        result: 39 passed, 1 warning in Docker disposable env; warning was pytest cache write blocked by read-only repo mount
+    docker_smoke:
+      - targeted tool_search/search_files tests passed; no further D1 smoke required for carry replay.
+  D2:
+    title: Kanban review and same-card handoff helpers
+    previous_v0_16_status: partial-native-local-minimized-d2b-d2c-d2d-d2e-d2f-d2g-d2h-d2i-applied
+    v0_17_status: pending-owner-direction
+    default_recommendation: audit-v0.17-native-first-then-minimize-local-extensions
+    decision_question: For each D2 subitem, switch to v0.17 native team/automation/Kanban features where sufficient, and carry only Root Kernel creator-gate/fail-closed gaps?
+    pre_apply_required: Native surface audit and owner direction per subitem D2-b through D2-i.
+    docker_smoke:
+      - disposable Kanban DB workflow smoke for each retained subitem.
+      - targeted tests/hermes_cli and tests/tools Kanban tests inside Docker.
+  D3:
+    title: Kanban assignee alias dispatch seam
+    previous_v0_16_status: retired-after-refactor
+    v0_17_status: retired-use-v0-17-native-no-future-consideration
+    owner_decision: Do not restore the Root Kernel assignee alias dispatch seam. Use v0.17 native Kanban/profile dispatch behavior going forward.
+    future_release_instruction: Do not reconsider D3 as a Root Kernel carry in future releases. Assignee alias dispatch is retired; any future need must be treated as a new independent D-ID, not D3 replay.
+    code_patch_required: false
+    audit_evidence:
+      - command: git grep for assignee_alias/resolve_assignee plus has_spawnable_ready/has_spawnable_review/default_assignee
+        result: no assignee_alias seam observed; v0.17 has profile_exists-based spawnability checks, default_assignee, max_in_progress_per_profile, and multiprofile gateway surfaces
+    docker_smoke:
+      - not required for carry replay; v0.17 native path will be covered by later D2/Kanban Docker smoke if Kanban changes are retained.
+  D4:
+    title: Discord owner/thread routing and role-mention fail-close
+    previous_v0_16_status: local-keep-with-parent-owner-env-fallback
+    v0_17_status: pending-owner-direction
+    default_recommendation: adopt-v0.17-gateway-refactor-then-retain-only-owner-thread-fail-close-seams
+    decision_question: Should v0.17 Discord/gateway native behavior be the base, with Root Kernel owner-thread/role-mention fail-close guarantees retained if still missing?
+    pre_apply_required: Audit v0.17 Discord adapter, gateway thread handling, role mention handling, and parent-channel ownership behavior.
+    docker_smoke:
+      - fake Discord object routing tests in Docker.
+      - no live Discord token or send.
+  D5:
+    title: Support-only plugin strategy
+    previous_v0_16_status: retired-no-code
+    v0_17_status: retired-no-code-no-future-consideration
+    owner_decision: Treat D5 as a past policy only. Do not restore a support-only plugin strategy for v0.17.
+    future_release_instruction: Do not reconsider D5 as a Root Kernel carry in future releases. It is retired policy history; any future plugin strategy must be assigned a new independent D-ID with a concrete current need.
+    code_patch_required: false
+    audit_evidence:
+      - command: git grep for support-only/migration plugin/17th references under plugins hermes_cli tests
+        result: no active support-only plugin dependency found in v0.17 candidate source
+    docker_smoke:
+      - not required; no active source dependency and no carry replay.
+  D6:
+    title: CLI return-code passthrough
+    previous_v0_16_status: local-keep
+    v0_17_status: audited-recommend-local-keep-pending-owner-direction
+    default_recommendation: retain-minimal-bool-safe-return-code-passthrough
+    decision_question: v0.17 still discards integer return codes from subcommands, so should we reapply the minimal D6 helper and tests?
+    pre_apply_required: Owner direction before patching hermes_cli/main.py and tests.
+    audit_evidence:
+      - command: git show 41409d981 -- hermes_cli/main.py tests/hermes_cli/test_main_exit_codes.py
+        result: v0.16 D6 added _exit_if_int_return_code(rc), called it after args.func(args), and added subprocess tests for missing Kanban task rc=1, usage rc=2, help rc=0, plus exact-int-not-bool behavior.
+      - command: read current hermes_cli/main.py command execution tail
+        result: v0.17 currently executes args.func(args) and discards its return value; no _exit_if_int_return_code helper exists.
+      - command: read tests/hermes_cli/test_kanban_core_functionality.py around test_cli_bulk_complete_with_summary_rejects
+        result: upstream v0.17 test comment explicitly notes hermes_cli.main does not propagate sub-command exit codes because args.func(args) discards the return value.
+      - command: docker run ... python -m hermes_cli.main kanban show definitely_missing_task
+        result: "stderr 'no such task: definitely_missing_task' but process rc=0; expected automation-safe rc=1."
+      - command: docker run ... python -m hermes_cli.main kanban boards switch ""
+        result: "stderr 'slug is required' but process rc=0; expected usage rc=2."
+      - command: docker run ... python -m hermes_cli.main kanban --help
+        result: process rc=0 as expected.
+    docker_smoke:
+      - after patch, rerun the above subprocess cases in Docker and run targeted test_main_exit_codes.py.
+  D7:
+    title: Doctor optional tool warning filter
+    previous_v0_16_status: local-keep
+    v0_17_status: pending-owner-direction
+    default_recommendation: audit-v0.17-doctor-and-toolsets-first
+    decision_question: Use v0.17 doctor behavior if it is actionable enough; otherwise retain only disabled/default-off optional warning filtering?
+    pre_apply_required: Doctor output audit with disposable config and selected toolsets.
+    docker_smoke:
+      - hermes doctor/config smoke with disposable HERMES_HOME in Docker.
+      - targeted tests/hermes_cli/test_doctor.py if retained.
+  D8:
+    title: OpenAI Codex credential pinning and labelled reauth
+    previous_v0_16_status: local-keep
+    v0_17_status: pending-owner-direction
+    default_recommendation: audit-provider-auth-changes-first-then-retain-profile-local-pin-fail-close-if-upstream-lacks-it
+    decision_question: If v0.17 provider auth/pool now covers multi-account affinity, switch to native; otherwise keep Root Kernel profile-local .env pins and labelled reauth semantics?
+    pre_apply_required: Auth/provider/Codex pool audit before patching.
+    docker_smoke:
+      - fake-token credential pool selection and labelled reauth tests in Docker.
+      - no live auth.json or tokens.
+next_steps:
+  - Commit baseline scaffold only after git diff and YAML parse pass.
+  - Present D1/D5/D3 direction questions first because they are likely absorbed or retired.
+  - Do not move rk/live or /Users/draccoon/.hermes/hermes-agent until D/R gates and Docker smoke are complete and approved.
