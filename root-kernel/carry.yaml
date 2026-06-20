@@ -211,13 +211,28 @@ entries:
   D7:
     title: Doctor optional tool warning filter
     previous_v0_16_status: local-keep
-    v0_17_status: pending-owner-direction
-    default_recommendation: audit-v0.17-doctor-and-toolsets-first
-    decision_question: Use v0.17 doctor behavior if it is actionable enough; otherwise retain only disabled/default-off optional warning filtering?
-    pre_apply_required: Doctor output audit with disposable config and selected toolsets.
+    v0_17_status: local-keep-applied
+    default_recommendation: retain-minimal-config-scoped-doctor-warning-filter
+    owner_decision: Retain D7 as a minimal Root Kernel local patch because v0.17 still reports API-key warnings for disabled/default-off optional toolsets.
+    code_patch_required: true
+    files_changed:
+      - hermes_cli/doctor.py
+      - tests/hermes_cli/test_doctor.py
+    audit_evidence:
+      - command: git show c8f98d219 -- hermes_cli/doctor.py tests/hermes_cli/test_doctor.py
+        result: v0.16 D7 added a config-scoped Tool Availability filter and tests for disabled optional toolsets versus explicitly selected optional toolsets.
+      - command: grep release note and current hermes_cli/doctor.py for D7 helper names
+        result: v0.17 release notes and source show no equivalent upstream doctor Tool Availability config filter.
+      - command: docker run ... check_tool_availability versus _get_platform_tools(DEFAULT_CONFIG, "cli")
+        result: before filter, API-key unavailable rows were discord, discord_admin, moa, web, x_search; only web was enabled/actionable for the default CLI scope.
     docker_smoke:
-      - hermes doctor/config smoke with disposable HERMES_HOME in Docker.
-      - targeted tests/hermes_cli/test_doctor.py if retained.
+      - command: docker run --rm -i -v "$PWD:/repo:ro" -w /repo ... pytest -q tests/hermes_cli/test_doctor.py::TestDoctorToolAvailabilityConfigFilter -o addopts=
+        result: 3 passed, 1 warning in Docker disposable env; warning was pytest cache write blocked by read-only repo mount.
+      - command: docker run --rm -i -v "$PWD:/repo:ro" -w /repo ... pytest -q tests/hermes_cli/test_doctor.py tests/hermes_cli/test_doctor_dedicated_provider_skip.py -o addopts=
+        result: 71 passed, 1 warning in Docker disposable env; warning was pytest cache write blocked by read-only repo mount.
+      - command: docker run --rm -i -v "$PWD:/repo:ro" -w /repo ... check_tool_availability then _filter_doctor_tool_availability_for_config
+        result: API-key unavailable rows changed from discord, discord_admin, moa, web, x_search to web only under disposable default CLI config.
+    next_release_instruction: Re-check upstream doctor Tool Availability scoping; if upstream hides disabled/default-off optional toolset warnings equivalently while keeping enabled warnings, mark D7 upstream-absorbed and drop the local helper.
   D8:
     title: OpenAI Codex credential pinning and labelled reauth
     previous_v0_16_status: local-keep

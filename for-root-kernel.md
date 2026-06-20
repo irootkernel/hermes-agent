@@ -118,9 +118,19 @@ No D item below is approved for code application yet. Each will be presented to 
 ### D7 — Doctor optional tool warning filter
 
 - v0.16 state: local keep.
-- v0.17 release note relevance: new toolsets, write approval, curator behavior, more optional surfaces.
-- Initial recommendation: audit v0.17 doctor output first; only retain filtering for disabled/default-off optional tool warnings if needed.
-- Docker gate: disposable config doctor smoke and targeted doctor tests.
+- v0.17 decision: local keep applied as a minimal Root Kernel patch.
+- Evidence:
+  - v0.17 release notes and current `hermes_cli/doctor.py` do not include an equivalent Tool Availability config-scope filter;
+  - disposable Docker audit before patch showed API-key unavailable rows for `discord`, `discord_admin`, `moa`, `web`, and `x_search`; only `web` was enabled/actionable for the default CLI scope;
+  - this preserves the local rule that unused/default-off integrations should stay disabled instead of requiring API keys only to silence doctor.
+- Applied patch: added `_doctor_enabled_toolsets_for_warning_scope()` and `_filter_doctor_tool_availability_for_config()` to `hermes_cli/doctor.py`, then applied the filter after runtime-gated overrides and before Tool Availability output/issues are emitted. Config/toolset resolution failure returns `None` and preserves fail-open diagnostics.
+- Tests updated: added `TestDoctorToolAvailabilityConfigFilter` for disabled optional suppression, explicitly selected optional warning preservation, and fail-open behavior.
+- Docker evidence after patch:
+  - `pytest -q tests/hermes_cli/test_doctor.py::TestDoctorToolAvailabilityConfigFilter -o addopts=` → `3 passed, 1 warning`;
+  - `pytest -q tests/hermes_cli/test_doctor.py tests/hermes_cli/test_doctor_dedicated_provider_skip.py -o addopts=` → `71 passed, 1 warning`;
+  - helper smoke changed API-key unavailable rows from `discord`, `discord_admin`, `moa`, `web`, `x_search` to `web` only under disposable default CLI config.
+- Warning note: Docker warnings were pytest cache writes blocked by the read-only repo mount, not test failures.
+- Next release: re-check upstream doctor Tool Availability scoping; if absorbed, drop the local helper.
 
 ### D8 — OpenAI Codex credential pinning and labelled reauth
 
