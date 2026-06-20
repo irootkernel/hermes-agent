@@ -3907,6 +3907,112 @@ def test_review_approval_routes_to_creator_final_gate(kanban_home, monkeypatch):
     assert [e.kind for e in final_events].count("completed") == 1
 
 
+def test_submit_task_result_routes_to_creator_acceptance_without_final_gate(
+    kanban_home, monkeypatch
+):
+    """D2-g: worker result submission returns to creator for terminal acceptance."""
+    from hermes_cli import profiles
+
+    monkeypatch.setattr(
+        profiles,
+        "profile_exists",
+        lambda name: name in {"creator", "other"},
+    )
+    with kb.connect() as conn:
+        t = kb.create_task(
+            conn,
+            title="creator accepted work",
+            assignee="worker",
+            created_by="other",
+        )
+        claimed = kb.claim_task(conn, t, claimer="worker:run")
+        assert claimed is not None
+
+        ok = kb.submit_task_result(
+            conn,
+            t,
+            reviewer="creator",
+            summary="implemented requested fix",
+            metadata={"changed_files": ["app.py"]},
+            expected_run_id=claimed.current_run_id,
+        )
+
+        task = kb.get_task(conn, t)
+        events = kb.list_events(conn, t)
+        assert ok is True
+        assert task.status == "review"
+        assert task.assignee == "creator"
+        submitted = next(e for e in events if e.kind == "submitted_result")
+        assert submitted.run_id == claimed.current_run_id
+        assert submitted.payload == {
+            "from_assignee": "worker",
+            "reviewer": "creator",
+            "summary": "implemented requested fix",
+            "submission_type": "result",
+            "metadata": {"changed_files": ["app.py"]},
+        }
+
+        creator_claim = kb.claim_review_task(conn, t, claimer="creator:run")
+        assert creator_claim is not None
+        assert kb.complete_task(
+            conn,
+            t,
+            result="creator accepted work result",
+            summary="accepted",
+            expected_run_id=creator_claim.current_run_id,
+        )
+        accepted = kb.get_task(conn, t)
+        final_events = kb.list_events(conn, t)
+
+    assert accepted.status == "done"
+    assert accepted.assignee == "creator"
+    assert accepted.result == "creator accepted work result"
+    assert [e.kind for e in final_events].count("submitted_result") == 1
+    assert [e.kind for e in final_events].count("review_accepted") == 0
+    assert [e.kind for e in final_events].count("completed") == 1
+
+
+def test_request_changes_returns_result_submission_to_worker(kanban_home, monkeypatch):
+    """D2-g: result submissions use the same-card request-changes loop."""
+    from hermes_cli import profiles
+
+    monkeypatch.setattr(profiles, "profile_exists", lambda name: name == "creator")
+    with kb.connect() as conn:
+        t = kb.create_task(conn, title="needs creator check", assignee="worker")
+        claimed = kb.claim_task(conn, t, claimer="worker:run")
+        assert claimed is not None
+        assert kb.submit_task_result(
+            conn,
+            t,
+            reviewer="creator",
+            summary="result ready",
+            expected_run_id=claimed.current_run_id,
+        )
+        creator_claim = kb.claim_review_task(conn, t, claimer="creator:run")
+        assert creator_claim is not None
+
+        ok = kb.request_changes_task(
+            conn,
+            t,
+            reason="missing smoke evidence",
+            expected_run_id=creator_claim.current_run_id,
+        )
+
+        task = kb.get_task(conn, t)
+        events = kb.list_events(conn, t)
+
+    assert ok is True
+    assert task.status == "ready"
+    assert task.assignee == "worker"
+    requested = [e for e in events if e.kind == "requested_changes"][-1]
+    assert requested.payload == {
+        "reviewer": "creator",
+        "assignee": "worker",
+        "reason": "missing smoke evidence",
+        "summary": None,
+    }
+
+
 def test_submit_task_for_review_rejects_invalid_final_assignee(
     kanban_home, monkeypatch
 ):

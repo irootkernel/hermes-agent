@@ -87,7 +87,7 @@ Each D item is presented to 주군 before patching; only owner-approved items ar
   - D2-d: reviewer request-changes/rework transition. Applied: `request_changes_task` + `kanban_request_changes` keep the same task id, close the active review run as `requested_changes` / `released`, restore the original implementer from the latest `submitted_review.from_assignee` unless an explicit rework assignee is supplied, clear claim/current-run state, enforce same-task worker ownership, require a feedback reason, and use `HERMES_KANBAN_RUN_ID` as a stale-run guard.
   - D2-e: creator/final gate separation from reviewer done. Applied: `submit_task_for_review(final_assignee=...)` + `complete_task` / `kanban_complete` final-gate routing keep the same task id; reviewer approval closes the review run as `review_accepted` / `released` and returns the card to `ready` for the creator/final assignee, while only the final assignee's later completion marks `done`. Explicit reviewer/final assignee and route-time final gate are spawnability-validated fail-closed before mutation.
   - D2-f: async review watcher/outcome notification support. Applied: `kanban_submit_review` now returns `review_watch` and best-effort auto-subscribes the originating gateway/session source; CLI/cron/unattached contexts report `review_watch={attached:false}`. Gateway Kanban notifier now sends `requested_changes` and `review_accepted` events, says `final gate required` on reviewer acceptance, and keeps the subscription until the task is truly `done`/`archived`.
-  - D2-g: creator-accepted result loop.
+  - D2-g: creator-accepted result loop. Applied: `submit_task_result` + `kanban_submit_result` + CLI `submit-result` keep the same task id, close the active worker run as `submitted_result` / `released`, move the card to native `review` for the creator/acceptor, record result provenance for later request-changes, and leave final task completion to the acceptor's later `kanban_complete`.
   - D2-h: `mutex_key` serialization for shared artifacts/resources.
   - D2-i: workflow context banners for K-style Kanban workflows.
 - Docker gate: disposable Kanban DB workflows and targeted Kanban tests; no production `kanban.db`.
@@ -113,6 +113,11 @@ Each D item is presented to 주군 before patching; only owner-approved items ar
   - Focused host GREEN: the same 4 D2-f tests → `4 passed`.
   - Host targeted suites and syntax after D2-f: `tests/tools/test_kanban_tools.py tests/gateway/test_kanban_notifier.py` → `105 passed`; `ast.parse` passed for touched Python files.
   - Docker disposable smoke: D2-f 4-test bundle → `4 passed, 1 warning`; warning was read-only `.pytest_cache` write failure on the read-only repo mount.
+- D2-g evidence:
+  - RED smoke before implementation: focused tests confirmed missing `submit_task_result`, missing `kanban_submit_result` schema/registry exposure, and absent result-submission tool path.
+  - Focused host GREEN: D2-g DB/tool/CLI bundle → `7 passed, 1 warning`; warning was pre-existing Discord `audioop` deprecation from imported Discord player.
+  - Host D2 smoke regression: `tests/hermes_cli/test_kanban_db.py tests/tools/test_kanban_tools.py tests/hermes_cli/test_kanban_cli.py tests/gateway/test_kanban_notifier.py` → `388 passed`.
+  - Docker disposable smoke: D2-g 4-test bundle → `4 passed, 1 warning`; warning was read-only `.pytest_cache` write failure on the read-only repo mount.
 
 ### D3 — Kanban assignee alias dispatch seam
 

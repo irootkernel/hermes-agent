@@ -57,7 +57,7 @@ def test_kanban_tools_visible_with_env_var(monkeypatch, tmp_path):
     expected = {
         "kanban_show", "kanban_complete", "kanban_block", "kanban_heartbeat",
         "kanban_comment", "kanban_create", "kanban_link", "kanban_reassign",
-        "kanban_submit_review", "kanban_request_changes",
+        "kanban_submit_review", "kanban_submit_result", "kanban_request_changes",
     }
     assert kanban == expected, f"expected {expected}, got {kanban}"
 
@@ -85,6 +85,9 @@ def test_kanban_worker_env_overrides_profile_toolset_filter(monkeypatch, tmp_pat
     assert "kanban_show" in names
     assert "kanban_complete" in names
     assert "kanban_block" in names
+    assert "kanban_submit_review" in names
+    assert "kanban_submit_result" in names
+    assert "kanban_request_changes" in names
     assert "kanban_list" not in names
 
 
@@ -139,7 +142,7 @@ def test_kanban_tools_visible_with_toolset_config(monkeypatch, tmp_path):
         "kanban_show", "kanban_complete", "kanban_block", "kanban_heartbeat",
         "kanban_comment", "kanban_create", "kanban_link",
         "kanban_unblock", "kanban_reassign", "kanban_submit_review",
-        "kanban_request_changes",
+        "kanban_submit_result", "kanban_request_changes",
     }
     assert kanban == expected, f"expected {expected}, got {kanban}"
 
@@ -385,6 +388,58 @@ def test_kanban_submit_review_tool_submits_current_worker_task(
     assert run.outcome == "submitted_review"
     assert run.metadata == {"checks": ["unit"], "worker_session_id": "sess-review"}
     assert any(e.kind == "submitted_review" for e in events)
+
+
+def test_kanban_submit_result_tool_submits_current_worker_result(
+    monkeypatch, worker_env
+):
+    """D2-g: worker tool submits its own running task for creator acceptance."""
+    from hermes_cli import kanban_db as kb
+    from hermes_cli import profiles
+
+    monkeypatch.setattr(profiles, "profile_exists", lambda name: name == "creator")
+    conn = kb.connect()
+    try:
+        task = kb.get_task(conn, worker_env)
+        assert task is not None
+        assert task.current_run_id is not None
+        monkeypatch.setenv("HERMES_KANBAN_RUN_ID", str(task.current_run_id))
+        monkeypatch.setenv("HERMES_SESSION_ID", "sess-result")
+    finally:
+        conn.close()
+
+    from tools import kanban_tools as kt
+    from tools.registry import registry
+
+    assert registry.get_entry("kanban_submit_result") is not None
+    out = kt._handle_submit_result({
+        "reviewer": "creator",
+        "summary": "ready for creator acceptance",
+        "metadata": {"checks": ["smoke"]},
+    })
+    data = json.loads(out)
+    assert data["ok"] is True
+    assert data["task_id"] == worker_env
+    assert data["status"] == "review"
+    assert data["reviewer"] == "creator"
+
+    conn = kb.connect()
+    try:
+        task = kb.get_task(conn, worker_env)
+        run = kb.latest_run(conn, worker_env)
+        events = kb.list_events(conn, worker_env)
+    finally:
+        conn.close()
+
+    assert task is not None
+    assert run is not None
+    assert task.status == "review"
+    assert task.assignee == "creator"
+    assert task.current_run_id is None
+    assert run.status == "released"
+    assert run.outcome == "submitted_result"
+    assert run.metadata == {"checks": ["smoke"], "worker_session_id": "sess-result"}
+    assert any(e.kind == "submitted_result" for e in events)
 
 
 def test_kanban_submit_review_tool_attaches_review_watch_for_gateway_source(

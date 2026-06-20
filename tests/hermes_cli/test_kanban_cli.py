@@ -167,6 +167,40 @@ def test_run_slash_json_output(kanban_home):
     assert payload["status"] == "ready"
 
 
+def test_run_slash_submit_result_routes_to_acceptor(kanban_home, monkeypatch):
+    """D2-g: CLI submit-result moves a claimed worker task to acceptance review."""
+    from hermes_cli import profiles
+
+    monkeypatch.setattr(profiles, "profile_exists", lambda name: name == "creator")
+    with kb.connect() as conn:
+        tid = kb.create_task(conn, title="result cli", assignee="worker")
+        claimed = kb.claim_task(conn, tid, claimer="worker:cli")
+        assert claimed is not None
+
+    out = kc.run_slash(
+        f"submit-result {tid} --reviewer creator --summary 'ready to accept' "
+        "--metadata '{\"checks\":[\"cli\"]}' --json"
+    )
+    payload = json.loads(out)
+    assert payload["ok"] is True
+    assert payload["task_id"] == tid
+    assert payload["status"] == "review"
+    assert payload["reviewer"] == "creator"
+
+    with kb.connect() as conn:
+        task = kb.get_task(conn, tid)
+        run = kb.latest_run(conn, tid)
+        events = kb.list_events(conn, tid)
+
+    assert task is not None
+    assert run is not None
+    assert task.status == "review"
+    assert task.assignee == "creator"
+    assert run.outcome == "submitted_result"
+    assert run.metadata == {"checks": ["cli"]}
+    assert any(e.kind == "submitted_result" for e in events)
+
+
 def test_run_slash_dispatch_dry_run_counts(kanban_home):
     kc.run_slash("create 'a' --assignee alice")
     kc.run_slash("create 'b' --assignee bob")

@@ -138,7 +138,7 @@ entries:
   D2:
     title: Kanban review and same-card handoff helpers
     previous_v0_16_status: partial-native-local-minimized-d2b-d2c-d2d-d2e-d2f-d2g-d2h-d2i-applied
-    v0_17_status: d2-a-through-d2-f-applied-d2g-through-d2i-pending
+    v0_17_status: d2-a-through-d2-g-applied-d2h-through-d2i-pending
     owner_decision: Keep the Kanban-first operating rule for official Root Kernel work. Do not replace D2 with async delegate_task for v0.17.0; carry D2-a through D2-i, while using delegate_task gradually only as a supplemental/experimental path after activation experience accumulates.
     default_recommendation: retain-full-d2-a-through-d2-i-on-v0-17-native-base
     decision_question: resolved; 주군 selected full D2 carry and Kanban-first continuity despite v0.17 async delegate_task improvements.
@@ -151,15 +151,18 @@ entries:
       D2-d: applied - reviewer request-changes/rework transition
       D2-e: applied - creator/final gate separation from reviewer done
       D2-f: applied - async review watcher/outcome notification support
-      D2-g: creator-accepted result loop
+      D2-g: applied - creator-accepted result loop
       D2-h: mutex_key serialization for shared artifacts/resources
       D2-i: workflow context banners for K-style Kanban workflows
     code_patch_required: true
     files_changed:
+      - agent/prompt_builder.py
+      - hermes_cli/kanban.py
       - hermes_cli/kanban_db.py
       - gateway/kanban_watchers.py
       - tools/kanban_tools.py
       - toolsets.py
+      - tests/hermes_cli/test_kanban_cli.py
       - tests/hermes_cli/test_kanban_db.py
       - tests/gateway/test_kanban_notifier.py
       - tests/tools/test_kanban_tools.py
@@ -182,6 +185,8 @@ entries:
         result: submit_task_for_review validates and records an optional final_assignee (or infers a real created_by profile that differs from the reviewer). Reviewer kanban_complete/complete_task on a review run with a still-valid final gate closes the review run as status=released/outcome=review_accepted, emits review_accepted, clears claim/current-run state, and routes the same task id back to ready for the final assignee instead of marking done. Invalid explicit reviewer/final_assignee and invalidated recorded final gates fail closed without mutation.
       - command: implement minimal D2-f async review watcher/outcome notification seam
         result: kanban_submit_review now best-effort attaches review_watch by auto-subscribing the originating gateway/session source through gateway.session_context, returns review_watch={attached:false} for CLI/cron/unattached contexts, and the gateway Kanban notifier now delivers requested_changes and review_accepted events without retiring subscriptions until the task reaches done/archived. review_accepted notifications explicitly say final gate required.
+      - command: add D2-g result-submission RED tests, then implement minimal creator/acceptor result loop
+        result: RED showed missing submit_task_result and missing kanban_submit_result schema exposure. GREEN adds submit_task_result, submitted_result events, CLI submit-result, kanban_submit_result tool/schema/registration/toolset exposure, and worker prompt guidance. submitted_result closes the worker run as status=released/outcome=submitted_result, moves the same task id to status=review for the acceptor, records from_assignee/reviewer/summary/submission_type=result, stamps worker_session_id in tool metadata, and extends request_changes_task provenance lookup to submitted_result without changing review_accepted final-gate semantics.
     docker_smoke:
       - disposable Kanban DB workflow smoke for each retained subitem.
       - targeted tests/hermes_cli and tests/tools Kanban tests inside Docker.
@@ -210,6 +215,12 @@ entries:
       - command: /Users/draccoon/.local/bin/hermes-python -m pytest -q tests/tools/test_kanban_tools.py tests/gateway/test_kanban_notifier.py -o addopts= && ast.parse touched D2-f files
         result: 105 passed on host; ast parse passed for tools/kanban_tools.py, gateway/kanban_watchers.py, tests/tools/test_kanban_tools.py, and tests/gateway/test_kanban_notifier.py.
       - command: docker run --rm -i -v "$PWD:/repo:ro" -w /repo -e HOME=/tmp/hermes-user -e HERMES_HOME=/tmp/hermes-home -e UV_CACHE_DIR=/tmp/uv-cache -e UV_PROJECT_ENVIRONMENT=/tmp/hermes-venv -e PYTHONPATH=/repo ghcr.io/astral-sh/uv:0.11.6-python3.13-trixie bash -lc 'uv sync --frozen --extra dev --no-install-project >/tmp/uv-sync.log && /tmp/hermes-venv/bin/python -m pytest -q tests/tools/test_kanban_tools.py::test_kanban_submit_review_tool_attaches_review_watch_for_gateway_source tests/tools/test_kanban_tools.py::test_kanban_submit_review_tool_skips_review_watch_without_gateway_source tests/gateway/test_kanban_notifier.py::test_notifier_delivers_requested_changes_and_keeps_subscription tests/gateway/test_kanban_notifier.py::test_notifier_delivers_review_accepted_and_keeps_subscription -o addopts='
+        result: 4 passed, 1 warning in Docker disposable env; warning was pytest cache write blocked by read-only repo mount.
+      - command: /Users/draccoon/.local/bin/hermes-python -m pytest tests/hermes_cli/test_kanban_db.py::test_submit_task_result_routes_to_creator_acceptance_without_final_gate tests/hermes_cli/test_kanban_db.py::test_request_changes_returns_result_submission_to_worker tests/tools/test_kanban_tools.py::test_kanban_tools_visible_with_env_var tests/tools/test_kanban_tools.py::test_kanban_tools_visible_with_toolset_config tests/tools/test_kanban_tools.py::test_kanban_worker_env_overrides_profile_toolset_filter tests/tools/test_kanban_tools.py::test_kanban_submit_result_tool_submits_current_worker_result tests/hermes_cli/test_kanban_cli.py::test_run_slash_submit_result_routes_to_acceptor -q -o addopts=
+        result: 7 passed on host.
+      - command: /Users/draccoon/.local/bin/hermes-python -m pytest tests/hermes_cli/test_kanban_db.py tests/tools/test_kanban_tools.py tests/hermes_cli/test_kanban_cli.py tests/gateway/test_kanban_notifier.py -q -o addopts=
+        result: 388 passed on host.
+      - command: docker run --rm -i -v "$PWD:/repo:ro" -w /repo -e HOME=/tmp/hermes-user -e HERMES_HOME=/tmp/hermes-home -e UV_CACHE_DIR=/tmp/uv-cache -e UV_PROJECT_ENVIRONMENT=/tmp/hermes-venv ghcr.io/astral-sh/uv:0.11.6-python3.13-trixie bash -lc 'uv sync --frozen --extra dev --no-install-project >/tmp/uv-sync.log && uv run --no-sync python -m pytest tests/hermes_cli/test_kanban_db.py::test_submit_task_result_routes_to_creator_acceptance_without_final_gate tests/hermes_cli/test_kanban_db.py::test_request_changes_returns_result_submission_to_worker tests/tools/test_kanban_tools.py::test_kanban_submit_result_tool_submits_current_worker_result tests/hermes_cli/test_kanban_cli.py::test_run_slash_submit_result_routes_to_acceptor -q -o addopts='
         result: 4 passed, 1 warning in Docker disposable env; warning was pytest cache write blocked by read-only repo mount.
   D3:
     title: Kanban assignee alias dispatch seam
