@@ -160,11 +160,12 @@ def test_run_slash_block_unblock_cycle(kanban_home):
 
 
 def test_run_slash_json_output(kanban_home):
-    out = kc.run_slash("create 'jsontask' --assignee alice --json")
+    out = kc.run_slash("create 'jsontask' --assignee alice --mutex-key artifact:cli --json")
     payload = json.loads(out)
     assert payload["title"] == "jsontask"
     assert payload["assignee"] == "alice"
     assert payload["status"] == "ready"
+    assert payload["mutex_key"] == "artifact:cli"
 
 
 def test_run_slash_submit_result_routes_to_acceptor(kanban_home, monkeypatch):

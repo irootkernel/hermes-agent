@@ -326,6 +326,7 @@ def _task_summary_dict(kb, conn, task) -> dict[str, Any]:
         "completed_at": task.completed_at,
         "current_run_id": task.current_run_id,
         "model_override": task.model_override,
+        "mutex_key": task.mutex_key,
         "parents": parents,
         "children": children,
         "parent_count": len(parents),
@@ -982,6 +983,7 @@ def _handle_create(args: dict, **kw) -> str:
     if bool_error:
         return tool_error(bool_error)
     idempotency_key = args.get("idempotency_key")
+    mutex_key = args.get("mutex_key")
     max_runtime_seconds = args.get("max_runtime_seconds")
     initial_status = args.get("initial_status") or "running"
     skills = args.get("skills")
@@ -1027,6 +1029,7 @@ def _handle_create(args: dict, **kw) -> str:
                 workspace_path=workspace_path,
                 triage=triage,
                 idempotency_key=idempotency_key,
+                mutex_key=mutex_key,
                 max_runtime_seconds=(
                     int(max_runtime_seconds)
                     if max_runtime_seconds is not None else None
@@ -1045,6 +1048,7 @@ def _handle_create(args: dict, **kw) -> str:
             return _ok(
                 task_id=new_tid,
                 status=new_task.status if new_task else None,
+                mutex_key=new_task.mutex_key if new_task else None,
                 subscribed=subscribed,
             )
         finally:
@@ -1716,6 +1720,16 @@ KANBAN_CREATE_SCHEMA = {
                     "If a non-archived task with this key already "
                     "exists, return that task's id instead of creating "
                     "a duplicate. Useful for retry-safe automation."
+                ),
+            },
+            "mutex_key": {
+                "type": "string",
+                "description": (
+                    "Optional coarse-grained serialization key for tasks "
+                    "that mutate the same artifact/resource. While a task "
+                    "with this key is running, other ready tasks with the "
+                    "same key are deferred by the dispatcher. Examples: "
+                    "'path:/repo/file.py', 'artifact:release-ledger'."
                 ),
             },
             "max_runtime_seconds": {

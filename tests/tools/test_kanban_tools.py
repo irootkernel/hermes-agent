@@ -1146,12 +1146,19 @@ def test_comment_schema_omits_author_override():
     assert "author" not in props
 
 
+def test_create_schema_exposes_mutex_key():
+    from tools.kanban_tools import KANBAN_CREATE_SCHEMA
+    props = KANBAN_CREATE_SCHEMA["parameters"]["properties"]
+    assert "mutex_key" in props
+
+
 def test_create_happy_path(worker_env):
     from tools import kanban_tools as kt
     out = kt._handle_create({
         "title": "child task",
         "assignee": "peer",
         "parents": [worker_env],
+        "mutex_key": "artifact:child",
     })
     d = json.loads(out)
     assert d["ok"] is True
@@ -1161,8 +1168,10 @@ def test_create_happy_path(worker_env):
     conn = kb.connect()
     try:
         child = kb.get_task(conn, d["task_id"])
+        assert child is not None
         assert child.title == "child task"
         assert child.assignee == "peer"
+        assert child.mutex_key == "artifact:child"
     finally:
         conn.close()
 
