@@ -3356,6 +3356,118 @@ def submit_task_for_review(
     return True
 
 
+def _latest_submitted_review_assignee(
+    conn: sqlite3.Connection,
+    task_id: str,
+) -> Optional[str]:
+    """Return the implementer from the latest submitted_review event."""
+    row = conn.execute(
+        """
+        SELECT payload
+          FROM task_events
+         WHERE task_id = ?
+           AND kind = 'submitted_review'
+         ORDER BY created_at DESC, id DESC
+         LIMIT 1
+        """,
+        (task_id,),
+    ).fetchone()
+    if not row or not row["payload"]:
+        return None
+    try:
+        payload = json.loads(row["payload"])
+    except Exception:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    assignee = str(payload.get("from_assignee") or "").strip()
+    return assignee or None
+
+
+def request_changes_task(
+    conn: sqlite3.Connection,
+    task_id: str,
+    *,
+    assignee: Optional[str] = None,
+    reason: Optional[str] = None,
+    summary: Optional[str] = None,
+    metadata: Optional[dict[str, Any]] = None,
+    expected_run_id: Optional[int] = None,
+) -> bool:
+    """Return a review task to ``ready`` for rework on the same task id.
+
+    The active review run is closed as ``requested_changes`` / ``released``.
+    Without an explicit assignee override, the implementer is restored from
+    the latest ``submitted_review`` event emitted by submit_task_for_review.
+    """
+    with write_txn(conn):
+        row = conn.execute(
+            """
+            SELECT assignee, status, current_run_id
+              FROM tasks
+             WHERE id = ?
+            """,
+            (task_id,),
+        ).fetchone()
+        if not row or row["status"] != "running" or not row["current_run_id"]:
+            return False
+
+        target = (assignee or "").strip()
+        if not target:
+            target = _latest_submitted_review_assignee(conn, task_id) or ""
+        if not target:
+            return False
+
+        run_id = int(row["current_run_id"])
+        if expected_run_id is not None and run_id != int(expected_run_id):
+            return False
+
+        review_summary = summary if summary is not None else reason
+        closed_run_id = _end_run(
+            conn,
+            task_id,
+            outcome="requested_changes",
+            status="released",
+            summary=review_summary,
+            metadata=metadata,
+        )
+        if closed_run_id != run_id:
+            return False
+
+        conn.execute(
+            """
+            UPDATE tasks
+               SET status = 'ready',
+                   assignee = ?,
+                   claim_lock = NULL,
+                   claim_expires = NULL,
+                   worker_pid = NULL,
+                   current_run_id = NULL,
+                   last_heartbeat_at = NULL,
+                   consecutive_failures = 0,
+                   last_failure_error = NULL
+             WHERE id = ?
+            """,
+            (target, task_id),
+        )
+        payload = {
+            "reviewer": row["assignee"],
+            "assignee": target,
+            "reason": reason,
+            "summary": summary,
+        }
+        if metadata is not None:
+            payload["metadata"] = metadata
+        _append_event(
+            conn,
+            task_id,
+            "requested_changes",
+            payload,
+            run_id=run_id,
+        )
+    return True
+
+
 def heartbeat_claim(
     conn: sqlite3.Connection,
     task_id: str,

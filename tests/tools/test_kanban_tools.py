@@ -57,7 +57,7 @@ def test_kanban_tools_visible_with_env_var(monkeypatch, tmp_path):
     expected = {
         "kanban_show", "kanban_complete", "kanban_block", "kanban_heartbeat",
         "kanban_comment", "kanban_create", "kanban_link", "kanban_reassign",
-        "kanban_submit_review",
+        "kanban_submit_review", "kanban_request_changes",
     }
     assert kanban == expected, f"expected {expected}, got {kanban}"
 
@@ -139,6 +139,7 @@ def test_kanban_tools_visible_with_toolset_config(monkeypatch, tmp_path):
         "kanban_show", "kanban_complete", "kanban_block", "kanban_heartbeat",
         "kanban_comment", "kanban_create", "kanban_link",
         "kanban_unblock", "kanban_reassign", "kanban_submit_review",
+        "kanban_request_changes",
     }
     assert kanban == expected, f"expected {expected}, got {kanban}"
 
@@ -384,6 +385,68 @@ def test_kanban_submit_review_tool_submits_current_worker_task(
     assert run.outcome == "submitted_review"
     assert run.metadata == {"checks": ["unit"], "worker_session_id": "sess-review"}
     assert any(e.kind == "submitted_review" for e in events)
+
+
+def test_kanban_request_changes_tool_returns_review_to_rework(
+    monkeypatch, worker_env
+):
+    """D2-d: review worker tool returns its current task to rework."""
+    from hermes_cli import kanban_db as kb
+    from hermes_cli import profiles
+
+    monkeypatch.setattr(profiles, "profile_exists", lambda name: name == "reviewer")
+    conn = kb.connect()
+    try:
+        assert kb.submit_task_for_review(
+            conn,
+            worker_env,
+            reviewer="reviewer",
+            summary="ready for review",
+        )
+        assert kb.claim_review_task(conn, worker_env, claimer="reviewer:run") is not None
+        task = kb.get_task(conn, worker_env)
+        assert task is not None
+        assert task.current_run_id is not None
+        monkeypatch.setenv("HERMES_KANBAN_RUN_ID", str(task.current_run_id))
+        monkeypatch.setenv("HERMES_SESSION_ID", "sess-reviewer")
+        monkeypatch.setenv("HERMES_PROFILE", "reviewer")
+    finally:
+        conn.close()
+
+    from tools import kanban_tools as kt
+    from tools.registry import registry
+
+    assert registry.get_entry("kanban_request_changes") is not None
+    out = kt._handle_request_changes({
+        "reason": "tests missing",
+        "metadata": {"review": "needs-tests"},
+    })
+    data = json.loads(out)
+    assert data["ok"] is True
+    assert data["task_id"] == worker_env
+    assert data["status"] == "ready"
+    assert data["assignee"] == "test-worker"
+
+    conn = kb.connect()
+    try:
+        task = kb.get_task(conn, worker_env)
+        run = kb.latest_run(conn, worker_env)
+        events = kb.list_events(conn, worker_env)
+    finally:
+        conn.close()
+
+    assert task is not None
+    assert run is not None
+    assert task.status == "ready"
+    assert task.assignee == "test-worker"
+    assert task.current_run_id is None
+    assert run.status == "released"
+    assert run.outcome == "requested_changes"
+    assert run.metadata == {
+        "review": "needs-tests",
+        "worker_session_id": "sess-reviewer",
+    }
+    assert any(e.kind == "requested_changes" for e in events)
 
 
 def test_complete_happy_path(worker_env):

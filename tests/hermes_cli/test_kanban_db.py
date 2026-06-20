@@ -3685,6 +3685,153 @@ def test_submit_task_for_review_rejects_stale_run_id_without_mutation(
     assert not any(e.kind == "submitted_review" for e in events)
 
 
+def test_request_changes_returns_review_to_original_assignee(
+    kanban_home, monkeypatch
+):
+    """D2-d: reviewer returns the same card to the implementer for rework."""
+    from hermes_cli import profiles
+
+    monkeypatch.setattr(profiles, "profile_exists", lambda name: name == "reviewer")
+    with kb.connect() as conn:
+        t = kb.create_task(conn, title="implement", assignee="alice")
+        assert kb.claim_task(conn, t, claimer="alice:run") is not None
+        assert kb.submit_task_for_review(
+            conn,
+            t,
+            reviewer="reviewer",
+            summary="ready",
+        )
+        assert kb.claim_review_task(conn, t, claimer="reviewer:run") is not None
+        review_run_id = kb.get_task(conn, t).current_run_id
+
+        ok = kb.request_changes_task(
+            conn,
+            t,
+            reason="tests missing",
+            metadata={"review": "needs-tests"},
+            expected_run_id=review_run_id,
+        )
+
+        task = kb.get_task(conn, t)
+        run = kb.latest_run(conn, t)
+        events = kb.list_events(conn, t)
+
+    assert ok is True
+    assert task.status == "ready"
+    assert task.assignee == "alice"
+    assert task.current_run_id is None
+    assert task.claim_lock is None
+    assert task.claim_expires is None
+    assert task.worker_pid is None
+    assert run.id == review_run_id
+    assert run.status == "released"
+    assert run.outcome == "requested_changes"
+    assert run.summary == "tests missing"
+    assert run.metadata == {"review": "needs-tests"}
+    event = next(e for e in events if e.kind == "requested_changes")
+    assert event.run_id == review_run_id
+    assert event.payload == {
+        "reviewer": "reviewer",
+        "assignee": "alice",
+        "reason": "tests missing",
+        "summary": None,
+        "metadata": {"review": "needs-tests"},
+    }
+
+
+def test_request_changes_allows_explicit_assignee_override(
+    kanban_home, monkeypatch
+):
+    """D2-d: reviewer can explicitly return rework to another assignee."""
+    from hermes_cli import profiles
+
+    monkeypatch.setattr(profiles, "profile_exists", lambda name: name == "reviewer")
+    with kb.connect() as conn:
+        t = kb.create_task(conn, title="implement", assignee="alice")
+        assert kb.claim_task(conn, t) is not None
+        assert kb.submit_task_for_review(conn, t, reviewer="reviewer")
+        assert kb.claim_review_task(conn, t) is not None
+
+        ok = kb.request_changes_task(
+            conn,
+            t,
+            assignee="bob",
+            reason="needs domain owner",
+        )
+        task = kb.get_task(conn, t)
+
+    assert ok is True
+    assert task.status == "ready"
+    assert task.assignee == "bob"
+
+
+def test_request_changes_rejects_stale_run_id_without_mutation(
+    kanban_home, monkeypatch
+):
+    """D2-d: stale reviewer run ids cannot release a newer review run."""
+    from hermes_cli import profiles
+
+    monkeypatch.setattr(profiles, "profile_exists", lambda name: name == "reviewer")
+    with kb.connect() as conn:
+        t = kb.create_task(conn, title="implement", assignee="alice")
+        assert kb.claim_task(conn, t) is not None
+        assert kb.submit_task_for_review(conn, t, reviewer="reviewer")
+        assert kb.claim_review_task(conn, t) is not None
+        live = kb.get_task(conn, t)
+
+        ok = kb.request_changes_task(
+            conn,
+            t,
+            reason="stale review",
+            expected_run_id=int(live.current_run_id) + 1,
+        )
+
+        task = kb.get_task(conn, t)
+        run = kb.latest_run(conn, t)
+        events = kb.list_events(conn, t)
+
+    assert ok is False
+    assert task.status == "running"
+    assert task.assignee == "reviewer"
+    assert task.current_run_id == live.current_run_id
+    assert run.status == "running"
+    assert run.outcome is None
+    assert not any(e.kind == "requested_changes" for e in events)
+
+
+def test_request_changes_same_task_review_rework_loop(
+    kanban_home, monkeypatch
+):
+    """D2-d: submit -> review -> request changes -> rework -> review -> done."""
+    from hermes_cli import profiles
+
+    monkeypatch.setattr(profiles, "profile_exists", lambda name: name == "reviewer")
+    with kb.connect() as conn:
+        t = kb.create_task(conn, title="implement", assignee="alice")
+        assert kb.claim_task(conn, t, claimer="alice:first") is not None
+        assert kb.submit_task_for_review(conn, t, reviewer="reviewer", summary="first")
+        first_review = kb.claim_review_task(conn, t, claimer="reviewer:first")
+        assert first_review is not None
+        assert kb.request_changes_task(conn, t, reason="tighten tests")
+
+        rework = kb.claim_task(conn, t, claimer="alice:rework")
+        assert rework is not None
+        assert rework.id == t
+        assert rework.assignee == "alice"
+        assert kb.submit_task_for_review(conn, t, reviewer="reviewer", summary="second")
+        second_review = kb.claim_review_task(conn, t, claimer="reviewer:second")
+        assert second_review is not None
+        assert second_review.id == t
+        assert kb.complete_task(conn, t, summary="review accepted")
+
+        task = kb.get_task(conn, t)
+        events = kb.list_events(conn, t)
+
+    assert task.status == "done"
+    assert [e.kind for e in events].count("submitted_review") == 2
+    assert [e.kind for e in events].count("requested_changes") == 1
+
+
 def test_dispatch_review_dry_run(kanban_home, all_assignees_spawnable):
     """dispatch_once dry-run sees review tasks and reports them as spawned."""
     with kb.connect() as conn:

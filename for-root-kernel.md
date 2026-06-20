@@ -84,7 +84,7 @@ Each D item is presented to 주군 before patching; only owner-approved items ar
   - D2-a: audit and ledger native-vs-local classification.
   - D2-b: cooperative same-card handoff/reassign helper. Applied: `handoff_task` + `kanban_reassign` keep the same task id, close the active run as `handed_off` / `released`, clear claim/current-run state, return the card to `ready` for the target assignee, enforce same-task worker ownership, and use `HERMES_KANBAN_RUN_ID` as a stale-run guard.
   - D2-c: worker submit-for-review same-card transition. Applied: `submit_task_for_review` + `kanban_submit_review` keep the same task id, close the active run as `submitted_review` / `released`, move the card to native `review` for the reviewer, preserve `from_assignee` in the `submitted_review` event for later request-changes, enforce same-task worker ownership, and use `HERMES_KANBAN_RUN_ID` as a stale-run guard.
-  - D2-d: reviewer request-changes/rework transition.
+  - D2-d: reviewer request-changes/rework transition. Applied: `request_changes_task` + `kanban_request_changes` keep the same task id, close the active review run as `requested_changes` / `released`, restore the original implementer from the latest `submitted_review.from_assignee` unless an explicit rework assignee is supplied, clear claim/current-run state, enforce same-task worker ownership, require a feedback reason, and use `HERMES_KANBAN_RUN_ID` as a stale-run guard.
   - D2-e: creator/final gate separation from reviewer done.
   - D2-f: async review watcher/outcome notification support.
   - D2-g: creator-accepted result loop.
@@ -98,8 +98,12 @@ Each D item is presented to 주군 before patching; only owner-approved items ar
   - Docker disposable smoke: D2-b 5-test bundle → `5 passed, 1 warning`; warning was read-only `.pytest_cache` write failure on the read-only repo mount.
 - D2-c evidence:
   - Focused host smoke: 7 D2-c submit-review/tool-visibility tests → `7 passed`.
-  - Host targeted suites and syntax: `tests/hermes_cli/test_kanban_db.py tests/tools/test_kanban_tools.py tests/hermes_cli/test_kanban_core_functionality.py` → `482 passed, 1 skipped, 1 warning`; `py_compile` passed for touched Python files. Warning was pre-existing Discord `audioop` deprecation.
+  - Host targeted suites and syntax at D2-c time: `tests/hermes_cli/test_kanban_db.py tests/tools/test_kanban_tools.py tests/hermes_cli/test_kanban_core_functionality.py` → `482 passed, 1 skipped, 1 warning`; `py_compile` passed for touched Python files. Warning was pre-existing Discord `audioop` deprecation.
   - Docker disposable smoke: D2-c 7-test bundle → `7 passed, 1 warning`; warning was read-only `.pytest_cache` write failure on the read-only repo mount.
+- D2-d evidence:
+  - Focused host smoke: 7 D2-d request-changes/tool-visibility tests → `7 passed`.
+  - Host targeted suites and syntax after D2-d: `tests/hermes_cli/test_kanban_db.py tests/tools/test_kanban_tools.py tests/hermes_cli/test_kanban_core_functionality.py` → `487 passed, 1 skipped, 1 warning`; `py_compile` passed for touched Python files. Warning was pre-existing Discord `audioop` deprecation.
+  - Docker disposable smoke: D2-d 7-test bundle → `7 passed, 1 warning`; warning was read-only `.pytest_cache` write failure on the read-only repo mount.
 
 ### D3 — Kanban assignee alias dispatch seam
 
