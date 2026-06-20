@@ -102,15 +102,18 @@ No D item below is approved for code application yet. Each will be presented to 
 ### D6 — CLI return-code passthrough
 
 - v0.16 state: local keep.
-- v0.17 audit result: still needed.
+- v0.17 decision: local keep applied as a minimal Root Kernel patch.
 - Evidence:
   - current `hermes_cli/main.py` still executes `args.func(args)` and discards the returned integer;
   - upstream v0.17 test comment in `tests/hermes_cli/test_kanban_core_functionality.py` explicitly notes this limitation;
   - Docker subprocess smoke showed `kanban show definitely_missing_task` prints the error but exits `0`, expected `1`;
   - Docker subprocess smoke showed `kanban boards switch ""` prints usage error but exits `0`, expected `2`;
   - help path still exits `0` as expected.
-- Recommendation: retain a minimal D6 local patch: exact-int return-code passthrough at the top-level command dispatch, with bool-safe handling (`type(rc) is int`, not `isinstance`). Add the v0.16 subprocess tests back and update any upstream comments that assumed discarded return codes.
-- Docker gate after patch: rerun the three subprocess cases plus targeted `tests/hermes_cli/test_main_exit_codes.py`.
+- Applied patch: added `_exit_if_int_return_code(rc)` to `hermes_cli/main.py`, using exact `type(rc) is int` passthrough so bools are ignored, and called it after `args.func(args)`.
+- Tests/docs updated: restored `tests/hermes_cli/test_main_exit_codes.py` and updated the stale Kanban test comment that assumed discarded return codes.
+- Docker evidence after patch:
+  - `pytest -q tests/hermes_cli/test_main_exit_codes.py -o addopts=` with `uv sync --frozen --extra dev --no-install-project`: `7 passed, 1 warning` in disposable Docker env; warning was pytest cache write blocked by read-only repo mount.
+  - subprocess smoke: `kanban show definitely_missing_task` -> rc `1`; `kanban boards switch ""` -> rc `2`; `kanban --help` -> rc `0`.
 
 ### D7 — Doctor optional tool warning filter
 

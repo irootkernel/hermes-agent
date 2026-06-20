@@ -11565,6 +11565,12 @@ def cmd_claw(args):
     claw_command(args)
 
 
+def _exit_if_int_return_code(rc):
+    """Exit for exact integer command return codes, but never for bools."""
+    if type(rc) is int:
+        sys.exit(rc)
+
+
 def main():
     """Main entry point for hermes CLI."""
     # Cosmetic: make the process show up as 'hermes' instead of 'python3.11'
@@ -12616,7 +12622,8 @@ def main():
 
     # Execute the command
     if hasattr(args, "func"):
-        args.func(args)
+        rc = args.func(args)
+        _exit_if_int_return_code(rc)
     else:
         parser.print_help()
 

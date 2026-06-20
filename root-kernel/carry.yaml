@@ -182,10 +182,14 @@ entries:
   D6:
     title: CLI return-code passthrough
     previous_v0_16_status: local-keep
-    v0_17_status: audited-recommend-local-keep-pending-owner-direction
+    v0_17_status: local-keep-applied
     default_recommendation: retain-minimal-bool-safe-return-code-passthrough
-    decision_question: v0.17 still discards integer return codes from subcommands, so should we reapply the minimal D6 helper and tests?
-    pre_apply_required: Owner direction before patching hermes_cli/main.py and tests.
+    owner_decision: Retain D6 as a minimal Root Kernel local patch because v0.17 still discards integer return codes from subcommands.
+    code_patch_required: true
+    files_changed:
+      - hermes_cli/main.py
+      - tests/hermes_cli/test_main_exit_codes.py
+      - tests/hermes_cli/test_kanban_core_functionality.py
     audit_evidence:
       - command: git show 41409d981 -- hermes_cli/main.py tests/hermes_cli/test_main_exit_codes.py
         result: v0.16 D6 added _exit_if_int_return_code(rc), called it after args.func(args), and added subprocess tests for missing Kanban task rc=1, usage rc=2, help rc=0, plus exact-int-not-bool behavior.
@@ -200,7 +204,10 @@ entries:
       - command: docker run ... python -m hermes_cli.main kanban --help
         result: process rc=0 as expected.
     docker_smoke:
-      - after patch, rerun the above subprocess cases in Docker and run targeted test_main_exit_codes.py.
+      - command: docker run --rm -i -v "$PWD:/repo:ro" -w /repo ... bash -lc 'uv sync --frozen --extra dev --no-install-project && /tmp/hermes-venv/bin/python -m pytest -q tests/hermes_cli/test_main_exit_codes.py -o addopts='
+        result: 7 passed, 1 warning in Docker disposable env; warning was pytest cache write blocked by read-only repo mount.
+      - command: docker run --rm -i -v "$PWD:/repo:ro" -w /repo ... python -m hermes_cli.main kanban show definitely_missing_task / kanban boards switch "" / kanban --help
+        result: missing task rc=1 with expected stderr; usage rc=2 with expected stderr; help rc=0 with usage output.
   D7:
     title: Doctor optional tool warning filter
     previous_v0_16_status: local-keep
