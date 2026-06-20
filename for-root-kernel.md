@@ -73,8 +73,29 @@ Each D item is presented to 주군 before patching; only owner-approved items ar
 
 - v0.16 state: partial-native local minimized; D2-b/c/d/e/f/g/h/i applied.
 - v0.17 release note relevance: background async subagents, automation blueprints, fleet/relay/automation changes, major core refactors.
-- Initial recommendation: audit v0.17 native Kanban/team/automation surfaces first; retain only Root Kernel creator-gate, same-card, watcher, mutex, or workflow-context gaps that remain.
+- Owner decision: keep Kanban-first for official Root Kernel work and carry the full D2 set, D2-a through D2-i. v0.17 `delegate_task(background=true)` will be used gradually as supplemental/experimental help, not as the v0.17 replacement for durable Kanban review gates.
+- Direction: retain D2 on the v0.17 native base. Apply each subitem minimally and separately, with ledger updates and disposable Kanban smoke in the same unit.
+- Rationale: async delegate_task now avoids synchronous waiting and can return a background handle, but it does not yet replace the durable Kanban task id, formal assignee routing, same-card review/rework loop, creator/final gate, watcher/audit trail, mutex, or workflow banner semantics used by Root Kernel operations.
+- D2-a audit evidence recorded:
+  - `delegate_task(background=true)` is real in v0.17 and returns a background delegation handle, but completion re-enters via the process completion queue rather than Kanban's durable board/audit model.
+  - v0.17 native Kanban review has `claim_review_task`, review status handling, `has_spawnable_review`, and review dispatcher coverage.
+  - Host baseline review smoke passed: selected `tests/hermes_cli/test_kanban_db.py` review claim/spawnability tests returned `6 passed`.
+- Planned D2 subitems:
+  - D2-a: audit and ledger native-vs-local classification.
+  - D2-b: cooperative same-card handoff/reassign helper. Applied: `handoff_task` + `kanban_reassign` keep the same task id, close the active run as `handed_off` / `released`, clear claim/current-run state, return the card to `ready` for the target assignee, enforce same-task worker ownership, and use `HERMES_KANBAN_RUN_ID` as a stale-run guard.
+  - D2-c: worker submit-for-review same-card transition.
+  - D2-d: reviewer request-changes/rework transition.
+  - D2-e: creator/final gate separation from reviewer done.
+  - D2-f: async review watcher/outcome notification support.
+  - D2-g: creator-accepted result loop.
+  - D2-h: `mutex_key` serialization for shared artifacts/resources.
+  - D2-i: workflow context banners for K-style Kanban workflows.
 - Docker gate: disposable Kanban DB workflows and targeted Kanban tests; no production `kanban.db`.
+- D2-b RED/GREEN evidence:
+  - Focused RED before implementation: 5 expected failures for missing `handoff_task`, missing `_handle_reassign`, and missing `kanban_reassign` schema exposure.
+  - Focused GREEN after implementation: D2-b 5-test host smoke passed.
+  - Host targeted suites: `tests/tools/test_kanban_tools.py` → `91 passed, 1 warning`; `tests/hermes_cli/test_kanban_db.py` → `220 passed, 1 warning`. Warnings were pre-existing Discord `audioop` deprecation warnings.
+  - Docker disposable smoke: D2-b 5-test bundle → `5 passed, 1 warning`; warning was read-only `.pytest_cache` write failure on the read-only repo mount.
 
 ### D3 — Kanban assignee alias dispatch seam
 

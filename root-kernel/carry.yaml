@@ -138,13 +138,49 @@ entries:
   D2:
     title: Kanban review and same-card handoff helpers
     previous_v0_16_status: partial-native-local-minimized-d2b-d2c-d2d-d2e-d2f-d2g-d2h-d2i-applied
-    v0_17_status: pending-owner-direction
-    default_recommendation: audit-v0.17-native-first-then-minimize-local-extensions
-    decision_question: For each D2 subitem, switch to v0.17 native team/automation/Kanban features where sufficient, and carry only Root Kernel creator-gate/fail-closed gaps?
-    pre_apply_required: Native surface audit and owner direction per subitem D2-b through D2-i.
+    v0_17_status: d2-a-d2b-applied-d2c-through-d2i-pending
+    owner_decision: Keep the Kanban-first operating rule for official Root Kernel work. Do not replace D2 with async delegate_task for v0.17.0; carry D2-a through D2-i, while using delegate_task gradually only as a supplemental/experimental path after activation experience accumulates.
+    default_recommendation: retain-full-d2-a-through-d2-i-on-v0-17-native-base
+    decision_question: resolved; 주군 selected full D2 carry and Kanban-first continuity despite v0.17 async delegate_task improvements.
+    pre_apply_required: Apply each retained D2 subitem with minimal v0.17-native-base patches, ledger updates, and targeted disposable Kanban smoke before advancing to the next subitem.
+    delegate_task_policy: v0.17 background delegate_task is useful for non-official exploratory/support work, but it is not yet trusted as the durable review-gate, creator-acceptance, audit, mutex, or formal assignee workflow backbone.
+    planned_subitems:
+      D2-a: applied - audit and ledger native-vs-local classification
+      D2-b: applied - cooperative same-card handoff/reassign helper
+      D2-c: worker submit-for-review same-card transition
+      D2-d: reviewer request-changes/rework transition
+      D2-e: creator/final gate separation from reviewer done
+      D2-f: async review watcher/outcome notification support
+      D2-g: creator-accepted result loop
+      D2-h: mutex_key serialization for shared artifacts/resources
+      D2-i: workflow context banners for K-style Kanban workflows
+    code_patch_required: true
+    files_changed:
+      - hermes_cli/kanban_db.py
+      - tools/kanban_tools.py
+      - toolsets.py
+      - tests/hermes_cli/test_kanban_db.py
+      - tests/tools/test_kanban_tools.py
+    audit_evidence:
+      - command: read release note evidence and tools/delegate_tool.py plus tools/async_delegation.py for v0.17 async delegate_task behavior
+        result: delegate_task(background=true) dispatches a single background subagent, returns a delegation_id handle immediately, caps concurrent async children, and re-enters the result through process_registry.completion_queue; this improves non-blocking delegation but does not provide a durable Kanban task id, formal assignee review gate, creator/final approval split, mutex, or workflow banner semantics.
+      - command: search/read v0.17 Kanban review surfaces in hermes_cli/kanban_db.py and tests/hermes_cli/test_kanban_db.py
+        result: v0.17 has native review status handling, claim_review_task, has_spawnable_review, and review dispatcher coverage, but D2 same-card submit-review/request-changes/creator-gate/mutex/workflow-banner helpers remain Root Kernel-specific seams.
+      - command: /Users/draccoon/.local/bin/hermes-python -m pytest -q tests/hermes_cli/test_kanban_db.py::{test_claim_review_task_transitions_to_running,test_claim_review_task_fails_on_non_review,test_claim_review_task_fails_when_already_claimed,test_has_spawnable_review_true,test_has_spawnable_review_false_on_empty,test_has_spawnable_review_false_when_only_terminal_lanes} -o addopts=
+        result: 6 passed on host; native v0.17 review claim/spawnability baseline is working before D2 local carry application.
+      - command: add D2-b handoff_task plus kanban_reassign tests before implementation, then run focused RED smoke
+        result: 5 expected failures before implementation; missing hermes_cli.kanban_db.handoff_task, missing tools.kanban_tools._handle_reassign, and kanban_reassign absent from schemas.
+      - command: implement minimal D2-b same-card handoff seam
+        result: handoff_task closes active run as status=released/outcome=handed_off, clears claim/current_run/worker state, resets failure counters, returns the same task to ready for the target assignee, emits handed_off event, and stale expected_run_id fails without mutation. kanban_reassign exposes the worker tool with same-task ownership, HERMES_KANBAN_RUN_ID stale-run guard, and HERMES_SESSION_ID metadata stamping.
     docker_smoke:
       - disposable Kanban DB workflow smoke for each retained subitem.
       - targeted tests/hermes_cli and tests/tools Kanban tests inside Docker.
+      - command: /Users/draccoon/.local/bin/hermes-python -m pytest -q tests/tools/test_kanban_tools.py -o addopts=
+        result: 91 passed, 1 pre-existing discord audioop deprecation warning on host.
+      - command: /Users/draccoon/.local/bin/hermes-python -m pytest -q tests/hermes_cli/test_kanban_db.py -o addopts=
+        result: 220 passed, 1 pre-existing discord audioop deprecation warning on host.
+      - command: docker run --rm -i -v "$PWD:/repo:ro" -w /repo -e HOME=/tmp/hermes-user -e HERMES_HOME=/tmp/hermes-home -e UV_CACHE_DIR=/tmp/uv-cache -e UV_PROJECT_ENVIRONMENT=/tmp/hermes-venv -e PYTHONPATH=/repo ghcr.io/astral-sh/uv:0.11.6-python3.13-trixie bash -lc 'uv sync --frozen --extra dev --no-install-project >/tmp/uv-sync.log && /tmp/hermes-venv/bin/python -m pytest -q tests/hermes_cli/test_kanban_db.py::test_handoff_task_closes_run_and_returns_same_card_to_ready tests/hermes_cli/test_kanban_db.py::test_handoff_task_rejects_stale_run_id_without_mutation tests/tools/test_kanban_tools.py::test_kanban_tools_visible_with_env_var tests/tools/test_kanban_tools.py::test_kanban_tools_visible_with_toolset_config tests/tools/test_kanban_tools.py::test_kanban_reassign_tool_handoffs_current_worker_task -o addopts='
+        result: 5 passed, 1 warning in Docker disposable env; warning was pytest cache write blocked by read-only repo mount.
   D3:
     title: Kanban assignee alias dispatch seam
     previous_v0_16_status: retired-after-refactor

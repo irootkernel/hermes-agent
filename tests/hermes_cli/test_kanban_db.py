@@ -3473,6 +3473,81 @@ def test_claim_review_task_fails_when_already_claimed(kanban_home):
     assert second is None
 
 
+def test_handoff_task_closes_run_and_returns_same_card_to_ready(kanban_home):
+    """D2-b: cooperative handoff keeps the same task id and releases run state."""
+    with kb.connect() as conn:
+        t = kb.create_task(conn, title="handoff", assignee="alice")
+        claimed = kb.claim_task(conn, t, claimer="alice:run")
+        assert claimed is not None
+        run_id = kb.get_task(conn, t).current_run_id
+
+        ok = kb.handoff_task(
+            conn,
+            t,
+            "bob",
+            summary="alice finished setup",
+            reason="needs bob specialization",
+            metadata={"phase": "setup"},
+            expected_run_id=run_id,
+        )
+
+        task = kb.get_task(conn, t)
+        run = kb.latest_run(conn, t)
+        events = kb.list_events(conn, t)
+
+    assert ok is True
+    assert task.id == t
+    assert task.status == "ready"
+    assert task.assignee == "bob"
+    assert task.current_run_id is None
+    assert task.claim_lock is None
+    assert task.claim_expires is None
+    assert task.worker_pid is None
+    assert task.consecutive_failures == 0
+    assert run.id == run_id
+    assert run.status == "released"
+    assert run.outcome == "handed_off"
+    assert run.summary == "alice finished setup"
+    assert run.metadata == {"phase": "setup"}
+    event = next(e for e in events if e.kind == "handed_off")
+    assert event.run_id == run_id
+    assert event.payload == {
+        "from": "alice",
+        "to": "bob",
+        "summary": "alice finished setup",
+        "reason": "needs bob specialization",
+        "metadata": {"phase": "setup"},
+    }
+
+
+def test_handoff_task_rejects_stale_run_id_without_mutation(kanban_home):
+    """D2-b: stale worker run ids cannot release or reassign a newer run."""
+    with kb.connect() as conn:
+        t = kb.create_task(conn, title="handoff", assignee="alice")
+        assert kb.claim_task(conn, t, claimer="alice:run") is not None
+        live = kb.get_task(conn, t)
+
+        ok = kb.handoff_task(
+            conn,
+            t,
+            "bob",
+            summary="stale handoff",
+            expected_run_id=int(live.current_run_id) + 1,
+        )
+
+        task = kb.get_task(conn, t)
+        run = kb.latest_run(conn, t)
+        events = kb.list_events(conn, t)
+
+    assert ok is False
+    assert task.status == "running"
+    assert task.assignee == "alice"
+    assert task.current_run_id == live.current_run_id
+    assert run.status == "running"
+    assert run.outcome is None
+    assert not any(e.kind == "handed_off" for e in events)
+
+
 def test_dispatch_review_dry_run(kanban_home, all_assignees_spawnable):
     """dispatch_once dry-run sees review tasks and reports them as spawned."""
     with kb.connect() as conn:

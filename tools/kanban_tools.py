@@ -634,6 +634,55 @@ def _handle_block(args: dict, **kw) -> str:
         return tool_error(f"kanban_block: {e}")
 
 
+def _handle_reassign(args: dict[str, Any], **kw) -> str:
+    """Cooperatively hand off the current task to another assignee."""
+    tid = _default_task_id(args.get("task_id"))
+    if not tid:
+        return tool_error(
+            "task_id is required (or set HERMES_KANBAN_TASK in the env)"
+        )
+    ownership_err = _enforce_worker_task_ownership(tid)
+    if ownership_err:
+        return ownership_err
+    assignee = args.get("assignee")
+    if not assignee or not str(assignee).strip():
+        return tool_error("assignee is required")
+    metadata = args.get("metadata")
+    if metadata is not None and not isinstance(metadata, dict):
+        return tool_error(
+            f"metadata must be an object/dict, got {type(metadata).__name__}"
+        )
+    metadata = _stamp_worker_session_metadata(tid, metadata)
+    board = args.get("board")
+    try:
+        kb, conn = _connect(board=board)
+        try:
+            target = str(assignee).strip()
+            ok = kb.handoff_task(
+                conn,
+                tid,
+                target,
+                summary=args.get("summary"),
+                reason=args.get("reason"),
+                metadata=metadata,
+                expected_run_id=_worker_run_id(tid),
+            )
+            if not ok:
+                return tool_error(
+                    f"could not reassign {tid} (unknown id, not running, "
+                    f"or stale worker run)"
+                )
+            run = kb.latest_run(conn, tid)
+            return _ok(task_id=tid, assignee=target, run_id=run.id if run else None)
+        finally:
+            conn.close()
+    except ValueError as e:
+        return tool_error(f"kanban_reassign: {e}")
+    except Exception as e:
+        logger.exception("kanban_reassign failed")
+        return tool_error(f"kanban_reassign: {e}")
+
+
 def _handle_heartbeat(args: dict, **kw) -> str:
     """Signal that the worker is still alive during a long operation.
 
@@ -1198,6 +1247,48 @@ KANBAN_BLOCK_SCHEMA = {
     },
 }
 
+KANBAN_REASSIGN_SCHEMA = {
+    "name": "kanban_reassign",
+    "description": (
+        "Cooperatively hand off your current running task to another "
+        "assignee while keeping the same Kanban task id. This closes your "
+        "current run as handed_off/released, records summary/reason "
+        "evidence, clears the claim, and returns the card to ready for "
+        "the target assignee. Use this for baton-pass handoffs, not for "
+        "creating follow-up work."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "task_id": {
+                "type": "string",
+                "description": _DESC_TASK_ID_DEFAULT,
+            },
+            "assignee": {
+                "type": "string",
+                "description": "Target profile/assignee that should resume this same task.",
+            },
+            "summary": {
+                "type": "string",
+                "description": (
+                    "Short handoff summary of what was completed and what "
+                    "state the next assignee inherits."
+                ),
+            },
+            "reason": {
+                "type": "string",
+                "description": "Why this task is being handed off to the target assignee.",
+            },
+            "metadata": {
+                "type": "object",
+                "description": "Optional structured handoff facts for the next worker.",
+            },
+            "board": _board_schema_prop(),
+        },
+        "required": ["assignee"],
+    },
+}
+
 KANBAN_HEARTBEAT_SCHEMA = {
     "name": "kanban_heartbeat",
     "description": (
@@ -1482,6 +1573,15 @@ registry.register(
     handler=_handle_block,
     check_fn=_check_kanban_mode,
     emoji="⏸",
+)
+
+registry.register(
+    name="kanban_reassign",
+    toolset="kanban",
+    schema=KANBAN_REASSIGN_SCHEMA,
+    handler=_handle_reassign,
+    check_fn=_check_kanban_mode,
+    emoji="🔁",
 )
 
 registry.register(

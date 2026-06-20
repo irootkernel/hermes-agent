@@ -3168,6 +3168,73 @@ def claim_review_task(
         return get_task(conn, task_id)
 
 
+def handoff_task(
+    conn: sqlite3.Connection,
+    task_id: str,
+    assignee: str,
+    *,
+    summary: Optional[str] = None,
+    reason: Optional[str] = None,
+    metadata: Optional[dict[str, Any]] = None,
+    expected_run_id: Optional[int] = None,
+) -> bool:
+    """Release a running task back to ``ready`` for another assignee.
+
+    The same task id remains the work bus. The active run is closed as
+    ``handed_off`` / ``released`` and ``expected_run_id`` prevents a stale
+    dispatcher-spawned worker from releasing a newer run.
+    """
+    target = (assignee or "").strip()
+    if not target:
+        raise ValueError("assignee is required")
+    with write_txn(conn):
+        row = conn.execute(
+            "SELECT assignee, status, current_run_id FROM tasks WHERE id = ?",
+            (task_id,),
+        ).fetchone()
+        if not row or row["status"] != "running" or not row["current_run_id"]:
+            return False
+        run_id = int(row["current_run_id"])
+        if expected_run_id is not None and run_id != int(expected_run_id):
+            return False
+
+        closed_run_id = _end_run(
+            conn,
+            task_id,
+            outcome="handed_off",
+            status="released",
+            summary=summary,
+            metadata=metadata,
+        )
+        if closed_run_id != run_id:
+            return False
+        conn.execute(
+            """
+            UPDATE tasks
+               SET status = 'ready',
+                   assignee = ?,
+                   claim_lock = NULL,
+                   claim_expires = NULL,
+                   worker_pid = NULL,
+                   last_heartbeat_at = NULL,
+                   consecutive_failures = 0,
+                   last_failure_error = NULL
+             WHERE id = ?
+            """,
+            (target, task_id),
+        )
+        payload = {
+            "from": row["assignee"],
+            "to": target,
+            "summary": summary,
+            "reason": reason,
+        }
+        if metadata is not None:
+            payload["metadata"] = metadata
+        _append_event(conn, task_id, "handed_off", payload, run_id=run_id)
+    return True
+
+
 def heartbeat_claim(
     conn: sqlite3.Connection,
     task_id: str,

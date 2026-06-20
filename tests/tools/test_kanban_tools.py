@@ -56,7 +56,7 @@ def test_kanban_tools_visible_with_env_var(monkeypatch, tmp_path):
     kanban = {n for n in names if n and n.startswith("kanban_")}
     expected = {
         "kanban_show", "kanban_complete", "kanban_block", "kanban_heartbeat",
-        "kanban_comment", "kanban_create", "kanban_link",
+        "kanban_comment", "kanban_create", "kanban_link", "kanban_reassign",
     }
     assert kanban == expected, f"expected {expected}, got {kanban}"
 
@@ -137,7 +137,7 @@ def test_kanban_tools_visible_with_toolset_config(monkeypatch, tmp_path):
         "kanban_list",
         "kanban_show", "kanban_complete", "kanban_block", "kanban_heartbeat",
         "kanban_comment", "kanban_create", "kanban_link",
-        "kanban_unblock",
+        "kanban_unblock", "kanban_reassign",
     }
     assert kanban == expected, f"expected {expected}, got {kanban}"
 
@@ -288,6 +288,49 @@ def test_list_rejects_bad_include_archived(monkeypatch, worker_env):
     from tools import kanban_tools as kt
     out = kt._handle_list({"include_archived": "sometimes"})
     assert "include_archived must be" in json.loads(out).get("error", "")
+
+
+def test_kanban_reassign_tool_handoffs_current_worker_task(monkeypatch, worker_env):
+    """D2-b: worker tool reassigns its own running task and stamps session metadata."""
+    from hermes_cli import kanban_db as kb
+
+    conn = kb.connect()
+    try:
+        task = kb.get_task(conn, worker_env)
+        assert task is not None
+        assert task.current_run_id is not None
+        monkeypatch.setenv("HERMES_KANBAN_RUN_ID", str(task.current_run_id))
+        monkeypatch.setenv("HERMES_SESSION_ID", "sess-123")
+    finally:
+        conn.close()
+
+    from tools import kanban_tools as kt
+
+    out = kt._handle_reassign({
+        "assignee": "peer-worker",
+        "summary": "setup complete",
+        "reason": "needs peer lane",
+        "metadata": {"handoff": True},
+    })
+    data = json.loads(out)
+    assert data["ok"] is True
+    assert data["task_id"] == worker_env
+
+    conn = kb.connect()
+    try:
+        task = kb.get_task(conn, worker_env)
+        run = kb.latest_run(conn, worker_env)
+    finally:
+        conn.close()
+
+    assert task is not None
+    assert run is not None
+    assert task.status == "ready"
+    assert task.assignee == "peer-worker"
+    assert task.current_run_id is None
+    assert run.status == "released"
+    assert run.outcome == "handed_off"
+    assert run.metadata == {"handoff": True, "worker_session_id": "sess-123"}
 
 
 def test_complete_happy_path(worker_env):
