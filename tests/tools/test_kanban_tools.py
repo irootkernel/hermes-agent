@@ -57,6 +57,7 @@ def test_kanban_tools_visible_with_env_var(monkeypatch, tmp_path):
     expected = {
         "kanban_show", "kanban_complete", "kanban_block", "kanban_heartbeat",
         "kanban_comment", "kanban_create", "kanban_link", "kanban_reassign",
+        "kanban_submit_review",
     }
     assert kanban == expected, f"expected {expected}, got {kanban}"
 
@@ -137,7 +138,7 @@ def test_kanban_tools_visible_with_toolset_config(monkeypatch, tmp_path):
         "kanban_list",
         "kanban_show", "kanban_complete", "kanban_block", "kanban_heartbeat",
         "kanban_comment", "kanban_create", "kanban_link",
-        "kanban_unblock", "kanban_reassign",
+        "kanban_unblock", "kanban_reassign", "kanban_submit_review",
     }
     assert kanban == expected, f"expected {expected}, got {kanban}"
 
@@ -331,6 +332,58 @@ def test_kanban_reassign_tool_handoffs_current_worker_task(monkeypatch, worker_e
     assert run.status == "released"
     assert run.outcome == "handed_off"
     assert run.metadata == {"handoff": True, "worker_session_id": "sess-123"}
+
+
+def test_kanban_submit_review_tool_submits_current_worker_task(
+    monkeypatch, worker_env
+):
+    """D2-c: worker tool submits its own running task for native review."""
+    from hermes_cli import kanban_db as kb
+    from hermes_cli import profiles
+
+    monkeypatch.setattr(profiles, "profile_exists", lambda name: name == "reviewer")
+    conn = kb.connect()
+    try:
+        task = kb.get_task(conn, worker_env)
+        assert task is not None
+        assert task.current_run_id is not None
+        monkeypatch.setenv("HERMES_KANBAN_RUN_ID", str(task.current_run_id))
+        monkeypatch.setenv("HERMES_SESSION_ID", "sess-review")
+    finally:
+        conn.close()
+
+    from tools import kanban_tools as kt
+    from tools.registry import registry
+
+    assert registry.get_entry("kanban_submit_review") is not None
+    out = kt._handle_submit_review({
+        "reviewer": "reviewer",
+        "summary": "ready for peer review",
+        "metadata": {"checks": ["unit"]},
+    })
+    data = json.loads(out)
+    assert data["ok"] is True
+    assert data["task_id"] == worker_env
+    assert data["status"] == "review"
+    assert data["reviewer"] == "reviewer"
+
+    conn = kb.connect()
+    try:
+        task = kb.get_task(conn, worker_env)
+        run = kb.latest_run(conn, worker_env)
+        events = kb.list_events(conn, worker_env)
+    finally:
+        conn.close()
+
+    assert task is not None
+    assert run is not None
+    assert task.status == "review"
+    assert task.assignee == "reviewer"
+    assert task.current_run_id is None
+    assert run.status == "released"
+    assert run.outcome == "submitted_review"
+    assert run.metadata == {"checks": ["unit"], "worker_session_id": "sess-review"}
+    assert any(e.kind == "submitted_review" for e in events)
 
 
 def test_complete_happy_path(worker_env):

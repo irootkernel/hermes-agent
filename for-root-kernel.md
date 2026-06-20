@@ -83,7 +83,7 @@ Each D item is presented to 주군 before patching; only owner-approved items ar
 - Planned D2 subitems:
   - D2-a: audit and ledger native-vs-local classification.
   - D2-b: cooperative same-card handoff/reassign helper. Applied: `handoff_task` + `kanban_reassign` keep the same task id, close the active run as `handed_off` / `released`, clear claim/current-run state, return the card to `ready` for the target assignee, enforce same-task worker ownership, and use `HERMES_KANBAN_RUN_ID` as a stale-run guard.
-  - D2-c: worker submit-for-review same-card transition.
+  - D2-c: worker submit-for-review same-card transition. Applied: `submit_task_for_review` + `kanban_submit_review` keep the same task id, close the active run as `submitted_review` / `released`, move the card to native `review` for the reviewer, preserve `from_assignee` in the `submitted_review` event for later request-changes, enforce same-task worker ownership, and use `HERMES_KANBAN_RUN_ID` as a stale-run guard.
   - D2-d: reviewer request-changes/rework transition.
   - D2-e: creator/final gate separation from reviewer done.
   - D2-f: async review watcher/outcome notification support.
@@ -96,6 +96,10 @@ Each D item is presented to 주군 before patching; only owner-approved items ar
   - Focused GREEN after implementation: D2-b 5-test host smoke passed.
   - Host targeted suites: `tests/tools/test_kanban_tools.py` → `91 passed, 1 warning`; `tests/hermes_cli/test_kanban_db.py` → `220 passed, 1 warning`. Warnings were pre-existing Discord `audioop` deprecation warnings.
   - Docker disposable smoke: D2-b 5-test bundle → `5 passed, 1 warning`; warning was read-only `.pytest_cache` write failure on the read-only repo mount.
+- D2-c evidence:
+  - Focused host smoke: 7 D2-c submit-review/tool-visibility tests → `7 passed`.
+  - Host targeted suites and syntax: `tests/hermes_cli/test_kanban_db.py tests/tools/test_kanban_tools.py tests/hermes_cli/test_kanban_core_functionality.py` → `482 passed, 1 skipped, 1 warning`; `py_compile` passed for touched Python files. Warning was pre-existing Discord `audioop` deprecation.
+  - Docker disposable smoke: D2-c 7-test bundle → `7 passed, 1 warning`; warning was read-only `.pytest_cache` write failure on the read-only repo mount.
 
 ### D3 — Kanban assignee alias dispatch seam
 

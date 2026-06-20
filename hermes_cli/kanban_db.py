@@ -2800,6 +2800,7 @@ def _synthesize_ended_run(
     task_id: str,
     *,
     outcome: str,
+    status: Optional[str] = None,
     summary: Optional[str] = None,
     error: Optional[str] = None,
     metadata: Optional[dict] = None,
@@ -2837,13 +2838,33 @@ def _synthesize_ended_run(
         """,
         (
             task_id, profile, step_key,
-            outcome, outcome,
+            status or outcome, outcome,
             summary, error,
             json.dumps(metadata, ensure_ascii=False) if metadata else None,
             now, now,
         ),
     )
     return int(cur.lastrowid or 0)
+
+
+def _is_spawnable_profile_name(name: Optional[str]) -> bool:
+    """Return True only when ``name`` maps to a real Hermes profile.
+
+    D2-c uses this for same-card review routing. Unlike dispatcher health
+    telemetry, review submission must fail closed: a non-spawnable reviewer
+    would leave a review card stuck in an unclaimable lane.
+    """
+    candidate = (name or "").strip()
+    if not candidate or candidate.startswith("t_"):
+        return False
+    try:
+        from hermes_cli.profiles import profile_exists  # local import: avoids cycle
+    except Exception:
+        return False
+    try:
+        return bool(profile_exists(candidate))
+    except Exception:
+        return False
 
 
 # ---------------------------------------------------------------------------
@@ -3232,6 +3253,106 @@ def handoff_task(
         if metadata is not None:
             payload["metadata"] = metadata
         _append_event(conn, task_id, "handed_off", payload, run_id=run_id)
+    return True
+
+
+def submit_task_for_review(
+    conn: sqlite3.Connection,
+    task_id: str,
+    *,
+    reviewer: Optional[str] = None,
+    summary: Optional[str] = None,
+    metadata: Optional[dict[str, Any]] = None,
+    expected_run_id: Optional[int] = None,
+) -> bool:
+    """Release a worker-owned task into the native ``review`` queue.
+
+    The same task id remains the work bus. The active run, when present, is
+    closed as ``submitted_review`` / ``released``; ``expected_run_id`` guards
+    against stale dispatcher-spawned workers submitting newer runs.
+    """
+    with write_txn(conn):
+        row = conn.execute(
+            """
+            SELECT assignee, status, current_run_id, created_by
+              FROM tasks
+             WHERE id = ?
+            """,
+            (task_id,),
+        ).fetchone()
+        if not row or row["status"] not in {"running", "ready", "blocked"}:
+            return False
+
+        reviewer_name = (reviewer or "").strip()
+        if reviewer_name:
+            if not _is_spawnable_profile_name(reviewer_name):
+                return False
+        else:
+            created_by = (row["created_by"] or "").strip()
+            if not _is_spawnable_profile_name(created_by):
+                return False
+            reviewer_name = created_by
+
+        active_run_id = (
+            int(row["current_run_id"]) if row["current_run_id"] else None
+        )
+        if expected_run_id is not None:
+            if active_run_id is None or active_run_id != int(expected_run_id):
+                return False
+
+        run_id = active_run_id
+        if active_run_id is not None:
+            closed_run_id = _end_run(
+                conn,
+                task_id,
+                outcome="submitted_review",
+                status="released",
+                summary=summary,
+                metadata=metadata,
+            )
+            if closed_run_id != active_run_id:
+                return False
+            run_id = closed_run_id
+        elif summary or metadata:
+            run_id = _synthesize_ended_run(
+                conn,
+                task_id,
+                outcome="submitted_review",
+                status="released",
+                summary=summary,
+                metadata=metadata,
+            )
+
+        conn.execute(
+            """
+            UPDATE tasks
+               SET status = 'review',
+                   assignee = ?,
+                   claim_lock = NULL,
+                   claim_expires = NULL,
+                   worker_pid = NULL,
+                   current_run_id = NULL,
+                   last_heartbeat_at = NULL,
+                   consecutive_failures = 0,
+                   last_failure_error = NULL
+             WHERE id = ?
+            """,
+            (reviewer_name, task_id),
+        )
+        payload = {
+            "from_assignee": row["assignee"],
+            "reviewer": reviewer_name,
+            "summary": summary,
+        }
+        if metadata is not None:
+            payload["metadata"] = metadata
+        _append_event(
+            conn,
+            task_id,
+            "submitted_review",
+            payload,
+            run_id=run_id,
+        )
     return True
 
 

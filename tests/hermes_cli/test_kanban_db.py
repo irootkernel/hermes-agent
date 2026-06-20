@@ -3548,6 +3548,143 @@ def test_handoff_task_rejects_stale_run_id_without_mutation(kanban_home):
     assert not any(e.kind == "handed_off" for e in events)
 
 
+def test_submit_task_for_review_moves_same_card_to_review(
+    kanban_home, monkeypatch
+):
+    """D2-c: submit-for-review keeps same task id and releases the run."""
+    from hermes_cli import profiles
+
+    monkeypatch.setattr(profiles, "profile_exists", lambda name: name == "reviewer")
+    with kb.connect() as conn:
+        t = kb.create_task(conn, title="implement", assignee="alice")
+        assert kb.claim_task(conn, t, claimer="alice:run") is not None
+        run_id = kb.get_task(conn, t).current_run_id
+
+        ok = kb.submit_task_for_review(
+            conn,
+            t,
+            reviewer="reviewer",
+            summary="ready for review",
+            metadata={"files": ["a.py"]},
+            expected_run_id=run_id,
+        )
+
+        task = kb.get_task(conn, t)
+        run = kb.latest_run(conn, t)
+        events = kb.list_events(conn, t)
+        claimed = kb.claim_review_task(conn, t, claimer="reviewer:run")
+
+    assert ok is True
+    assert task.id == t
+    assert task.status == "review"
+    assert task.assignee == "reviewer"
+    assert task.current_run_id is None
+    assert task.claim_lock is None
+    assert task.claim_expires is None
+    assert task.worker_pid is None
+    assert run.id == run_id
+    assert run.status == "released"
+    assert run.outcome == "submitted_review"
+    assert run.summary == "ready for review"
+    assert run.metadata == {"files": ["a.py"]}
+    event = next(e for e in events if e.kind == "submitted_review")
+    assert event.run_id == run_id
+    assert event.payload == {
+        "from_assignee": "alice",
+        "reviewer": "reviewer",
+        "summary": "ready for review",
+        "metadata": {"files": ["a.py"]},
+    }
+    assert claimed is not None
+    assert claimed.id == t
+    assert claimed.status == "running"
+    assert claimed.assignee == "reviewer"
+
+
+def test_submit_task_for_review_defaults_to_profile_created_by(
+    kanban_home, monkeypatch
+):
+    """D2-c: created_by may be reviewer only when it is a real profile."""
+    from hermes_cli import profiles
+
+    monkeypatch.setattr(profiles, "profile_exists", lambda name: name == "creator")
+    with kb.connect() as conn:
+        t = kb.create_task(
+            conn, title="implement", assignee="alice", created_by="creator"
+        )
+        assert kb.claim_task(conn, t) is not None
+
+        ok = kb.submit_task_for_review(conn, t, summary="review me")
+        task = kb.get_task(conn, t)
+
+    assert ok is True
+    assert task.status == "review"
+    assert task.assignee == "creator"
+
+
+def test_submit_task_for_review_fails_without_real_reviewer(
+    kanban_home, monkeypatch
+):
+    """D2-c: task-id creators or missing profiles are not valid reviewers."""
+    from hermes_cli import profiles
+
+    monkeypatch.setattr(profiles, "profile_exists", lambda name: False)
+    with kb.connect() as conn:
+        task_id_creator = kb.create_task(
+            conn, title="task creator", assignee="alice", created_by="t_deadbeefcafe"
+        )
+        missing_profile = kb.create_task(
+            conn, title="missing creator", assignee="alice", created_by="missing"
+        )
+        assert kb.claim_task(conn, task_id_creator) is not None
+        assert kb.claim_task(conn, missing_profile) is not None
+
+        ok_task_id = kb.submit_task_for_review(conn, task_id_creator)
+        ok_missing = kb.submit_task_for_review(conn, missing_profile)
+        task_id_task = kb.get_task(conn, task_id_creator)
+        missing_task = kb.get_task(conn, missing_profile)
+
+    assert ok_task_id is False
+    assert ok_missing is False
+    assert task_id_task.status == "running"
+    assert task_id_task.assignee == "alice"
+    assert missing_task.status == "running"
+    assert missing_task.assignee == "alice"
+
+
+def test_submit_task_for_review_rejects_stale_run_id_without_mutation(
+    kanban_home, monkeypatch
+):
+    """D2-c: stale worker run ids cannot submit a newer run for review."""
+    from hermes_cli import profiles
+
+    monkeypatch.setattr(profiles, "profile_exists", lambda name: name == "reviewer")
+    with kb.connect() as conn:
+        t = kb.create_task(conn, title="implement", assignee="alice")
+        assert kb.claim_task(conn, t) is not None
+        live = kb.get_task(conn, t)
+
+        ok = kb.submit_task_for_review(
+            conn,
+            t,
+            reviewer="reviewer",
+            summary="stale submit",
+            expected_run_id=int(live.current_run_id) + 1,
+        )
+
+        task = kb.get_task(conn, t)
+        run = kb.latest_run(conn, t)
+        events = kb.list_events(conn, t)
+
+    assert ok is False
+    assert task.status == "running"
+    assert task.assignee == "alice"
+    assert task.current_run_id == live.current_run_id
+    assert run.status == "running"
+    assert run.outcome is None
+    assert not any(e.kind == "submitted_review" for e in events)
+
+
 def test_dispatch_review_dry_run(kanban_home, all_assignees_spawnable):
     """dispatch_once dry-run sees review tasks and reports them as spawned."""
     with kb.connect() as conn:
