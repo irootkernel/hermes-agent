@@ -449,6 +449,99 @@ def test_kanban_request_changes_tool_returns_review_to_rework(
     assert any(e.kind == "requested_changes" for e in events)
 
 
+def test_kanban_complete_tool_routes_review_approval_to_final_gate(
+    monkeypatch, worker_env
+):
+    """D2-e: kanban_complete surfaces reviewer approval as creator gate."""
+    from hermes_cli import kanban_db as kb
+    from hermes_cli import profiles
+
+    monkeypatch.setattr(
+        profiles,
+        "profile_exists",
+        lambda name: name in {"reviewer", "creator"},
+    )
+    conn = kb.connect()
+    try:
+        assert kb.submit_task_for_review(
+            conn,
+            worker_env,
+            reviewer="reviewer",
+            final_assignee="creator",
+            summary="ready for review",
+        )
+        assert kb.claim_review_task(conn, worker_env, claimer="reviewer:run") is not None
+        task = kb.get_task(conn, worker_env)
+        assert task is not None
+        assert task.current_run_id is not None
+        monkeypatch.setenv("HERMES_KANBAN_RUN_ID", str(task.current_run_id))
+        monkeypatch.setenv("HERMES_SESSION_ID", "sess-reviewer")
+        monkeypatch.setenv("HERMES_PROFILE", "reviewer")
+    finally:
+        conn.close()
+
+    from tools import kanban_tools as kt
+
+    out = kt._handle_complete({"summary": "review accepted"})
+    data = json.loads(out)
+    assert data["ok"] is True
+    assert data["task_id"] == worker_env
+    assert data["status"] == "ready"
+    assert data["assignee"] == "creator"
+
+    conn = kb.connect()
+    try:
+        task = kb.get_task(conn, worker_env)
+        run = kb.latest_run(conn, worker_env)
+        events = kb.list_events(conn, worker_env)
+    finally:
+        conn.close()
+
+    assert task is not None
+    assert run is not None
+    assert task.status == "ready"
+    assert task.assignee == "creator"
+    assert task.completed_at is None
+    assert run.status == "released"
+    assert run.outcome == "review_accepted"
+    assert any(e.kind == "review_accepted" for e in events)
+
+
+def test_kanban_submit_review_tool_rejects_invalid_reviewer(
+    monkeypatch, worker_env
+):
+    """D2-e: tool-level invalid reviewer preserves the running task."""
+    from hermes_cli import profiles
+
+    monkeypatch.setattr(profiles, "profile_exists", lambda name: False)
+    from tools import kanban_tools as kt
+
+    out = kt._handle_submit_review({
+        "reviewer": "missing-reviewer",
+        "summary": "ready for review",
+    })
+    data = json.loads(out)
+    assert "error" in data
+    assert "could not submit" in data["error"]
+
+    from hermes_cli import kanban_db as kb
+    conn = kb.connect()
+    try:
+        task = kb.get_task(conn, worker_env)
+        run = kb.latest_run(conn, worker_env)
+        events = kb.list_events(conn, worker_env)
+    finally:
+        conn.close()
+
+    assert task is not None
+    assert run is not None
+    assert task.status == "running"
+    assert task.assignee == "test-worker"
+    assert run.status == "running"
+    assert run.outcome is None
+    assert not any(e.kind == "submitted_review" for e in events)
+
+
 def test_complete_happy_path(worker_env):
     from tools import kanban_tools as kt
     out = kt._handle_complete({

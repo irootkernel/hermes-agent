@@ -3261,6 +3261,7 @@ def submit_task_for_review(
     task_id: str,
     *,
     reviewer: Optional[str] = None,
+    final_assignee: Optional[str] = None,
     summary: Optional[str] = None,
     metadata: Optional[dict[str, Any]] = None,
     expected_run_id: Optional[int] = None,
@@ -3299,6 +3300,15 @@ def submit_task_for_review(
         if expected_run_id is not None:
             if active_run_id is None or active_run_id != int(expected_run_id):
                 return False
+
+        final_gate = (final_assignee or "").strip()
+        if final_gate:
+            if not _is_spawnable_profile_name(final_gate):
+                return False
+        else:
+            created_by = (row["created_by"] or "").strip()
+            if created_by != reviewer_name and _is_spawnable_profile_name(created_by):
+                final_gate = created_by
 
         run_id = active_run_id
         if active_run_id is not None:
@@ -3344,6 +3354,8 @@ def submit_task_for_review(
             "reviewer": reviewer_name,
             "summary": summary,
         }
+        if final_gate:
+            payload["final_assignee"] = final_gate
         if metadata is not None:
             payload["metadata"] = metadata
         _append_event(
@@ -3356,11 +3368,11 @@ def submit_task_for_review(
     return True
 
 
-def _latest_submitted_review_assignee(
+def _latest_submitted_review_payload(
     conn: sqlite3.Connection,
     task_id: str,
-) -> Optional[str]:
-    """Return the implementer from the latest submitted_review event."""
+) -> Optional[dict[str, Any]]:
+    """Return the latest submitted_review payload for ``task_id``."""
     row = conn.execute(
         """
         SELECT payload
@@ -3378,10 +3390,45 @@ def _latest_submitted_review_assignee(
         payload = json.loads(row["payload"])
     except Exception:
         return None
-    if not isinstance(payload, dict):
+    return payload if isinstance(payload, dict) else None
+
+
+def _latest_submitted_review_assignee(
+    conn: sqlite3.Connection,
+    task_id: str,
+) -> Optional[str]:
+    """Return the implementer from the latest submitted_review event."""
+    payload = _latest_submitted_review_payload(conn, task_id)
+    if not payload:
         return None
     assignee = str(payload.get("from_assignee") or "").strip()
     return assignee or None
+
+
+def _review_final_gate_for_reviewer(
+    conn: sqlite3.Connection,
+    task_id: str,
+    reviewer: str,
+) -> tuple[str, Optional[str]]:
+    """Return final-gate state for a running review completion.
+
+    Returns ("none", None) when the latest submitted_review event does not
+    apply to the current reviewer or carries no final gate; ("valid", name)
+    when a spawnable final assignee exists; and ("invalid", name) when a
+    recorded final gate became unspawnable and the review must fail closed.
+    """
+    payload = _latest_submitted_review_payload(conn, task_id)
+    if not payload:
+        return "none", None
+    event_reviewer = str(payload.get("reviewer") or "").strip()
+    if event_reviewer != (reviewer or "").strip():
+        return "none", None
+    final_assignee = str(payload.get("final_assignee") or "").strip()
+    if not final_assignee:
+        return "none", None
+    if _is_spawnable_profile_name(final_assignee):
+        return "valid", final_assignee
+    return "invalid", final_assignee
 
 
 def request_changes_task(
@@ -3944,8 +3991,81 @@ def complete_task(
     else:
         verified_cards = []
 
+    review_gate_routed = False
+    run_id: Optional[int] = None
     with write_txn(conn):
-        if expected_run_id is None:
+        row = conn.execute(
+            """
+            SELECT status, assignee, current_run_id
+              FROM tasks
+             WHERE id = ?
+            """,
+            (task_id,),
+        ).fetchone()
+        if not row or row["status"] not in {"running", "ready", "blocked"}:
+            return False
+        active_run_id = (
+            int(row["current_run_id"]) if row["current_run_id"] else None
+        )
+        if expected_run_id is not None:
+            if active_run_id is None or active_run_id != int(expected_run_id):
+                return False
+
+        gate_state, final_assignee = ("none", None)
+        if row["status"] == "running" and active_run_id is not None:
+            gate_state, final_assignee = _review_final_gate_for_reviewer(
+                conn,
+                task_id,
+                row["assignee"],
+            )
+        if gate_state == "invalid":
+            return False
+        if gate_state == "valid" and final_assignee:
+            run_id = _end_run(
+                conn,
+                task_id,
+                outcome="review_accepted",
+                status="released",
+                summary=summary if summary is not None else result,
+                metadata=metadata,
+            )
+            if run_id != active_run_id:
+                return False
+            conn.execute(
+                """
+                UPDATE tasks
+                   SET status = 'ready',
+                       assignee = ?,
+                       claim_lock = NULL,
+                       claim_expires = NULL,
+                       worker_pid = NULL,
+                       current_run_id = NULL,
+                       last_heartbeat_at = NULL,
+                       consecutive_failures = 0,
+                       last_failure_error = NULL
+                 WHERE id = ?
+                """,
+                (final_assignee, task_id),
+            )
+            ev_summary = (summary if summary is not None else result) or ""
+            ev_summary = ev_summary.strip().splitlines()[0][:400] if ev_summary else ""
+            accepted_payload: dict[str, Any] = {
+                "reviewer": row["assignee"],
+                "final_assignee": final_assignee,
+                "summary": ev_summary or None,
+                "result_len": len(result) if result else 0,
+            }
+            if isinstance(metadata, dict):
+                accepted_payload["metadata"] = metadata
+            _append_event(
+                conn,
+                task_id,
+                "review_accepted",
+                accepted_payload,
+                run_id=run_id,
+            )
+            review_gate_routed = True
+        else:
             cur = conn.execute(
                 """
                 UPDATE tasks
@@ -3960,72 +4080,58 @@ def complete_task(
                 """,
                 (result, now, task_id),
             )
-        else:
-            cur = conn.execute(
-                """
-                UPDATE tasks
-                   SET status       = 'done',
-                       result       = ?,
-                       completed_at = ?,
-                       claim_lock   = NULL,
-                       claim_expires= NULL,
-                       worker_pid   = NULL
-                 WHERE id = ?
-                   AND status IN ('running', 'ready', 'blocked')
-                   AND current_run_id = ?
-                """,
-                (result, now, task_id, int(expected_run_id)),
-            )
-        if cur.rowcount != 1:
-            return False
-        run_id = _end_run(
-            conn, task_id,
-            outcome="completed", status="done",
-            summary=summary if summary is not None else result,
-            metadata=metadata,
-        )
-        # If complete_task was called on a never-claimed task (ready or
-        # blocked → done with no run in flight), synthesize a
-        # zero-duration run so the handoff fields are persisted in
-        # attempt history instead of silently lost.
-        if run_id is None and (summary or metadata or result):
-            run_id = _synthesize_ended_run(
+            if cur.rowcount != 1:
+                return False
+            run_id = _end_run(
                 conn, task_id,
-                outcome="completed",
+                outcome="completed", status="done",
                 summary=summary if summary is not None else result,
                 metadata=metadata,
             )
-        # Carry the handoff summary in the event payload so gateway
-        # notifiers and dashboard WS consumers can render it without a
-        # second SQL round-trip. First line only, 400 char cap — the
-        # full summary stays on the run row.
-        ev_summary = (summary if summary is not None else result) or ""
-        ev_summary = ev_summary.strip().splitlines()[0][:400] if ev_summary else ""
-        completed_payload: dict = {
-            "result_len": len(result) if result else 0,
-            "summary": ev_summary or None,
-        }
-        if verified_cards:
-            completed_payload["verified_cards"] = verified_cards
-        # Carry artifact paths in the event payload so the gateway
-        # notifier can upload them as native attachments alongside the
-        # completion message. Workers pass these via
-        # ``kanban_complete(artifacts=[...])`` which stashes the list in
-        # ``metadata["artifacts"]`` — we promote it onto the event so
-        # consumers don't have to fetch the run row to find it.
-        if isinstance(metadata, dict):
-            md_artifacts = metadata.get("artifacts")
-            if isinstance(md_artifacts, (list, tuple)):
-                cleaned_artifacts = [
-                    str(p).strip() for p in md_artifacts if isinstance(p, str) and str(p).strip()
-                ]
-                if cleaned_artifacts:
-                    completed_payload["artifacts"] = cleaned_artifacts
-        _append_event(
-            conn, task_id, "completed",
-            completed_payload,
-            run_id=run_id,
-        )
+            # If complete_task was called on a never-claimed task (ready or
+            # blocked → done with no run in flight), synthesize a
+            # zero-duration run so the handoff fields are persisted in
+            # attempt history instead of silently lost.
+            if run_id is None and (summary or metadata or result):
+                run_id = _synthesize_ended_run(
+                    conn, task_id,
+                    outcome="completed",
+                    summary=summary if summary is not None else result,
+                    metadata=metadata,
+                )
+            # Carry the handoff summary in the event payload so gateway
+            # notifiers and dashboard WS consumers can render it without a
+            # second SQL round-trip. First line only, 400 char cap — the
+            # full summary stays on the run row.
+            ev_summary = (summary if summary is not None else result) or ""
+            ev_summary = ev_summary.strip().splitlines()[0][:400] if ev_summary else ""
+            completed_payload: dict[str, Any] = {
+                "result_len": len(result) if result else 0,
+                "summary": ev_summary or None,
+            }
+            if verified_cards:
+                completed_payload["verified_cards"] = verified_cards
+            # Carry artifact paths in the event payload so the gateway
+            # notifier can upload them as native attachments alongside the
+            # completion message. Workers pass these via
+            # ``kanban_complete(artifacts=[...])`` which stashes the list in
+            # ``metadata["artifacts"]`` — we promote it onto the event so
+            # consumers don't have to fetch the run row to find it.
+            if isinstance(metadata, dict):
+                md_artifacts = metadata.get("artifacts")
+                if isinstance(md_artifacts, (list, tuple)):
+                    cleaned_artifacts = [
+                        str(p).strip() for p in md_artifacts if isinstance(p, str) and str(p).strip()
+                    ]
+                    if cleaned_artifacts:
+                        completed_payload["artifacts"] = cleaned_artifacts
+            _append_event(
+                conn, task_id, "completed",
+                completed_payload,
+                run_id=run_id,
+            )
+    if review_gate_routed:
+        return True
     # Prose-scan the summary + result for t_<hex> references that do
     # not resolve. Advisory — does not block the completion. Runs in
     # its own txn so the completion itself is already durable by the

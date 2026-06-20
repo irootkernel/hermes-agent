@@ -3832,6 +3832,187 @@ def test_request_changes_same_task_review_rework_loop(
     assert [e.kind for e in events].count("requested_changes") == 1
 
 
+def test_review_approval_routes_to_creator_final_gate(kanban_home, monkeypatch):
+    """D2-e: reviewer approval routes to creator/final gate, not done."""
+    from hermes_cli import profiles
+
+    monkeypatch.setattr(
+        profiles,
+        "profile_exists",
+        lambda name: name in {"reviewer", "creator"},
+    )
+    with kb.connect() as conn:
+        t = kb.create_task(
+            conn,
+            title="implement",
+            assignee="alice",
+            created_by="creator",
+        )
+        assert kb.claim_task(conn, t, claimer="alice:run") is not None
+        assert kb.submit_task_for_review(
+            conn,
+            t,
+            reviewer="reviewer",
+            summary="ready",
+        )
+        assert kb.claim_review_task(conn, t, claimer="reviewer:run") is not None
+        review_run_id = kb.get_task(conn, t).current_run_id
+
+        ok = kb.complete_task(
+            conn,
+            t,
+            summary="review accepted",
+            expected_run_id=review_run_id,
+        )
+
+        task = kb.get_task(conn, t)
+        review_run = kb.get_run(conn, review_run_id)
+        events = kb.list_events(conn, t)
+
+        assert ok is True
+        assert task.status == "ready"
+        assert task.assignee == "creator"
+        assert task.completed_at is None
+        assert task.current_run_id is None
+        assert task.claim_lock is None
+        assert task.claim_expires is None
+        assert review_run.status == "released"
+        assert review_run.outcome == "review_accepted"
+        assert review_run.summary == "review accepted"
+        event = next(e for e in events if e.kind == "review_accepted")
+        assert event.run_id == review_run_id
+        assert event.payload == {
+            "reviewer": "reviewer",
+            "final_assignee": "creator",
+            "summary": "review accepted",
+            "result_len": 0,
+        }
+
+        final_claim = kb.claim_task(conn, t, claimer="creator:run")
+        assert final_claim is not None
+        final_run_id = kb.get_task(conn, t).current_run_id
+        assert kb.complete_task(
+            conn,
+            t,
+            summary="creator accepted",
+            expected_run_id=final_run_id,
+        )
+        final_task = kb.get_task(conn, t)
+        final_events = kb.list_events(conn, t)
+
+    assert final_task.status == "done"
+    assert final_task.assignee == "creator"
+    assert final_task.completed_at is not None
+    assert [e.kind for e in final_events].count("review_accepted") == 1
+    assert [e.kind for e in final_events].count("completed") == 1
+
+
+def test_submit_task_for_review_rejects_invalid_final_assignee(
+    kanban_home, monkeypatch
+):
+    """D2-e: explicit final_assignee must be spawnable before mutation."""
+    from hermes_cli import profiles
+
+    monkeypatch.setattr(profiles, "profile_exists", lambda name: name == "reviewer")
+    with kb.connect() as conn:
+        t = kb.create_task(conn, title="implement", assignee="alice")
+        assert kb.claim_task(conn, t, claimer="alice:run") is not None
+        live = kb.get_task(conn, t)
+
+        ok = kb.submit_task_for_review(
+            conn,
+            t,
+            reviewer="reviewer",
+            final_assignee="missing-creator",
+            summary="ready",
+        )
+
+        task = kb.get_task(conn, t)
+        run = kb.latest_run(conn, t)
+        events = kb.list_events(conn, t)
+
+    assert ok is False
+    assert task.status == "running"
+    assert task.assignee == "alice"
+    assert task.current_run_id == live.current_run_id
+    assert run.status == "running"
+    assert run.outcome is None
+    assert not any(e.kind == "submitted_review" for e in events)
+
+
+def test_submit_task_for_review_rejects_invalid_reviewer_without_event(
+    kanban_home, monkeypatch
+):
+    """D2-e: explicit reviewer must also fail closed before mutation."""
+    from hermes_cli import profiles
+
+    monkeypatch.setattr(profiles, "profile_exists", lambda name: False)
+    with kb.connect() as conn:
+        t = kb.create_task(conn, title="implement", assignee="alice")
+        assert kb.claim_task(conn, t, claimer="alice:run") is not None
+        live = kb.get_task(conn, t)
+
+        ok = kb.submit_task_for_review(
+            conn,
+            t,
+            reviewer="missing-reviewer",
+            summary="ready",
+        )
+
+        task = kb.get_task(conn, t)
+        run = kb.latest_run(conn, t)
+        events = kb.list_events(conn, t)
+
+    assert ok is False
+    assert task.status == "running"
+    assert task.assignee == "alice"
+    assert task.current_run_id == live.current_run_id
+    assert run.status == "running"
+    assert run.outcome is None
+    assert not any(e.kind == "submitted_review" for e in events)
+
+
+def test_review_approval_rejects_final_gate_that_became_invalid(
+    kanban_home, monkeypatch
+):
+    """D2-e: route-time invalid final gate leaves review run active."""
+    from hermes_cli import profiles
+
+    valid_profiles = {"reviewer", "creator"}
+    monkeypatch.setattr(profiles, "profile_exists", lambda name: name in valid_profiles)
+    with kb.connect() as conn:
+        t = kb.create_task(
+            conn,
+            title="implement",
+            assignee="alice",
+            created_by="creator",
+        )
+        assert kb.claim_task(conn, t, claimer="alice:run") is not None
+        assert kb.submit_task_for_review(conn, t, reviewer="reviewer")
+        assert kb.claim_review_task(conn, t, claimer="reviewer:run") is not None
+        live = kb.get_task(conn, t)
+
+        valid_profiles.remove("creator")
+        ok = kb.complete_task(
+            conn,
+            t,
+            summary="review accepted",
+            expected_run_id=live.current_run_id,
+        )
+
+        task = kb.get_task(conn, t)
+        run = kb.latest_run(conn, t)
+        events = kb.list_events(conn, t)
+
+    assert ok is False
+    assert task.status == "running"
+    assert task.assignee == "reviewer"
+    assert task.current_run_id == live.current_run_id
+    assert run.status == "running"
+    assert run.outcome is None
+    assert not any(e.kind == "review_accepted" for e in events)
+
+
 def test_dispatch_review_dry_run(kanban_home, all_assignees_spawnable):
     """dispatch_once dry-run sees review tasks and reports them as spawned."""
     with kb.connect() as conn:

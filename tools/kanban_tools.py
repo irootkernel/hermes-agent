@@ -586,7 +586,13 @@ def _handle_complete(args: dict, **kw) -> str:
                     f"could not complete {tid} (unknown id or already terminal)"
                 )
             run = kb.latest_run(conn, tid)
-            return _ok(task_id=tid, run_id=run.id if run else None)
+            task = kb.get_task(conn, tid)
+            return _ok(
+                task_id=tid,
+                status=task.status if task else None,
+                assignee=task.assignee if task else None,
+                run_id=run.id if run else None,
+            )
         finally:
             conn.close()
     except ValueError as e:
@@ -709,6 +715,11 @@ def _handle_submit_review(args: dict[str, Any], **kw) -> str:
                 conn,
                 tid,
                 reviewer=reviewer_name,
+                final_assignee=(
+                    str(args.get("final_assignee")).strip()
+                    if args.get("final_assignee")
+                    else None
+                ),
                 summary=args.get("summary"),
                 metadata=metadata,
                 expected_run_id=_worker_run_id(tid),
@@ -1420,6 +1431,15 @@ KANBAN_SUBMIT_REVIEW_SCHEMA = {
                     "Reviewer profile/assignee. If omitted, the task's "
                     "created_by profile is used only when it resolves to a "
                     "real spawnable profile."
+                ),
+            },
+            "final_assignee": {
+                "type": "string",
+                "description": (
+                    "Optional creator/final-gate assignee. When present, "
+                    "reviewer kanban_complete records review_accepted and "
+                    "routes the same task back to ready for this profile; "
+                    "only that later final completion marks the task done."
                 ),
             },
             "summary": {
