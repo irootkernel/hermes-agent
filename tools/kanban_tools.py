@@ -731,11 +731,13 @@ def _handle_submit_review(args: dict[str, Any], **kw) -> str:
                 )
             task = kb.get_task(conn, tid)
             run = kb.latest_run(conn, tid)
+            review_watch = _maybe_auto_subscribe_info(conn, tid)
             return _ok(
                 task_id=tid,
                 status="review",
                 reviewer=task.assignee if task else reviewer_name,
                 run_id=run.id if run else None,
+                review_watch=review_watch,
             )
         finally:
             conn.close()
@@ -1003,99 +1005,76 @@ def _handle_create(args: dict, **kw) -> str:
 
 
 def _maybe_auto_subscribe(conn: Any, task_id: str) -> bool:
-    """Auto-subscribe the calling session to task completion / block events.
+    """Auto-subscribe the calling session to task completion / block events."""
+    return bool(_maybe_auto_subscribe_info(conn, task_id).get("attached"))
 
-    Returns True if a subscription row was written, False otherwise (no
-    session context, config gate disabled, or best-effort failure). The
-    caller surfaces this in the ``subscribed`` field of the kanban_create
-    response so an orchestrator can decide whether to fall back to an
-    explicit ``kanban_notify-subscribe`` or to polling.
 
-    Gated by ``kanban.auto_subscribe_on_create`` in config.yaml (default
-    True). Disable to mirror pre-feature behaviour, e.g. when the
-    originating user/chat opted out via the per-platform notification
-    toggle (see ``hermes dashboard``).
+def _maybe_auto_subscribe_info(conn: Any, task_id: str) -> dict[str, Any]:
+    """Best-effort notification subscription with caller-visible details.
 
-    Subscription paths:
-
-    - **Gateway** (telegram/discord/slack/etc): ``HERMES_SESSION_PLATFORM``
-      and ``HERMES_SESSION_CHAT_ID`` are set in ContextVars by the
-      messaging gateway before agent dispatch. The notification poller
-      already keys off these, so we just register a row.
-
-    - **TUI** (herm desktop / herm TUI): the platform/chat_id ContextVars
-      are intentionally cleared (TUI is a single-channel local UI, not
-      a multi-tenant chat surface), but the agent subprocess inherits
-      ``HERMES_SESSION_KEY`` from the parent session. We subscribe with
-      ``platform="tui"`` and ``chat_id=<key>``; the TUI notification
-      poller (``tui_gateway/server.py``) reads ``kanban_notify_subs``
-      for these rows and posts the completion message into the running
-      session.
-
-    - **CLI / cron / test / unattached**: no persistent delivery channel,
-      no-op.
-
-    Failure mode: any exception inside the function is logged at WARNING
-    with the offending exception + diagnostic env vars and swallowed.
-    We never want a notification bookkeeping failure to fail the
-    kanban_create that the agent is mid-conversation about.
+    Used by ``kanban_create`` (as a boolean) and by D2-f review submissions
+    (as ``review_watch``) so async review outcomes can route back to the
+    originating gateway/session source. CLI / cron / unattached contexts
+    deliberately return ``{"attached": False}`` instead of falling back to
+    ``HERMES_SESSION_ID``.
     """
     try:
         cfg = load_config()
         if not cfg_get(cfg, "kanban", "auto_subscribe_on_create", default=True):
-            return False
+            return {"attached": False}
     except Exception:
-        # If config can't load we still default to True — this is the
-        # user-friendly behaviour that mirrors the pre-gate implementation.
+        # If config can't load we still default to True — this mirrors the
+        # pre-gate implementation and keeps notification setup best-effort.
         pass
 
     platform = ""
     chat_id = ""
     try:
         from gateway.session_context import get_session_env
+
         platform = get_session_env("HERMES_SESSION_PLATFORM", "")
         chat_id = get_session_env("HERMES_SESSION_CHAT_ID", "")
         if not platform or not chat_id:
-            # TUI / desktop fallback: platform/chat_id ContextVars are
-            # cleared for TUI sessions, but the parent process exports
-            # HERMES_SESSION_KEY into the subprocess env. Treat that
-            # as a "tui" subscription so the TUI notification poller
-            # (tui_gateway/server.py) can pick it up.
-            #
-            # HERMES_SESSION_ID is intentionally NOT a fallback here:
-            # it is set by ACP / the agent subprocess for telemetry
-            # regardless of whether the parent is a TUI or a CLI, so
-            # treating it as a notification target would auto-subscribe
-            # every CLI invocation, which is exactly the over-eager
-            # behaviour that got #19718 reverted upstream. The TUI
-            # poller keys on HERMES_SESSION_KEY.
+            # TUI / desktop fallback. Do NOT use HERMES_SESSION_ID here:
+            # it is also set for CLI/ACP telemetry and would over-subscribe
+            # non-gateway invocations.
             session_key = (
                 get_session_env("HERMES_SESSION_KEY", "")
                 or os.environ.get("HERMES_SESSION_KEY", "")
             )
             if not session_key:
-                return False  # CLI / cron / test — no persistent channel
+                return {"attached": False}
             platform = "tui"
             chat_id = session_key
         thread_id = get_session_env("HERMES_SESSION_THREAD_ID", "") or None
         user_id = get_session_env("HERMES_SESSION_USER_ID", "") or None
         notifier_profile = os.environ.get("HERMES_PROFILE")
 
-        # Lazy-import to keep the module-level dependency light
         from hermes_cli import kanban_db as _kb
+
         _kb.add_notify_sub(
-            conn, task_id=task_id,
-            platform=platform, chat_id=chat_id,
-            thread_id=thread_id, user_id=user_id,
+            conn,
+            task_id=task_id,
+            platform=platform,
+            chat_id=chat_id,
+            thread_id=thread_id,
+            user_id=user_id,
             notifier_profile=notifier_profile,
         )
-        return True
+        return {
+            "attached": True,
+            "platform": platform,
+            "chat_id": chat_id,
+            "thread_id": thread_id or "",
+        }
     except Exception as _exc:
         logger.warning(
             "_maybe_auto_subscribe failed: %r (platform=%r key_set=%r)",
-            _exc, platform, bool(chat_id),
+            _exc,
+            platform,
+            bool(chat_id),
         )
-        return False
+        return {"attached": False}
 
 
 def _handle_unblock(args: dict, **kw) -> str:

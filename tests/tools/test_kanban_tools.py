@@ -387,6 +387,98 @@ def test_kanban_submit_review_tool_submits_current_worker_task(
     assert any(e.kind == "submitted_review" for e in events)
 
 
+def test_kanban_submit_review_tool_attaches_review_watch_for_gateway_source(
+    monkeypatch, worker_env
+):
+    """D2-f: submit-review auto-subscribes the originating gateway session."""
+    from hermes_cli import kanban_db as kb
+    from hermes_cli import profiles
+
+    monkeypatch.setattr(profiles, "profile_exists", lambda name: name == "reviewer")
+    monkeypatch.setenv("HERMES_SESSION_PLATFORM", "discord")
+    monkeypatch.setenv("HERMES_SESSION_CHAT_ID", "chat-17")
+    monkeypatch.setenv("HERMES_SESSION_THREAD_ID", "thread-23")
+    monkeypatch.setenv("HERMES_SESSION_USER_ID", "user-42")
+    monkeypatch.setenv("HERMES_PROFILE", "creator-profile")
+    conn = kb.connect()
+    try:
+        task = kb.get_task(conn, worker_env)
+        assert task is not None
+        assert task.current_run_id is not None
+        monkeypatch.setenv("HERMES_KANBAN_RUN_ID", str(task.current_run_id))
+    finally:
+        conn.close()
+
+    from tools import kanban_tools as kt
+
+    out = kt._handle_submit_review({
+        "reviewer": "reviewer",
+        "summary": "ready for async review",
+    })
+    data = json.loads(out)
+    assert data["ok"] is True
+    assert data["review_watch"] == {
+        "attached": True,
+        "platform": "discord",
+        "chat_id": "chat-17",
+        "thread_id": "thread-23",
+    }
+
+    conn = kb.connect()
+    try:
+        subs = kb.list_notify_subs(conn, worker_env)
+    finally:
+        conn.close()
+    assert len(subs) == 1
+    assert subs[0]["platform"] == "discord"
+    assert subs[0]["chat_id"] == "chat-17"
+    assert subs[0]["thread_id"] == "thread-23"
+    assert subs[0]["user_id"] == "user-42"
+    assert subs[0]["notifier_profile"] == "creator-profile"
+
+
+def test_kanban_submit_review_tool_skips_review_watch_without_gateway_source(
+    monkeypatch, worker_env
+):
+    """D2-f: CLI/cron/test contexts preserve submit-review without subscribing."""
+    from hermes_cli import kanban_db as kb
+    from hermes_cli import profiles
+
+    monkeypatch.setattr(profiles, "profile_exists", lambda name: name == "reviewer")
+    for key in (
+        "HERMES_SESSION_PLATFORM",
+        "HERMES_SESSION_CHAT_ID",
+        "HERMES_SESSION_THREAD_ID",
+        "HERMES_SESSION_USER_ID",
+        "HERMES_SESSION_KEY",
+    ):
+        monkeypatch.delenv(key, raising=False)
+    conn = kb.connect()
+    try:
+        task = kb.get_task(conn, worker_env)
+        assert task is not None
+        assert task.current_run_id is not None
+        monkeypatch.setenv("HERMES_KANBAN_RUN_ID", str(task.current_run_id))
+    finally:
+        conn.close()
+
+    from tools import kanban_tools as kt
+
+    out = kt._handle_submit_review({
+        "reviewer": "reviewer",
+        "summary": "ready for review without live source",
+    })
+    data = json.loads(out)
+    assert data["ok"] is True
+    assert data.get("review_watch") == {"attached": False}
+
+    conn = kb.connect()
+    try:
+        assert kb.list_notify_subs(conn, worker_env) == []
+    finally:
+        conn.close()
+
+
 def test_kanban_request_changes_tool_returns_review_to_rework(
     monkeypatch, worker_env
 ):

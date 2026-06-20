@@ -233,3 +233,86 @@ def test_notifier_redelivers_same_kind_on_dispatch_cycle(tmp_path, monkeypatch):
         f"deliveries (texts: {[d['text'] for d in adapter.sent]})"
     )
     assert "crashed" in adapter.sent[1]["text"].lower()
+
+
+def test_notifier_delivers_requested_changes_and_keeps_subscription(tmp_path, monkeypatch):
+    """D2-f: requested_changes is a review outcome, not final completion."""
+    from hermes_cli import profiles
+
+    monkeypatch.setattr(profiles, "profile_exists", lambda name: name in {"reviewer", "worker"})
+    db_path = tmp_path / "review-requested-changes.db"
+    monkeypatch.setenv("HERMES_KANBAN_DB", str(db_path))
+    kb.init_db()
+
+    conn = kb.connect()
+    try:
+        tid = kb.create_task(conn, title="review loop", assignee="worker", created_by="worker")
+        kb.add_notify_sub(conn, task_id=tid, platform="telegram", chat_id="chat-1")
+        assert kb.submit_task_for_review(conn, tid, reviewer="reviewer", summary="ready")
+        assert kb.claim_review_task(conn, tid, claimer="reviewer:run") is not None
+        assert kb.request_changes_task(conn, tid, reason="tests missing")
+    finally:
+        conn.close()
+
+    adapter = RecordingAdapter()
+    runner = _make_runner(adapter)
+    asyncio.run(_run_one_notifier_tick(monkeypatch, runner))
+
+    assert len(adapter.sent) == 1
+    text = adapter.sent[0]["text"].lower()
+    assert "requested changes" in text
+    assert "tests missing" in text
+
+    conn = kb.connect()
+    try:
+        subs = kb.list_notify_subs(conn, tid)
+    finally:
+        conn.close()
+    assert len(subs) == 1, "review outcome must not retire the watcher"
+
+
+def test_notifier_delivers_review_accepted_and_keeps_subscription(tmp_path, monkeypatch):
+    """D2-f: review_accepted notifies that final/creator gate is required."""
+    from hermes_cli import profiles
+
+    monkeypatch.setattr(
+        profiles,
+        "profile_exists",
+        lambda name: name in {"reviewer", "worker", "creator"},
+    )
+    db_path = tmp_path / "review-accepted.db"
+    monkeypatch.setenv("HERMES_KANBAN_DB", str(db_path))
+    kb.init_db()
+
+    conn = kb.connect()
+    try:
+        tid = kb.create_task(conn, title="creator gate", assignee="worker", created_by="creator")
+        kb.add_notify_sub(conn, task_id=tid, platform="telegram", chat_id="chat-1")
+        assert kb.submit_task_for_review(
+            conn,
+            tid,
+            reviewer="reviewer",
+            final_assignee="creator",
+            summary="ready",
+        )
+        assert kb.claim_review_task(conn, tid, claimer="reviewer:run") is not None
+        assert kb.complete_task(conn, tid, summary="approved by reviewer")
+    finally:
+        conn.close()
+
+    adapter = RecordingAdapter()
+    runner = _make_runner(adapter)
+    asyncio.run(_run_one_notifier_tick(monkeypatch, runner))
+
+    assert len(adapter.sent) == 1
+    text = adapter.sent[0]["text"].lower()
+    assert "review accepted" in text
+    assert "final gate" in text
+    assert "creator" in text
+
+    conn = kb.connect()
+    try:
+        subs = kb.list_notify_subs(conn, tid)
+    finally:
+        conn.close()
+    assert len(subs) == 1, "creator-gate review acceptance is not final done"

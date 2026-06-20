@@ -128,7 +128,15 @@ class GatewayKanbanWatchersMixin:
             logger.warning("kanban notifier: kanban_db not importable; notifier disabled")
             return
 
-        TERMINAL_KINDS = ("completed", "blocked", "gave_up", "crashed", "timed_out")
+        TERMINAL_KINDS = (
+            "completed",
+            "blocked",
+            "gave_up",
+            "crashed",
+            "timed_out",
+            "requested_changes",
+            "review_accepted",
+        )
         # Subscriptions are removed only when the task reaches a truly final
         # status (done / archived). We used to also unsub on any terminal
         # event kind (gave_up / crashed / timed_out / blocked), but that
@@ -341,6 +349,28 @@ class GatewayKanbanWatchersMixin:
                             msg = (
                                 f"⏱ {tag}Kanban {sub['task_id']} timed out "
                                 f"(max_runtime={limit}s); will retry"
+                            )
+                        elif kind == "requested_changes":
+                            reason = ""
+                            if ev.payload and ev.payload.get("reason"):
+                                reason = f": {str(ev.payload['reason'])[:160]}"
+                            target = ""
+                            if ev.payload and ev.payload.get("assignee"):
+                                target = f" → @{str(ev.payload['assignee'])[:80]}"
+                            msg = (
+                                f"↩ {tag}Kanban {sub['task_id']} requested changes"
+                                f"{target}{reason}"
+                            )
+                        elif kind == "review_accepted":
+                            final = ""
+                            if ev.payload and ev.payload.get("final_assignee"):
+                                final = f" → @{str(ev.payload['final_assignee'])[:80]}"
+                            summary = ""
+                            if ev.payload and ev.payload.get("summary"):
+                                summary = f"\n{str(ev.payload['summary'])[:200]}"
+                            msg = (
+                                f"✓ {tag}Kanban {sub['task_id']} review accepted; "
+                                f"final gate required{final}{summary}"
                             )
                         else:
                             continue
