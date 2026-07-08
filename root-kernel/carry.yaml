@@ -75,17 +75,26 @@ docker_smoke_policy:
 rules:
   R1:
     title: Config/profile activation policy
-    status: pending-r-pre-audit
+    status: completed-post-activation
     scope:
       - default and named profile config.yaml files
       - config schema/version migration
       - hermes config check and hermes doctor
       - new v0.17 write_approval, automation blueprint, dashboard/profile-builder defaults
     activation_impact: host-local config and doctor triage gate; not a runtime carry
-    next_action: read-only profile config audit after D candidate settles; mutate only in activation window.
+    closeout:
+      summary: Config/profile compatibility was resolved during the approved rk/v0.17.0 activation window; no remaining R1 blocker for rk/tag/v0.17.0.
+      evidence:
+        - /Users/draccoon/Workspace/Hermes/17thHermes/50_health/team/heuktaeja/hermes-agent-update/rk-v0.17.0/final-activation-receipt-20260708T144804Z.md
+        - /Users/draccoon/Workspace/Hermes/update-backups/20260709-rk-v017/pre-activation-config-migration/
+        - /Users/draccoon/Workspace/Hermes/update-backups/20260709-rk-v017/r1-remove-deprecated-messaging-toolset/
+      result:
+        - Deprecated/unknown messaging toolset entries removed from bongchu, jooyoo, samaui, and wolyeong profile configs after non-secret backups.
+        - Affected gateways restarted and final post-activation smoke passed with deprecated messaging toolset scan returning zero hits.
+    next_action: Re-check config/profile compatibility in the next upstream release cycle; no further v0.17.0 action before tag unless new config drift is discovered.
   R2:
     title: Skill provenance, overrides, and compatibility policy
-    status: pending-r-pre-audit
+    status: completed-scoped-activation-check
     scope:
       - bundled/upstream skills
       - optional skills
@@ -93,35 +102,105 @@ rules:
       - profile-local overrides and active cron skills
       - v0.17 Skills Hub and write_approval behavior
     activation_impact: host-local skill compatibility gate; not a runtime carry
-    next_action: compare v0.16 and v0.17 bundled/optional skills; do not restore removed upstream skills as D-items.
+    closeout:
+      summary: Scoped R2 activation audit found no duplicate/malformed bundled, optional, shared ops, or profile-local skill metadata blockers; representative load-bearing skill-load smoke passed.
+      evidence:
+        - /Users/draccoon/Workspace/Hermes/17thHermes/50_health/team/heuktaeja/hermes-agent-update/rk-v0.17.0/r2-skill-audit-20260708T154010Z/r2-skill-audit.json
+        - /Users/draccoon/Workspace/Hermes/17thHermes/50_health/team/heuktaeja/hermes-agent-update/rk-v0.17.0/final-activation-receipt-20260708T144804Z.md
+      result:
+        - Repo bundled skills: 73 names, 0 duplicates, 0 malformed frontmatter.
+        - Repo optional skills: 100 names, 0 duplicates, 0 malformed frontmatter.
+        - Shared ops skills: 95 names, 0 duplicates, 0 malformed frontmatter.
+        - Active cron skill refs observed by the R2 audit: 0.
+        - Explicit skill-load smoke passed for default/hermes-17e-update, default/release-carry-ledgers, hwangchung/kanban-worker, and samaui/kanban-worker.
+        - v0.16 to v0.17 skill tree changes were observed and not restored as D-item runtime carries.
+    next_action: Treat broader profile-owned skill/cron/script usage-style optimization as R5, not an R2 tag blocker.
   R3:
     title: Web dashboard and desktop activation gate
-    status: pending-r-pre-audit
+    status: completed-dashboard-verified-desktop-unused
     scope:
       - dashboard profile builder and auth changes
       - desktop watch-windows/model selector/theme updates
       - web_dist and desktop build/smoke
     activation_impact: host-local GUI surface gate; not a runtime carry
-    next_action: candidate Docker/host build smoke only after D candidate; persistent launchd/dashboard changes require approval.
+    closeout:
+      summary: Dashboard is verified on the activated v0.17.0 runtime. Hermes Desktop is intentionally unused in this environment and is not a rk/v0.17.0 tag blocker.
+      evidence:
+        - /Users/draccoon/Workspace/Hermes/17thHermes/50_health/team/heuktaeja/hermes-agent-update/rk-v0.17.0/r3-dashboard-desktop-audit-20260708T154614Z/
+        - /Users/draccoon/Workspace/Hermes/17thHermes/50_health/team/heuktaeja/hermes-agent-update/rk-v0.17.0/r3-desktop-unused-cleanup-20260708T160712Z/receipt.txt
+        - /Users/draccoon/Workspace/Hermes/17thHermes/50_health/team/heuktaeja/hermes-agent-update/rk-v0.17.0/final-activation-receipt-20260708T144804Z.md
+      result:
+        - Live dashboard process was running under the activated v0.17.0 runtime.
+        - Dashboard /api/status on port 9119 was reachable and reported version 0.17.0, config_version 30, gateway_running true, and connected Telegram/Discord gateway state.
+        - No /Applications or ~/Applications Hermes Desktop install was present.
+        - Live checkout contained ignored desktop build artifacts only; apps/desktop/node_modules, apps/desktop/dist, apps/desktop/build, apps/desktop/release, and apps/desktop/tsconfig.tsbuildinfo were removed after confirming tracked_count=0 for each path.
+        - Desktop source such as apps/desktop/package.json and apps/desktop/electron remains preserved in the repo.
+    next_action: Do not treat Hermes Desktop build/install/usability as part of the v0.17.0 tag gate unless 주군 later re-enables Desktop use; dashboard should be re-checked in the next release cycle.
   R4:
     title: Cron, automation blueprints, and local script activation gate
-    status: pending-r-pre-audit
+    status: completed-read-only-activation-check
     scope:
       - active cron jobs and scripts
       - automation blueprints introduced in v0.17
       - shared /Users/draccoon/Workspace/Hermes/ops/scripts automation tree
       - watcher jobs and hardcoded checkout paths
     activation_impact: host-local automation gate; not a runtime carry unless product code must change.
-    next_action: read-only cron/script inventory and classify whether automation blueprints replace any local cron prompts.
+    closeout:
+      summary: Read-only cron/script/local automation audit found no active cron or script blocker for rk/tag/v0.17.0. The only script defect was a stale inactive Hwangchung watcher with zero active cron references; it was quarantined during the approved Hwangchung selection cleanup.
+      evidence:
+        - /Users/draccoon/Workspace/Hermes/17thHermes/50_health/team/heuktaeja/hermes-agent-update/rk-v0.17.0/r4-cron-script-audit-20260708T161109Z/r4-cron-script-audit.json
+        - /Users/draccoon/Workspace/Hermes/17thHermes/50_health/team/heuktaeja/hermes-agent-update/rk-v0.17.0/r4-cron-script-audit-20260708T161109Z/r4-active-script-embedded-path-checks.json
+        - /Users/draccoon/Workspace/Hermes/17thHermes/50_health/team/heuktaeja/hermes-agent-update/rk-v0.17.0/r4-cron-script-audit-20260708T161109Z/r4-closeout-classification.json
+        - /Users/draccoon/Workspace/Hermes/17thHermes/50_health/team/heuktaeja/hwangchung-selection-cleanup-20260708T162600Z/manifest.json
+        - /Users/draccoon/Workspace/Hermes/17thHermes/50_health/team/heuktaeja/hwangchung-kanban-admin-closeout-20260708T163035Z/postclose-summary.json
+      result:
+        - 14 profiles had cron files; 15 active jobs were observed across mibang, songeon, wolong, and wolyeong.
+        - All 15 active job scripts existed and parsed cleanly; active cron skill refs were 0; all active jobs reported last_status ok.
+        - Four songeon retention warnings were diagnostic false positives from prompt text path matching, not missing active scripts.
+        - Hwangchung stale inactive watcher watch_dagsm005_red_plan_t_4a8ff082.py had zero active cron references, was quarantined, and a post-cleanup parse sweep found 234 Hwangchung profile scripts with 0 parse failures.
+        - Hwangchung gateway service definition was repaired to match the current v0.17 install and verified loaded/running; active Hwangchung Kanban WIP was administratively archived to 0 remaining open cards.
+    next_action: Re-run cron/script/local automation audit in the next upstream release cycle; no remaining R4 action before rk/tag/v0.17.0 unless new live automation drift is discovered.
   R5:
     title: Profile-owned local asset optimization after v0.17 activation
-    status: deferred-until-after-d-candidate
+    status: completed-profile-owned-local-asset-optimization-non-tag-blocking
     scope:
       - Root Kernel-owned skills
       - Root Kernel-owned cron prompts
       - canonical ops scripts
       - usage-style updates for v0.17 native surfaces
-    activation_impact: post-candidate local asset pass; not a prerequisite for D-code branch creation.
+    activation_impact: post-release local asset optimization pass; not a prerequisite for rk/tag/v0.17.0.
+    closeout:
+      summary: Broader profile-owned skill/cron/script usage-style optimization is in progress. R5 remains non-blocking for rk/tag/v0.17.0; 주군 approved deletion of storage-only profile skill .archive directories and stale project wrapper/overlay KAS skills that are superseded by recent project updates.
+      evidence:
+        - /Users/draccoon/Workspace/Hermes/17thHermes/50_health/team/heuktaeja/hermes-agent-update/rk-v0.17.0/r5-profile-owned-local-asset-inventory-20260708T165501Z/r5-inventory.json
+        - /Users/draccoon/Workspace/Hermes/17thHermes/50_health/team/heuktaeja/hermes-agent-update/rk-v0.17.0/r5-profile-owned-local-asset-inventory-20260708T165501Z/r5-inventory.md
+        - /Users/draccoon/Workspace/Hermes/17thHermes/50_health/team/heuktaeja/hermes-agent-update/rk-v0.17.0/r5-profile-owned-local-asset-inventory-20260708T165501Z/r5-candidate-triage.json
+        - /Users/draccoon/Workspace/Hermes/17thHermes/50_health/team/heuktaeja/hermes-agent-update/rk-v0.17.0/r5-profile-owned-local-asset-inventory-20260708T165501Z/r5-refined-edit-queue.json
+        - /Users/draccoon/Workspace/Hermes/17thHermes/50_health/team/heuktaeja/hermes-agent-update/rk-v0.17.0/r5-profile-skill-archive-purge-20260708T173354Z/receipt-after-delete.json
+        - /Users/draccoon/Workspace/Hermes/17thHermes/50_health/team/heuktaeja/hermes-agent-update/rk-v0.17.0/r5-kas-project-skill-wrapper-overlay-purge-20260708T174342Z/receipt-after-delete.json
+        - /Users/draccoon/Workspace/Hermes/17thHermes/50_health/team/heuktaeja/hermes-agent-update/rk-v0.17.0/r5-canonical-skill-inspection-20260708T175000Z.json
+        - /Users/draccoon/Workspace/Hermes/17thHermes/50_health/team/heuktaeja/hermes-agent-update/rk-v0.17.0/r5-immediate-canonical-skill-patches-20260708T181500Z.json
+        - /Users/draccoon/Workspace/Hermes/17thHermes/50_health/team/heuktaeja/hermes-agent-update/rk-v0.17.0/r5-active-cron-prompt-inspection-20260709T000000Z/receipt.json
+        - /Users/draccoon/Workspace/Hermes/17thHermes/50_health/team/heuktaeja/hermes-agent-update/rk-v0.17.0/r5-script-wrapper-retirement-review-20260709T000000Z/receipt.json
+        - /Users/draccoon/Workspace/Hermes/17thHermes/50_health/team/heuktaeja/hermes-agent-update/rk-v0.17.0/r5-script-wrapper-retirement-review-20260709T000000Z/live-launchctl-reference-check.json
+        - /Users/draccoon/Workspace/Hermes/17thHermes/50_health/team/heuktaeja/hermes-agent-update/rk-v0.17.0/r5-root-runtime-watcher-delete-20260709T001500Z/manifest-before-delete.json
+        - /Users/draccoon/Workspace/Hermes/17thHermes/50_health/team/heuktaeja/hermes-agent-update/rk-v0.17.0/r5-root-runtime-watcher-delete-20260709T001500Z/receipt-after-delete.json
+      result:
+        - R2 already covered skill provenance/resolver readiness for activation.
+        - R4 already covered active cron/script existence, syntax, stale watcher cleanup, and local automation blockers for activation.
+        - Report-only inventory observed 868 skill entries, 70 cron jobs, and 727 script files across upstream, shared, default, profile-local, runtime-wrapper, and project-maintainer surfaces.
+        - Initial ownership classification excluded project-maintainer assets from local R5 editing; project/Kkachi-family assets remain maintainer-follow unless a separate maintainer-lane decision exists.
+        - Candidate queue triage narrowed 1,665 classified assets to 3 actual Wave 1 patch candidates, 6 canonical operations-skill inspection candidates, 13 active cron prompt inspection candidates, and 23 script wrapper/retirement review candidates; 30 high-priority regex hits were deferred as false-positive or low-priority sleep/polling contexts.
+        - User-approved profile skill .archive purge removed 6 storage-only archive directories from profiles bongchu, goong, jalong, kangyoo, macho, and mibang after rollback backup; 1,106 archived files including 199 archived SKILL.md files were backed up, and 0 profile skills/.archive directories remain.
+        - Affected profile skills-list smoke passed for bongchu, goong, jalong, kangyoo, macho, and mibang.
+        - User-approved KAS/project wrapper-overlay purge removed 48 project skill directories across 12 profiles and 6 projects after rollback backup; active cron direct skill references were 0, no matching wrapper/overlay directories remain, and affected profile skills-list smoke passed for hahuyeon, hwangchung, ijeok, jingung, jonghoe, macho, manchong, seohwang, taesaja, wiyeon, yeomong, and yuyeop.
+        - User-approved research-paper-writing ops custom patch removed stale positive send_message guidance and replaced it with current final-response, cronjob delivery, and terminal background notify patterns; verification found 0 remaining send_message mentions in the ops custom copy.
+        - Canonical skill inspection found immediate namespace/tooling wording candidates in release-carry-ledgers, hermes-operations, and hermes-17e-update; user-approved immediate patches converted active release examples and update-routing guidance from legacy 17e/for_17th_earth wording to current rk/*, root-kernel/carry.yaml, and for-root-kernel.md wording while preserving historical/reference 17e notes. Verification found 0 remaining positive stale candidates across the six inspected canonical skills; team-profile-activation and hermes-team-operations need no immediate R5 patch, and kanban-orchestrator remains maintainer-lane.
+        - Active cron prompt inspection covered 13 enabled jobs across mibang, songeon, wolong, and wolyeong; all 13 passed no-edit with scripts resolving and no positive stale v0.17/R5 prompt guidance.
+        - Script wrapper/retirement review covered 23 script candidates; 14 were backup snapshots excluded from edit, 1 canonical governance script was kept no-edit, and 8 unreferenced root runtime watcher scripts were classified as retirement candidates. A live launchctl ProgramArguments scan found 0 matches for the 8 retirement candidates.
+        - User-approved runtime watcher cleanup backed up and deleted the 8 unreferenced root ~/.hermes/scripts watcher files; backup verification passed, post-delete verification found all 8 absent, and restore material is under /Users/draccoon/Workspace/Hermes/update-backups/20260709-rk-v017/r5-root-runtime-watcher-delete-20260709T001500Z/.
+        - No gateways, providers, auth, tokens, runtime config, commits, pushes, tags, cron jobs, or launchd plists were changed by the cron/script inspection and watcher delete pass.
+    next_action: R5 is complete and remains non-tag-blocking; proceed with final R1-R5 SOT validation and then request explicit approval before any Root Kernel commit, push, rk/live movement, or rk/tag/v0.17.0 creation.
 entries:
   D1:
     title: Tool Search pair
