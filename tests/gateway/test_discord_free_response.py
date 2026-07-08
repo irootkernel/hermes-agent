@@ -629,6 +629,18 @@ async def test_discord_auto_thread_free_response_config_extra(adapter, monkeypat
     assert adapter._thread_owners.is_owner("791", "999")
 
 
+def test_discord_yaml_bridge_sets_auto_thread_free_response_env(monkeypatch):
+    """Top-level discord.auto_thread_free_response should reach the env-driven adapter."""
+    monkeypatch.delenv("DISCORD_AUTO_THREAD_FREE_RESPONSE", raising=False)
+
+    discord_platform._apply_yaml_config(
+        {},
+        {"auto_thread_free_response": True},
+    )
+
+    assert discord_platform.os.getenv("DISCORD_AUTO_THREAD_FREE_RESPONSE") == "true"
+
+
 @pytest.mark.asyncio
 async def test_discord_voice_linked_parent_thread_still_requires_mention(adapter, monkeypatch):
     """Threads under a voice-linked channel should still require @mention."""

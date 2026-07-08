@@ -346,17 +346,25 @@ entries:
       - Role mentions without this bot's direct mention fail closed so default/free-response routing cannot steal role-addressed tasks.
       - Parent text-channel free-response does not automatically apply to ordinary child text threads opened by another bot; forum-thread inheritance remains allowed.
       - DISCORD_DEFAULT_THREAD_OWNER_PARENT_CHANNELS is an env-only profile-local fallback for parent channels whose user-created child threads belong to this bot.
-      - DISCORD_AUTO_THREAD_FREE_RESPONSE or config extra auto_thread_free_response can explicitly allow free-response channels to still spawn owned auto-threads.
+      - DISCORD_AUTO_THREAD_FREE_RESPONSE or top-level/config extra auto_thread_free_response can explicitly allow free-response channels to still spawn owned auto-threads.
     audit_evidence:
       - command: git grep/read v0.17 Discord adapter for ThreadOwnerTracker, role_mentions, auto_thread_free_response, and DISCORD_DEFAULT_THREAD_OWNER_PARENT_CHANNELS
         result: v0.17 retained ThreadParticipationTracker and thread_require_mention but had no owner/default-responder tracker, no role-mention fail-close, no parent owner fallback, and no free-response auto-thread opt-in.
       - command: compare v0.16 D4 commit c3c60ccb1 against v0.17 adapter/tests
         result: retained only the owner-thread, role-mention, parent-owner, and free-response-auto-thread seams; did not replay unrelated legacy namespace/docs wording.
+      - command: RED test_discord_yaml_bridge_sets_auto_thread_free_response_env before hotfix
+        result: failed as expected because top-level discord.auto_thread_free_response did not reach DISCORD_AUTO_THREAD_FREE_RESPONSE; adapter therefore skipped auto-threading in free-response parent channels despite config intent.
     docker_smoke:
       - command: docker run --rm -i -v "$PWD:/repo:ro" -w /repo -e HOME=/tmp/hermes-user -e HERMES_HOME=/tmp/hermes-home -e UV_CACHE_DIR=/tmp/uv-cache -e UV_PROJECT_ENVIRONMENT=/tmp/hermes-venv ghcr.io/astral-sh/uv:0.11.6-python3.13-trixie bash -lc 'unset DISCORD_ALLOWED_CHANNELS DISCORD_AUTO_THREAD_FREE_RESPONSE DISCORD_HISTORY_BACKFILL DISCORD_HISTORY_BACKFILL_LIMIT; uv sync --frozen --extra dev --no-install-project; /tmp/hermes-venv/bin/python -m pytest -q tests/gateway/test_discord_free_response.py tests/gateway/test_discord_thread_persistence.py tests/gateway/test_discord_allowed_channels.py tests/gateway/test_discord_channel_controls.py -o addopts='
         result: 86 passed, 1 warning in Docker disposable env; warning was pytest cache write blocked by read-only repo mount. No live Discord token/send.
       - command: env -u DISCORD_ALLOWED_CHANNELS -u DISCORD_AUTO_THREAD_FREE_RESPONSE -u DISCORD_HISTORY_BACKFILL -u DISCORD_HISTORY_BACKFILL_LIMIT /Users/draccoon/.local/bin/hermes-python -m pytest -q tests/gateway/test_discord*.py -o addopts=
         result: 412 passed, 2 pre-existing voice coroutine warnings; no live Discord token/send.
+      - command: env -u DISCORD_ALLOWED_CHANNELS -u DISCORD_AUTO_THREAD_FREE_RESPONSE -u DISCORD_NO_THREAD_CHANNELS -u DISCORD_FREE_RESPONSE_CHANNELS -u DISCORD_REQUIRE_MENTION /Users/draccoon/.local/bin/hermes-python -m pytest tests/gateway/test_discord_free_response.py::test_discord_yaml_bridge_sets_auto_thread_free_response_env tests/gateway/test_discord_free_response.py::test_discord_auto_thread_free_response_allows_owned_threads tests/gateway/test_discord_free_response.py::test_discord_auto_thread_free_response_config_extra -q
+        result: 3 passed on host after bridging top-level discord.auto_thread_free_response to DISCORD_AUTO_THREAD_FREE_RESPONSE.
+      - command: env -u DISCORD_ALLOWED_CHANNELS -u DISCORD_AUTO_THREAD_FREE_RESPONSE -u DISCORD_NO_THREAD_CHANNELS -u DISCORD_FREE_RESPONSE_CHANNELS -u DISCORD_REQUIRE_MENTION /Users/draccoon/.local/bin/hermes-python -m pytest tests/gateway/test_discord_free_response.py -q
+        result: 50 passed on host after hotfix.
+      - command: /Users/draccoon/.local/bin/hermes-python ast/compile smoke for plugins/platforms/discord/adapter.py and tests/gateway/test_discord_free_response.py
+        result: passed.
   D5:
     title: Support-only plugin strategy
     previous_v0_16_status: retired-no-code

@@ -150,11 +150,17 @@ Each D item is presented to 주군 before patching; only owner-approved items ar
   - Parent text-channel free-response does not leak into ordinary child text threads; forum-thread inheritance remains allowed.
   - `DISCORD_DEFAULT_THREAD_OWNER_PARENT_CHANNELS` remains env-only for profile-local parent channels whose user-created child threads belong to this bot.
   - `DISCORD_AUTO_THREAD_FREE_RESPONSE` / `auto_thread_free_response` explicitly opt free-response channels back into owned auto-thread creation.
+- Hotfix 2026-07-09:
+  - Cause: `discord.auto_thread_free_response: true` existed in root config but D4's Discord plugin YAML bridge did not export it to `DISCORD_AUTO_THREAD_FREE_RESPONSE`, so the env-driven adapter treated free-response parent channels as `skip_thread=True` and replied inline.
+  - Fix: bridge top-level `discord.auto_thread_free_response` into `DISCORD_AUTO_THREAD_FREE_RESPONSE`; add a regression test for the actual YAML→env path.
 - Verification:
-  - `tests/gateway/test_discord_free_response.py`: 49 passed.
-  - Docker clean-env routing bundle: 86 passed, 1 read-only pytest-cache warning.
-  - Clean Discord-env full `tests/gateway/test_discord*.py`: 412 passed, 2 pre-existing voice coroutine warnings.
-- Docker/live gate: fake Discord object tests only; no live Discord token/send used.
+  - RED before fix: `test_discord_yaml_bridge_sets_auto_thread_free_response_env` failed with `None == 'true'`.
+  - Focused GREEN: `test_discord_yaml_bridge_sets_auto_thread_free_response_env`, `test_discord_auto_thread_free_response_allows_owned_threads`, `test_discord_auto_thread_free_response_config_extra` → 3 passed.
+  - `tests/gateway/test_discord_free_response.py`: 50 passed.
+  - `ast/compile` smoke for `plugins/platforms/discord/adapter.py` and `tests/gateway/test_discord_free_response.py`: passed.
+  - Previous Docker clean-env routing bundle: 86 passed, 1 read-only pytest-cache warning.
+  - Previous clean Discord-env full `tests/gateway/test_discord*.py`: 412 passed, 2 pre-existing voice coroutine warnings.
+- Docker/live gate: fake Discord object tests only; no live Discord token/send used; no gateway restart in this hotfix.
 
 ### D5 — Support-only plugin strategy
 
