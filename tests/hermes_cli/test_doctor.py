@@ -75,6 +75,113 @@ class TestDoctorToolAvailabilitySummary:
         assert [item["name"] for item in filtered] == ["rl", "web"]
 
 
+class TestDoctorToolAvailabilityConfigFilter:
+    def test_filters_available_and_unavailable_to_enabled_scope(self, monkeypatch):
+        monkeypatch.setattr(
+            doctor,
+            "_doctor_enabled_toolsets_for_warning_scope",
+            lambda: {"web", "terminal"},
+            raising=False,
+        )
+
+        available, unavailable = doctor._filter_doctor_tool_availability_for_config(
+            ["terminal", "rl"],
+            [
+                {"name": "rl", "missing_vars": ["TINKER_API_KEY"]},
+                {"name": "web", "missing_vars": ["EXA_API_KEY"]},
+            ],
+        )
+
+        assert available == ["terminal"]
+        assert [item["name"] for item in unavailable] == ["web"]
+
+    def test_keeps_explicitly_enabled_optional_toolset_warning(self, monkeypatch):
+        monkeypatch.setattr(
+            doctor,
+            "_doctor_enabled_toolsets_for_warning_scope",
+            lambda: {"web", "x_search"},
+            raising=False,
+        )
+        x_search_entry = {"name": "x_search", "missing_vars": ["XAI_API_KEY"]}
+
+        available, unavailable = doctor._filter_doctor_tool_availability_for_config(
+            ["web"],
+            [x_search_entry],
+        )
+
+        assert available == ["web"]
+        assert unavailable == [x_search_entry]
+
+    def test_filter_fails_open_when_scope_resolution_fails(self, monkeypatch):
+        monkeypatch.setattr(
+            doctor,
+            "_doctor_enabled_toolsets_for_warning_scope",
+            lambda: None,
+            raising=False,
+        )
+        available_in = ["terminal", "rl"]
+        unavailable_in = [
+            {"name": "rl", "missing_vars": ["TINKER_API_KEY"]},
+            {"name": "web", "missing_vars": ["EXA_API_KEY"]},
+        ]
+
+        available, unavailable = doctor._filter_doctor_tool_availability_for_config(
+            available_in,
+            unavailable_in,
+        )
+
+        assert available == available_in
+        assert unavailable == unavailable_in
+
+    def test_run_doctor_hides_default_off_warning_rows(self, monkeypatch, tmp_path):
+        project_root = tmp_path / "project"
+        hermes_home = tmp_path / ".hermes"
+        project_root.mkdir()
+        hermes_home.mkdir()
+        monkeypatch.setattr(doctor_mod, "PROJECT_ROOT", project_root)
+        monkeypatch.setattr(doctor_mod, "HERMES_HOME", hermes_home)
+        monkeypatch.setattr(doctor_mod, "_DHH", str(hermes_home))
+        monkeypatch.setattr(
+            doctor,
+            "_doctor_enabled_toolsets_for_warning_scope",
+            lambda: {"web"},
+            raising=False,
+        )
+
+        fake_model_tools = types.SimpleNamespace(
+            TOOLSET_REQUIREMENTS={
+                "rl": {"name": "RL"},
+                "web": {"name": "Web"},
+            },
+            check_tool_availability=lambda *a, **kw: (
+                [],
+                [
+                    {"name": "rl", "missing_vars": ["TINKER_API_KEY"], "tools": ["tinker_train"]},
+                    {"name": "web", "missing_vars": ["EXA_API_KEY"], "tools": ["web_search"]},
+                ],
+            ),
+        )
+        monkeypatch.setitem(sys.modules, "model_tools", fake_model_tools)
+
+        def stop_after_tool_availability(unavailable):
+            raise SystemExit(0)
+
+        monkeypatch.setattr(
+            doctor,
+            "_missing_api_key_toolsets_for_summary",
+            stop_after_tool_availability,
+        )
+
+        buf = io.StringIO()
+        with pytest.raises(SystemExit), contextlib.redirect_stdout(buf):
+            doctor_mod.run_doctor(Namespace(fix=False))
+        out = buf.getvalue()
+
+        assert "Tool Availability" in out
+        assert "TINKER_API_KEY" not in out
+        assert "EXA_API_KEY" in out
+
+
 class TestDoctorEnvFileEncoding:
     """Regression for #18637 (bug 3): `hermes doctor` crashed on Windows
     Chinese locale (GBK) because `.env` was read with Path.read_text() which

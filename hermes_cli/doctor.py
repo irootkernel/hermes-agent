@@ -210,6 +210,52 @@ def _enabled_cli_toolsets_for_doctor() -> set[str] | None:
         return None
 
 
+def _doctor_enabled_toolsets_for_warning_scope() -> set[str] | None:
+    """Return active toolsets whose availability warnings are actionable.
+
+    Doctor runs in a CLI context, but users may also explicitly configure
+    platform-specific toolsets. Keep warnings for the CLI plus those explicit
+    platform scopes, and fail open if config resolution breaks so diagnostics
+    are not silently hidden.
+    """
+    try:
+        from hermes_cli.config import load_config
+        from hermes_cli.tools_config import _get_platform_tools
+
+        cfg = load_config() or {}
+        platforms = {"cli"}
+        platform_toolsets = cfg.get("platform_toolsets") or {}
+        if isinstance(platform_toolsets, dict):
+            platforms.update(str(platform) for platform in platform_toolsets)
+
+        enabled: set[str] = set()
+        for platform in platforms:
+            enabled.update(str(toolset) for toolset in _get_platform_tools(cfg, platform))
+        return enabled
+    except Exception:
+        return None
+
+
+def _filter_doctor_tool_availability_for_config(
+    available: list[str],
+    unavailable: list[dict],
+) -> tuple[list[str], list[dict]]:
+    """Hide Tool Availability rows for toolsets outside the active config scope."""
+    enabled_toolsets = _doctor_enabled_toolsets_for_warning_scope()
+    if enabled_toolsets is None:
+        return available, unavailable
+
+    filtered_available = [
+        toolset for toolset in available
+        if str(toolset) in enabled_toolsets
+    ]
+    filtered_unavailable = [
+        item for item in unavailable
+        if str(item.get("name") or "") in enabled_toolsets
+    ]
+    return filtered_available, filtered_unavailable
+
+
 def _missing_api_key_toolsets_for_summary(unavailable: list[dict]) -> list[dict]:
     """Filter unavailable API-key toolsets to those enabled for the CLI."""
     api_key_unavailable = [
@@ -2174,6 +2220,7 @@ def run_doctor(args):
         
         available, unavailable = check_tool_availability()
         available, unavailable = _apply_doctor_tool_availability_overrides(available, unavailable)
+        available, unavailable = _filter_doctor_tool_availability_for_config(available, unavailable)
         
         for tid in available:
             info = TOOLSET_REQUIREMENTS.get(tid, {})

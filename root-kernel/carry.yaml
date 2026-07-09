@@ -73,29 +73,29 @@ docker_smoke_policy:
 rules:
   R1:
     title: Config/profile activation policy
-    status: pending-r-pre
+    status: pending-post-rk-live
     activation_impact: host-local config/schema/profile migration gate; not a runtime D carry.
-    next_action: Run read-only R-pre config/schema/profile audit after D-item code candidate stabilizes and before any live activation.
+    next_action: Verify config/schema/profile state after rk/live is applied; not part of rk/v0.18.2 candidate branch creation.
   R2:
     title: Skill provenance, overrides, and compatibility policy
-    status: pending-r-pre
+    status: pending-post-rk-live
     activation_impact: host-local bundled/optional/shared/profile-local skill compatibility gate; not a runtime D carry.
-    next_action: Compare v0.17 to v0.18.2 bundled/optional skill changes and profile/shared resolver shadows before activation.
+    next_action: Compare bundled/optional/shared/profile-local skill behavior after rk/live is applied, using the live activated runtime.
   R3:
     title: Web dashboard and desktop activation gate
-    status: pending-r-pre
+    status: pending-post-rk-live
     activation_impact: dashboard/desktop local GUI gate; not a runtime D carry.
-    next_action: Re-check dashboard build/runtime readiness and continue treating Desktop as unused unless 주군 changes scope.
+    next_action: Re-check dashboard/runtime readiness after rk/live is applied; continue treating Desktop as unused unless 주군 changes scope.
   R4:
     title: Cron, local scripts, watchers, and automation gate
-    status: pending-r-pre
+    status: pending-post-rk-live
     activation_impact: active cron/script/local automation readiness; not a runtime D carry unless product code changes.
-    next_action: Re-run active cron/script/watcher audit against v0.18.2 candidate before activation.
+    next_action: Re-run active cron/script/watcher audit against the activated rk/live runtime.
   R5:
     title: Profile-owned local asset optimization after v0.18 activation
     status: pending-post-activation-nonblocking
     activation_impact: post-release profile-owned skill/cron/script usage-style optimization; not a tag blocker unless explicitly scoped by 주군.
-    next_action: Defer broad profile-owned asset optimization until after D and R-pre gates, unless release notes reveal a direct blocker.
+    next_action: Defer broad profile-owned asset optimization until after rk/live activation and post-live R checks, unless 주군 explicitly scopes a blocker.
 entries:
   D1:
     title: Tool Search pair
@@ -276,10 +276,24 @@ entries:
   D7:
     title: Doctor optional tool warning filter
     previous_v0_17_status: local-keep-applied
-    v0_18_status: not_evaluated
+    v0_18_status: local_keep_applied
     priority: 5
-    code_patch_required: unknown
-    next_action: Audit doctor Tool Availability warning scoping before carrying optional-warning filter.
+    code_patch_required: true
+    decision: "Carry a minimal config-scope Tool Availability filter so doctor hides disabled/default-off optional toolset warnings while preserving warnings for CLI and explicitly configured platform toolsets."
+    files_changed:
+      - hermes_cli/doctor.py
+      - tests/hermes_cli/test_doctor.py
+    local_seams:
+      - "`_doctor_enabled_toolsets_for_warning_scope()` resolves the warning scope from active config using the runtime `_get_platform_tools` resolver for `cli` plus explicitly configured `platform_toolsets` platforms."
+      - "`_filter_doctor_tool_availability_for_config()` filters both available and unavailable Tool Availability rows before printing and before the setup issue summary."
+      - "Filter fails open when config/toolset resolution raises, preserving diagnostics rather than hiding unknown warnings."
+      - "Runtime-gated overrides such as Kanban worker and configured Honcho still run before config-scope filtering."
+    smoke:
+      - "D7 RED: tests/hermes_cli/test_doctor.py::TestDoctorToolAvailabilityConfigFilter failed on current v0.18.2+D6 with 4 failed because helper was absent and disabled/default-off `rl` still printed `TINKER_API_KEY`."
+      - "D7 GREEN: tests/hermes_cli/test_doctor.py::TestDoctorToolAvailabilityConfigFilter -> 4 passed, 1 warning in 1.32s."
+      - "D7 GREEN: tests/hermes_cli/test_doctor.py tests/hermes_cli/test_doctor_dedicated_provider_skip.py -> 72 passed, 1 warning in 74.23s."
+      - "D7 scope probe: helper present; default CLI/scope keeps `web`; default scope excludes `discord`."
+    next_action: Retained runtime D-items are complete; proceed to final candidate smoke and rk/live preparation unless 주군 scopes an additional D-item; R-items are post-rk/live checks.
   D8:
     title: OpenAI Codex credential pinning and labelled reauth
     previous_v0_17_status: minimized-local-keep-applied

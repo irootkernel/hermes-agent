@@ -188,8 +188,28 @@ Every D item requires owner direction before code application: choose upstream-n
 ### D7 — Doctor optional tool warning filter
 
 - Previous v0.17 state: local keep applied.
-- v0.18.2 state: not yet evaluated.
-- Next action: audit doctor Tool Availability warning scoping before carrying optional-warning filter.
+- v0.18.2 state: local keep applied.
+- Decision: carry a minimal config-scope Tool Availability filter so doctor hides disabled/default-off optional toolset warnings while preserving warnings for CLI and explicitly configured platform toolsets.
+- Current audit finding:
+  - current code already had `_enabled_cli_toolsets_for_doctor()` and `_missing_api_key_toolsets_for_summary()`, so final setup summary was partially scoped;
+  - but Tool Availability warning rows themselves were not scoped;
+  - focused probe with CLI scope `{web}` still printed disabled/default-off `rl (missing TINKER_API_KEY)` beside actionable `web (missing EXA_API_KEY)`.
+- Local D7 seams added:
+  - `_doctor_enabled_toolsets_for_warning_scope()` resolves the warning scope from active config using runtime `_get_platform_tools` for `cli` plus explicitly configured `platform_toolsets` platforms;
+  - `_filter_doctor_tool_availability_for_config()` filters both available and unavailable Tool Availability rows before printing and before setup issue summary;
+  - fail-open behavior preserves original rows if config/toolset resolution fails;
+  - runtime-gated overrides such as Kanban worker and configured Honcho remain before config-scope filtering.
+- Files changed:
+  - `hermes_cli/doctor.py`
+  - `tests/hermes_cli/test_doctor.py`
+- RED evidence:
+  - `tests/hermes_cli/test_doctor.py::TestDoctorToolAvailabilityConfigFilter`: `4 failed` on current v0.18.2+D6 because helper was absent and disabled/default-off `rl` still printed `TINKER_API_KEY`.
+- GREEN evidence:
+  - `tests/hermes_cli/test_doctor.py::TestDoctorToolAvailabilityConfigFilter`: `4 passed, 1 warning in 1.32s`.
+  - `tests/hermes_cli/test_doctor.py tests/hermes_cli/test_doctor_dedicated_provider_skip.py`: `72 passed, 1 warning in 74.23s`.
+  - Scope probe: helper present; default CLI/scope keeps `web`; default scope excludes `discord`.
+- Boundary: no live profile state, gateway, token, production config, `rk/live`, push, or tag was mutated.
+- Next action: retained runtime D-items are complete; proceed to final candidate smoke and rk/live preparation unless 주군 scopes an additional D-item. R-items are post-rk/live checks, not part of this candidate branch creation step.
 
 ### D8 — OpenAI Codex credential pinning and labelled reauth
 
@@ -227,15 +247,15 @@ Every D item requires owner direction before code application: choose upstream-n
   - Owner-approved Docker actual-JYH smoke with minimal temporary auth copy: `selected_label JYH`, `selected_id 253e66`, `response_text hi`, `smoke_ok True`, `container_removed true`, `temp_cleanup true`.
 - Boundary: no live `.env`, `auth.json`, token, profile home, gateway process, `rk/live`, push, or tag was mutated.
 
-## R-item activation boundary
+## R-item post-rk/live boundary
 
-R-items are activation/local-state gates, not product-code D-item carries. They remain pending until the candidate code branch stabilizes.
+R-items are post-rk/live activation/local-state checks, not product-code D-item carries and not part of the `rk/v0.18.2` candidate branch creation step. Run them after the candidate is applied as `rk/live`, unless 주군 explicitly scopes a specific pre-live blocker.
 
-- R1: config/profile migration and doctor/check gate — pending R-pre.
-- R2: skill provenance and resolver compatibility — pending R-pre.
-- R3: dashboard/desktop gate — pending R-pre; Desktop remains unused unless 주군 changes scope.
-- R4: cron/script/watcher/local automation gate — pending R-pre.
-- R5: profile-owned local asset optimization — post-activation/non-blocking unless 주군 scopes it as blocker.
+- R1: config/profile migration and doctor/check gate — pending post-rk/live.
+- R2: skill provenance and resolver compatibility — pending post-rk/live.
+- R3: dashboard/desktop gate — pending post-rk/live; Desktop remains unused unless 주군 changes scope.
+- R4: cron/script/watcher/local automation gate — pending post-rk/live.
+- R5: profile-owned local asset optimization — post-rk/live/non-blocking unless 주군 scopes it as blocker.
 
 ## Docker smoke rule
 
