@@ -1182,6 +1182,7 @@ def _handle_create(args: dict, **kw) -> str:
     if bool_error:
         return tool_error(bool_error)
     idempotency_key = args.get("idempotency_key")
+    mutex_key = args.get("mutex_key")
     max_runtime_seconds = args.get("max_runtime_seconds")
     initial_status = args.get("initial_status") or "running"
     skills = args.get("skills")
@@ -1244,12 +1245,14 @@ def _handle_create(args: dict, **kw) -> str:
                 initial_status=str(initial_status),
                 created_by=os.environ.get("HERMES_PROFILE") or "worker",
                 session_id=session_id,
+                mutex_key=mutex_key,
             )
             new_task = kb.get_task(conn, new_tid)
             subscribed = _maybe_auto_subscribe(conn, new_tid)
             return _ok(
                 task_id=new_tid,
                 status=new_task.status if new_task else None,
+                mutex_key=new_task.mutex_key if new_task else None,
                 subscribed=subscribed,
             )
         finally:
@@ -1945,6 +1948,15 @@ KANBAN_CREATE_SCHEMA = {
                     "If a non-archived task with this key already "
                     "exists, return that task's id instead of creating "
                     "a duplicate. Useful for retry-safe automation."
+                ),
+            },
+            "mutex_key": {
+                "type": "string",
+                "description": (
+                    "Optional shared-resource serialization key. While any "
+                    "same-key task is running, the dispatcher defers this "
+                    "card instead of spawning it concurrently. Trimmed only; "
+                    "schemes/case are preserved."
                 ),
             },
             "max_runtime_seconds": {

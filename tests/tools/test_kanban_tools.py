@@ -1246,6 +1246,32 @@ def test_create_happy_path(worker_env):
         conn.close()
 
 
+def test_create_schema_exposes_mutex_key(worker_env):
+    from tools import kanban_tools as kt
+    props = kt.KANBAN_CREATE_SCHEMA["parameters"]["properties"]
+    assert "mutex_key" in props
+
+
+def test_create_happy_path_persists_mutex_key(worker_env):
+    from tools import kanban_tools as kt
+    from hermes_cli import kanban_db as kb
+
+    out = kt._handle_create({
+        "title": "serialized child",
+        "assignee": "peer",
+        "mutex_key": "  artifact:ledger  ",
+    })
+    d = json.loads(out)
+    assert d["ok"] is True
+    assert d["mutex_key"] == "artifact:ledger"
+    conn = kb.connect()
+    try:
+        child = kb.get_task(conn, d["task_id"])
+        assert child.mutex_key == "artifact:ledger"
+    finally:
+        conn.close()
+
+
 def test_create_inherits_worker_dir_workspace(monkeypatch, worker_env):
     """A worker scoped to a dir: task that spawns a child without a
     workspace arg inherits the dir, not scratch (so follow-up code-gen

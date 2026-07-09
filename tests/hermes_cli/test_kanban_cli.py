@@ -167,6 +167,15 @@ def test_run_slash_json_output(kanban_home):
     assert payload["status"] == "ready"
 
 
+def test_run_slash_create_json_includes_mutex_key(kanban_home):
+    out = kc.run_slash(
+        "create 'serialized' --assignee alice --mutex-key ' artifact:ledger ' --json"
+    )
+    payload = json.loads(out)
+    assert payload["title"] == "serialized"
+    assert payload["mutex_key"] == "artifact:ledger"
+
+
 def test_run_slash_dispatch_dry_run_counts(kanban_home):
     kc.run_slash("create 'a' --assignee alice")
     kc.run_slash("create 'b' --assignee bob")

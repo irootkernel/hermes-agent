@@ -1653,6 +1653,149 @@ def test_dispatch_dry_run_does_not_claim(kanban_home, all_assignees_spawnable):
         assert kb.get_task(conn, t2).status == "ready"
 
 
+def test_create_task_persists_trimmed_mutex_key(kanban_home):
+    with kb.connect() as conn:
+        tid = kb.create_task(
+            conn,
+            title="serialized",
+            assignee="alice",
+            mutex_key="  path:/repo/file.py  ",
+        )
+        task = kb.get_task(conn, tid)
+        events = [e for e in kb.list_events(conn, tid) if e.kind == "created"]
+
+    assert task.mutex_key == "path:/repo/file.py"
+    assert events[-1].payload["mutex_key"] == "path:/repo/file.py"
+
+
+def test_create_task_blank_mutex_key_becomes_none(kanban_home):
+    with kb.connect() as conn:
+        tid = kb.create_task(conn, title="blank", assignee="alice", mutex_key="   ")
+        task = kb.get_task(conn, tid)
+
+    assert task.mutex_key is None
+
+
+def test_dispatch_mutex_key_defers_ready_when_same_key_running(
+    kanban_home, all_assignees_spawnable,
+):
+    with kb.connect() as conn:
+        running = kb.create_task(
+            conn, title="owner", assignee="alice", mutex_key="artifact:ledger"
+        )
+        locked = kb.create_task(
+            conn, title="locked", assignee="bob", mutex_key="artifact:ledger"
+        )
+        other = kb.create_task(
+            conn, title="other", assignee="carol", mutex_key="artifact:other"
+        )
+        assert kb.claim_task(conn, running) is not None
+
+        res = kb.dispatch_once(conn, dry_run=True)
+
+    assert (locked, "artifact:ledger") in res.skipped_mutex_locked
+    assert other in {tid for tid, _who, _ws in res.spawned}
+    assert locked not in {tid for tid, _who, _ws in res.spawned}
+
+
+def test_dispatch_mutex_key_serializes_ready_tasks_within_same_tick_dry_run(
+    kanban_home, all_assignees_spawnable,
+):
+    with kb.connect() as conn:
+        first = kb.create_task(conn, title="first", assignee="alice", mutex_key="repo:rk")
+        second = kb.create_task(conn, title="second", assignee="bob", mutex_key="repo:rk")
+
+        res = kb.dispatch_once(conn, dry_run=True)
+
+    spawned_ids = {tid for tid, _who, _ws in res.spawned}
+    skipped_ids = {tid for tid, _key in res.skipped_mutex_locked}
+    assert len(spawned_ids & {first, second}) == 1
+    assert len(skipped_ids & {first, second}) == 1
+
+
+def test_dispatch_mutex_key_defers_review_when_same_key_running(
+    kanban_home, all_assignees_spawnable,
+):
+    with kb.connect() as conn:
+        running = kb.create_task(conn, title="owner", assignee="alice", mutex_key="repo:rk")
+        review = kb.create_task(conn, title="review", assignee="bob", mutex_key="repo:rk")
+        conn.execute("UPDATE tasks SET status = 'review' WHERE id = ?", (review,))
+        assert kb.claim_task(conn, running) is not None
+
+        res = kb.dispatch_once(conn, dry_run=True)
+
+    assert (review, "repo:rk") in res.skipped_mutex_locked
+    assert review not in {tid for tid, _who, _ws in res.spawned}
+
+
+def test_claim_task_mutex_key_guard_blocks_second_connection(
+    kanban_home, all_assignees_spawnable,
+):
+    with kb.connect() as conn:
+        running = kb.create_task(conn, title="owner", assignee="alice", mutex_key="repo:rk")
+        locked = kb.create_task(conn, title="locked", assignee="bob", mutex_key="repo:rk")
+        assert kb.claim_task(conn, running, claimer="host:owner") is not None
+
+        claimed = kb.claim_task(conn, locked, claimer="host:blocked")
+        task = kb.get_task(conn, locked)
+        rejected = [e for e in kb.list_events(conn, locked) if e.kind == "claim_rejected"]
+
+    assert claimed is None
+    assert task.status == "ready"
+    assert rejected[-1].payload == {
+        "reason": "mutex_locked",
+        "mutex_key": "repo:rk",
+        "running_task_id": running,
+    }
+
+
+def test_claim_review_task_mutex_key_guard_blocks_second_connection(
+    kanban_home, all_assignees_spawnable,
+):
+    with kb.connect() as conn:
+        running = kb.create_task(conn, title="owner", assignee="alice", mutex_key="repo:rk")
+        review = kb.create_task(conn, title="review", assignee="bob", mutex_key="repo:rk")
+        conn.execute("UPDATE tasks SET status = 'review' WHERE id = ?", (review,))
+        assert kb.claim_task(conn, running, claimer="host:owner") is not None
+
+        claimed = kb.claim_review_task(conn, review, claimer="host:blocked")
+        task = kb.get_task(conn, review)
+        rejected = [e for e in kb.list_events(conn, review) if e.kind == "claim_rejected"]
+
+    assert claimed is None
+    assert task.status == "review"
+    assert rejected[-1].payload["reason"] == "mutex_locked"
+    assert rejected[-1].payload["mutex_key"] == "repo:rk"
+    assert rejected[-1].payload["running_task_id"] == running
+
+
+def test_has_spawnable_ready_false_when_only_mutex_locked_work(
+    kanban_home, monkeypatch,
+):
+    from hermes_cli import profiles
+    monkeypatch.setattr(profiles, "profile_exists", lambda name: True)
+    with kb.connect() as conn:
+        running = kb.create_task(conn, title="owner", assignee="alice", mutex_key="repo:rk")
+        kb.create_task(conn, title="locked", assignee="bob", mutex_key="repo:rk")
+        assert kb.claim_task(conn, running) is not None
+
+        assert kb.has_spawnable_ready(conn) is False
+
+
+def test_has_spawnable_review_false_when_only_mutex_locked_work(
+    kanban_home, monkeypatch,
+):
+    from hermes_cli import profiles
+    monkeypatch.setattr(profiles, "profile_exists", lambda name: True)
+    with kb.connect() as conn:
+        running = kb.create_task(conn, title="owner", assignee="alice", mutex_key="repo:rk")
+        review = kb.create_task(conn, title="review", assignee="bob", mutex_key="repo:rk")
+        conn.execute("UPDATE tasks SET status = 'review' WHERE id = ?", (review,))
+        assert kb.claim_task(conn, running) is not None
+
+        assert kb.has_spawnable_review(conn) is False
+
+
 def test_dispatch_skips_unassigned(kanban_home):
     with kb.connect() as conn:
         t = kb.create_task(conn, title="floater")

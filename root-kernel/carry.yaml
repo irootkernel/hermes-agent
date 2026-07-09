@@ -159,8 +159,21 @@ entries:
           - tests/hermes_cli/test_kanban_db.py
           - tests/tools/test_kanban_tools.py
           - tests/hermes_cli/test_kanban_cli.py
+      D2-h:
+        title: mutex-key serialization
+        includes:
+          - "Tasks can carry nullable `mutex_key` values, trimmed on create and preserved in JSON/tool output plus created-event audit payloads."
+          - "Ready and review dispatch defer same-key cards behind running or same-tick-selected owners and report `skipped_mutex_locked` as non-error serialization telemetry."
+          - "Direct `claim_task` and `claim_review_task` reject same-key claims while another task is running, with `claim_rejected` reason `mutex_locked`."
+          - "Spawnability health checks ignore mutex-deferred ready/review work so serialized queues are not misreported as stuck."
+        files_changed:
+          - hermes_cli/kanban_db.py
+          - tools/kanban_tools.py
+          - hermes_cli/kanban.py
+          - tests/hermes_cli/test_kanban_db.py
+          - tests/tools/test_kanban_tools.py
+          - tests/hermes_cli/test_kanban_cli.py
     remaining_local_seams:
-      - D2-h mutex-key serialization
       - D2-i closed workflow context banners
     smoke:
       - "D2-a symbol probe: D2 handoff/submit-review/request-changes/submit-result symbols absent; native review/workflow metadata present; mutex_key/workflow_type absent."
@@ -176,7 +189,10 @@ entries:
       - "D2-g RED: 9 focused result-submission tests failed on v0.18.2+D2-b/f because `submit_task_result`, `kanban_submit_result`, CLI `submit-result`, toolset visibility, request-changes result provenance, and worker prompt guidance were absent."
       - "D2-g GREEN: focused DB/tool/CLI/prompt result-submission tests -> 9 passed in 2.90s."
       - "D2-g GREEN: tests/hermes_cli/test_kanban_db.py tests/tools/test_kanban_tools.py tests/hermes_cli/test_kanban_cli.py tests/gateway/test_kanban_notifier.py -> 407 passed in 34.13s."
-    next_action: Apply D2-h mutex-key serialization next, preserving D2-b same-card review loop, D2-f async review-outcome notifications, and D2-g result acceptance semantics.
+      - "D2-h RED: 10 focused mutex-key tests failed on v0.18.2+D2-b/f/g because `mutex_key`, dispatcher deferral, direct-claim guards, tool schema, and CLI `--mutex-key` were absent."
+      - "D2-h GREEN: focused DB/tool/CLI mutex-key tests -> 12 passed in 1.09s."
+      - "D2-h GREEN: tests/hermes_cli/test_kanban_db.py tests/tools/test_kanban_tools.py tests/hermes_cli/test_kanban_cli.py tests/gateway/test_kanban_notifier.py -> 419 passed in 41.82s."
+    next_action: Apply D2-i closed workflow context banners next, preserving D2-b same-card review loop, D2-f async review-outcome notifications, D2-g result acceptance, and D2-h mutex serialization.
   D3:
     title: Kanban assignee alias dispatch seam
     previous_v0_17_status: retired

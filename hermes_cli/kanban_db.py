@@ -907,6 +907,10 @@ class Task:
     # set the env var. Lets clients render a per-session board without
     # relying on tenant + time-window heuristics.
     session_id: Optional[str] = None
+    # Optional board-local serialization key. While a task with this key is
+    # running, dispatcher/direct-claim paths defer other ready/review tasks with
+    # the same key so shared artifacts/resources are mutated one at a time.
+    mutex_key: Optional[str] = None
     # Typed block reason (one of VALID_BLOCK_KINDS) or None for legacy/un-typed
     # blocks. Set by ``block_task``; preserved across unblock so a re-block for
     # the same kind is recognisable as an unblock↔re-block loop.
@@ -989,6 +993,9 @@ class Task:
             ),
             session_id=(
                 row["session_id"] if "session_id" in keys else None
+            ),
+            mutex_key=(
+                row["mutex_key"] if "mutex_key" in keys and row["mutex_key"] else None
             ),
             block_kind=(
                 row["block_kind"] if "block_kind" in keys and row["block_kind"] else None
@@ -1163,6 +1170,10 @@ CREATE TABLE IF NOT EXISTS tasks (
     -- set the env var. Indexed so per-session list queries stay cheap on
     -- larger boards.
     session_id           TEXT,
+    -- Optional board-local shared-resource serialization key. Non-empty keys
+    -- prevent concurrent ready/review dispatch or direct claims while another
+    -- same-key task is running.
+    mutex_key            TEXT,
     -- Typed block reason set by ``block_task`` (one of VALID_BLOCK_KINDS, or
     -- NULL for legacy/un-typed blocks). Drives routing: ``dependency`` never
     -- sits in ``blocked`` (goes to ``todo`` for parent-gating); the others go
@@ -1970,6 +1981,9 @@ def _migrate_add_optional_columns(conn: sqlite3.Connection) -> None:
             conn, "tasks", "session_id", "session_id TEXT"
         )
 
+    if "mutex_key" not in cols:
+        _add_column_if_missing(conn, "tasks", "mutex_key", "mutex_key TEXT")
+
     if "block_kind" not in cols:
         # Typed block reason (VALID_BLOCK_KINDS) or NULL for legacy/un-typed
         # blocks. Existing blocked rows get NULL, which is treated as a
@@ -2000,6 +2014,12 @@ def _migrate_add_optional_columns(conn: sqlite3.Connection) -> None:
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_tasks_session_id ON tasks(session_id)"
     )
+    cols = {row["name"] for row in conn.execute("PRAGMA table_info(tasks)")}
+    if {"mutex_key", "status"}.issubset(cols):
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_tasks_mutex_status "
+            "ON tasks(mutex_key, status) WHERE mutex_key IS NOT NULL"
+        )
 
     # task_events gained a run_id column; back-fill it as NULL for
     # historical events (they predate runs and can't be attributed).
@@ -2383,6 +2403,18 @@ def _canonical_assignee(assignee: Optional[str]) -> Optional[str]:
     return normalize_profile_name(assignee)
 
 
+def _normalize_mutex_key(mutex_key: Optional[str]) -> Optional[str]:
+    """Normalize a board-local serialization key.
+
+    Keep operator-chosen schemes/case intact: only trim whitespace and treat an
+    empty result as absent.
+    """
+    if mutex_key is None:
+        return None
+    key = str(mutex_key).strip()
+    return key or None
+
+
 def create_task(
     conn: sqlite3.Connection,
     *,
@@ -2405,6 +2437,7 @@ def create_task(
     goal_max_turns: Optional[int] = None,
     initial_status: str = "running",
     session_id: Optional[str] = None,
+    mutex_key: Optional[str] = None,
     board: Optional[str] = None,
     project_id: Optional[str] = None,
 ) -> str:
@@ -2432,6 +2465,7 @@ def create_task(
     translation skill regardless of the profile's default config).
     """
     assignee = _canonical_assignee(assignee)
+    mutex_key = _normalize_mutex_key(mutex_key)
     if not title or not title.strip():
         raise ValueError("title is required")
     if initial_status not in VALID_INITIAL_STATUSES:
@@ -2635,8 +2669,9 @@ def create_task(
                         created_by, created_at, workspace_kind, workspace_path,
                         branch_name, project_id, tenant, idempotency_key,
                         max_runtime_seconds,
-                        skills, max_retries, goal_mode, goal_max_turns, session_id
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        skills, max_retries, goal_mode, goal_max_turns, session_id,
+                        mutex_key
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         task_id,
@@ -2659,6 +2694,7 @@ def create_task(
                         1 if goal_mode else 0,
                         int(goal_max_turns) if goal_max_turns is not None else None,
                         session_id,
+                        mutex_key,
                     ),
                 )
                 for pid in parents:
@@ -2678,6 +2714,7 @@ def create_task(
                         "branch_name": branch_name,
                         "skills": list(skills_list) if skills_list else None,
                         "goal_mode": bool(goal_mode) or None,
+                        "mutex_key": mutex_key,
                     },
                 )
             return task_id
@@ -3880,14 +3917,29 @@ def claim_task(
                 {"reason": "parents_not_done"},
             )
             return None
+        target = conn.execute(
+            "SELECT id, status, mutex_key, current_run_id "
+            "FROM tasks WHERE id = ? AND status = 'ready'",
+            (task_id,),
+        ).fetchone()
+        if target:
+            locked = _mutex_is_locked_for_row(conn, target)
+            if locked:
+                mutex_key, owner = locked
+                _append_event(
+                    conn, task_id, "claim_rejected",
+                    {
+                        "reason": "mutex_locked",
+                        "mutex_key": mutex_key,
+                        "running_task_id": owner,
+                    },
+                )
+                return None
         # Defensive: if a prior run somehow leaked (invariant violation from
         # an unknown code path), close it as 'reclaimed' so we don't strand
         # it when the CAS resets the pointer below. No-op when the invariant
         # holds (the common case).
-        stale = conn.execute(
-            "SELECT current_run_id FROM tasks WHERE id = ? AND status = 'ready'",
-            (task_id,),
-        ).fetchone()
+        stale = target
         if stale and stale["current_run_id"]:
             conn.execute(
                 """
@@ -3984,6 +4036,23 @@ def claim_review_task(
     lock = claimer or _claimer_id()
     expires = now + _resolve_claim_ttl_seconds(ttl_seconds)
     with write_txn(conn):
+        target = conn.execute(
+            "SELECT id, status, mutex_key FROM tasks WHERE id = ? AND status = 'review'",
+            (task_id,),
+        ).fetchone()
+        if target:
+            locked = _mutex_is_locked_for_row(conn, target)
+            if locked:
+                mutex_key, owner = locked
+                _append_event(
+                    conn, task_id, "claim_rejected",
+                    {
+                        "reason": "mutex_locked",
+                        "mutex_key": mutex_key,
+                        "running_task_id": owner,
+                    },
+                )
+                return None
         cur = conn.execute(
             """
             UPDATE tasks
@@ -6245,6 +6314,10 @@ class DispatchResult:
     subsequent tick when the assignee has capacity. Separate bucket so
     telemetry / dashboards can show "this profile is busy" vs
     "task is genuinely stuck"."""
+    skipped_mutex_locked: list[tuple[str, str]] = field(default_factory=list)
+    """Tasks deferred because another running or same-tick-selected task owns
+    the same non-empty ``mutex_key``. Each entry is ``(task_id, mutex_key)``;
+    this is normal serialization, not a spawn failure."""
     crashed: list[str] = field(default_factory=list)
     """Task ids reclaimed because their worker PID disappeared."""
     auto_blocked: list[str] = field(default_factory=list)
@@ -7399,33 +7472,90 @@ def check_respawn_guard(conn: sqlite3.Connection, task_id: str) -> Optional[str]
     return None
 
 
+
+def _active_mutex_owners(conn: sqlite3.Connection) -> dict[str, str]:
+    """Return non-empty mutex keys currently owned by running tasks."""
+    owners: dict[str, str] = {}
+    for row in conn.execute(
+        "SELECT id, mutex_key FROM tasks "
+        "WHERE status = 'running' AND mutex_key IS NOT NULL AND mutex_key != '' "
+        "ORDER BY started_at ASC, created_at ASC"
+    ).fetchall():
+        key = _normalize_mutex_key(row["mutex_key"])
+        if key and key not in owners:
+            owners[key] = row["id"]
+    return owners
+
+
+def _running_mutex_owner(
+    conn: sqlite3.Connection,
+    mutex_key: Optional[str],
+    *,
+    exclude_task_id: Optional[str] = None,
+) -> Optional[str]:
+    """Return the first running same-key task id, excluding the candidate."""
+    key = _normalize_mutex_key(mutex_key)
+    if not key:
+        return None
+    row = conn.execute(
+        "SELECT id FROM tasks "
+        "WHERE status = 'running' "
+        "  AND mutex_key = ? "
+        "  AND (? IS NULL OR id != ?) "
+        "ORDER BY started_at ASC, created_at ASC LIMIT 1",
+        (key, exclude_task_id, exclude_task_id),
+    ).fetchone()
+    return row["id"] if row else None
+
+
+def _mutex_is_locked_for_row(
+    conn: sqlite3.Connection,
+    row: sqlite3.Row,
+    active_mutex: Optional[dict[str, str]] = None,
+) -> Optional[tuple[str, str]]:
+    """Return ``(mutex_key, owner_task_id)`` if the candidate is locked."""
+    key = _normalize_mutex_key(row["mutex_key"] if "mutex_key" in row.keys() else None)
+    if not key:
+        return None
+    owner = (active_mutex or {}).get(key)
+    if owner and owner != row["id"]:
+        return key, owner
+    owner = _running_mutex_owner(conn, key, exclude_task_id=row["id"])
+    if owner:
+        return key, owner
+    return None
+
 def has_spawnable_ready(conn: sqlite3.Connection) -> bool:
     """Return True iff there is at least one ready+assigned+unclaimed task
-    whose assignee maps to a real Hermes profile.
+    whose assignee maps to a real Hermes profile and is not mutex-deferred.
 
     Used by the gateway- and CLI-embedded dispatchers' health telemetry to
     decide whether ``0 spawned`` is a "stuck" condition (real spawnable
     work waiting) or a "correctly idle" condition (only control-plane
     lanes like ``orion-cc`` / ``orion-research`` waiting on terminals
-    that pull tasks via ``claim_task`` directly).
+    that pull tasks via ``claim_task`` directly, or mutex-deferred cards
+    correctly waiting behind an active same-key owner).
 
-    Falls back to "any ready+assigned" if ``profile_exists`` is not
-    importable (e.g. partial install) — preserves the old behavior so
-    the warning still fires in degraded environments.
+    Falls back to "any ready+assigned+unlocked" if ``profile_exists`` is not
+    importable (e.g. partial install) — preserves the old behavior so the
+    warning still fires in degraded environments.
     """
     rows = conn.execute(
-        "SELECT DISTINCT assignee FROM tasks "
+        "SELECT id, assignee, mutex_key FROM tasks "
         "WHERE status = 'ready' AND assignee IS NOT NULL "
         "    AND claim_lock IS NULL"
     ).fetchall()
     if not rows:
         return False
+    active_mutex = _active_mutex_owners(conn)
     try:
         from hermes_cli.profiles import profile_exists  # local import: avoids cycle
     except Exception:
-        # Can't introspect — assume spawnable, preserve legacy behavior.
-        return True
+        # Can't introspect — assume spawnable if any candidate is not mutex-locked.
+        return any(_mutex_is_locked_for_row(conn, row, active_mutex) is None for row in rows)
     for row in rows:
+        if _mutex_is_locked_for_row(conn, row, active_mutex) is not None:
+            continue
         if profile_exists(row["assignee"]):
             return True
     return False
@@ -7433,24 +7563,27 @@ def has_spawnable_ready(conn: sqlite3.Connection) -> bool:
 
 def has_spawnable_review(conn: sqlite3.Connection) -> bool:
     """Return True iff there is at least one review+assigned+unclaimed task
-    whose assignee maps to a real Hermes profile.
+    whose assignee maps to a real Hermes profile and is not mutex-deferred.
 
     Mirror of :func:`has_spawnable_ready` for the review column —
     used by the health telemetry to decide whether the dispatcher
     should have spawned a review agent.
     """
     rows = conn.execute(
-        "SELECT DISTINCT assignee FROM tasks "
+        "SELECT id, assignee, mutex_key FROM tasks "
         "WHERE status = 'review' AND assignee IS NOT NULL "
         "    AND claim_lock IS NULL"
     ).fetchall()
     if not rows:
         return False
+    active_mutex = _active_mutex_owners(conn)
     try:
         from hermes_cli.profiles import profile_exists  # local import: avoids cycle
     except Exception:
-        return True
+        return any(_mutex_is_locked_for_row(conn, row, active_mutex) is None for row in rows)
     for row in rows:
+        if _mutex_is_locked_for_row(conn, row, active_mutex) is not None:
+            continue
         if profile_exists(row["assignee"]):
             return True
     return False
@@ -7608,8 +7741,9 @@ def _dispatch_once_locked(
             ).fetchone()[0]
         )
 
+    active_mutex = _active_mutex_owners(conn)
     ready_rows = conn.execute(
-        "SELECT id, assignee FROM tasks "
+        "SELECT id, assignee, mutex_key FROM tasks "
         "WHERE status = 'ready' AND claim_lock IS NULL "
         "ORDER BY priority DESC, created_at ASC"
     ).fetchall()
@@ -7711,6 +7845,11 @@ def _dispatch_once_locked(
             else:
                 result.skipped_unassigned.append(row["id"])
                 continue
+        locked = _mutex_is_locked_for_row(conn, row, active_mutex)
+        if locked:
+            mutex_key, _owner = locked
+            result.skipped_mutex_locked.append((row["id"], mutex_key))
+            continue
         # Skip ready tasks whose assignee is not a real Hermes profile.
         # `_default_spawn` invokes ``hermes -p <assignee>`` which fails
         # with "Profile 'X' does not exist" when the assignee names a
@@ -7770,6 +7909,9 @@ def _dispatch_once_locked(
             continue
         if dry_run:
             result.spawned.append((row["id"], row_assignee, ""))
+            row_mutex_key = _normalize_mutex_key(row["mutex_key"])
+            if row_mutex_key:
+                active_mutex[row_mutex_key] = row["id"]
             # Increment per-profile counter even in dry_run so the cap
             # check sees the would-be spawn on subsequent iterations.
             # Without this, dry_run reports every task as spawnable and
@@ -7825,6 +7967,9 @@ def _dispatch_once_locked(
             # counter is cleared only on successful completion (see
             # complete_task).
             result.spawned.append((claimed.id, claimed.assignee or "", str(workspace)))
+            claimed_mutex_key = _normalize_mutex_key(claimed.mutex_key)
+            if claimed_mutex_key:
+                active_mutex[claimed_mutex_key] = claimed.id
             spawned += 1
             # Track the new in-flight count for this profile so later
             # iterations in this same tick respect the per-profile cap
@@ -7851,7 +7996,7 @@ def _dispatch_once_locked(
     # against max_spawn alongside ready tasks, so the total number of
     # running workers stays bounded.
     review_rows = conn.execute(
-        "SELECT id, assignee FROM tasks "
+        "SELECT id, assignee, mutex_key FROM tasks "
         "WHERE status = 'review' AND claim_lock IS NULL "
         "ORDER BY priority DESC, created_at ASC"
     ).fetchall()
@@ -7860,6 +8005,11 @@ def _dispatch_once_locked(
             break
         if not row["assignee"]:
             result.skipped_unassigned.append(row["id"])
+            continue
+        locked = _mutex_is_locked_for_row(conn, row, active_mutex)
+        if locked:
+            mutex_key, _owner = locked
+            result.skipped_mutex_locked.append((row["id"], mutex_key))
             continue
         try:
             from hermes_cli.profiles import profile_exists
@@ -7870,6 +8020,9 @@ def _dispatch_once_locked(
             continue
         if dry_run:
             result.spawned.append((row["id"], row["assignee"], ""))
+            row_mutex_key = _normalize_mutex_key(row["mutex_key"])
+            if row_mutex_key:
+                active_mutex[row_mutex_key] = row["id"]
             continue
         claimed = claim_review_task(conn, row["id"], ttl_seconds=ttl_seconds)
         if claimed is None:
@@ -7913,6 +8066,9 @@ def _dispatch_once_locked(
             if pid:
                 _set_worker_pid(conn, claimed.id, int(pid))
             result.spawned.append((claimed.id, claimed.assignee or "", str(workspace)))
+            claimed_mutex_key = _normalize_mutex_key(claimed.mutex_key)
+            if claimed_mutex_key:
+                active_mutex[claimed_mutex_key] = claimed.id
             spawned += 1
         except Exception as exc:
             auto = _record_spawn_failure(
