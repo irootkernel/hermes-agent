@@ -256,10 +256,23 @@ entries:
   D6:
     title: CLI return-code passthrough
     previous_v0_17_status: local-keep-applied
-    v0_18_status: not_evaluated
+    v0_18_status: local_keep_applied
     priority: 4
-    code_patch_required: unknown
-    next_action: Audit top-level CLI dispatch process return codes before carrying exact-int passthrough.
+    code_patch_required: true
+    decision: "Carry a minimal bool-safe exact-int passthrough at the top-level CLI dispatch boundary so subcommands returning shell-style integer codes are visible to scripts, cron, and CI."
+    files_changed:
+      - hermes_cli/main.py
+      - tests/hermes_cli/test_main_return_codes.py
+    local_seams:
+      - "Top-level `hermes` dispatch captures `args.func(args)` return values and propagates only exact `int` values via `sys.exit`."
+      - "`bool` return values are ignored despite `bool` being an `int` subclass, preventing legacy truthy handlers from becoming shell rc=1."
+      - "Kanban command return codes such as missing task rc=1 and invalid board slug rc=2 now reach the process boundary."
+    smoke:
+      - "D6 RED: focused process/helper tests failed on v0.18.2+D2 because top-level dispatch ignored `kanban_command` return codes and `_exit_if_int_return` was absent: 3 failed, 1 passed."
+      - "D6 GREEN: tests/hermes_cli/test_main_return_codes.py -> 4 passed in 0.66s."
+      - "D6 GREEN: tests/hermes_cli/test_main_return_codes.py tests/hermes_cli/test_kanban_cli.py tests/hermes_cli/test_kanban_db.py -> 312 passed in 24.35s."
+      - "D6 subprocess smoke: missing Kanban task rc=1; invalid Kanban board slug rc=2; top-level --help rc=0."
+    next_action: D6 is ready for commit after final py_compile/yaml/diff checks; then audit D7 doctor optional tool warning filter.
   D7:
     title: Doctor optional tool warning filter
     previous_v0_17_status: local-keep-applied

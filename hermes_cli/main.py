@@ -12700,6 +12700,16 @@ def cmd_claw(args):
     claw_command(args)
 
 
+def _exit_if_int_return(value) -> None:
+    """Propagate shell-style subcommand return codes at the process boundary.
+
+    Use exact type matching: bool is a subclass of int, but True/False are
+    not intended shell exit codes for legacy command handlers.
+    """
+    if type(value) is int:
+        sys.exit(value)
+
+
 def main():
     """Main entry point for hermes CLI."""
     # Cosmetic: make the process show up as 'hermes' instead of 'python3.11'
@@ -14615,7 +14625,8 @@ def main():
 
     # Execute the command
     if hasattr(args, "func"):
-        args.func(args)
+        rc = args.func(args)
+        _exit_if_int_return(rc)
     else:
         parser.print_help()
 

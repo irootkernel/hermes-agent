@@ -167,8 +167,23 @@ Every D item requires owner direction before code application: choose upstream-n
 ### D6 — CLI return-code passthrough
 
 - Previous v0.17 state: local keep applied.
-- v0.18.2 state: not yet evaluated.
-- Next action: audit top-level CLI dispatch process return codes before carrying exact-int passthrough.
+- v0.18.2 state: local keep applied.
+- Decision: carry a minimal bool-safe exact-int passthrough at the top-level CLI dispatch boundary so subcommands returning shell-style integer codes are visible to scripts, cron, and CI.
+- Local D6 seams added:
+  - top-level `hermes` dispatch captures `args.func(args)` return values and propagates only exact `int` values via `sys.exit`;
+  - `bool` returns are ignored despite `bool` being an `int` subclass;
+  - Kanban command return codes such as missing task rc=1 and invalid board slug rc=2 now reach the process boundary.
+- Files changed:
+  - `hermes_cli/main.py`
+  - `tests/hermes_cli/test_main_return_codes.py`
+- RED evidence:
+  - Focused process/helper tests failed on v0.18.2+D2 because top-level dispatch ignored `kanban_command` return codes and `_exit_if_int_return` was absent: `3 failed, 1 passed`.
+- GREEN evidence:
+  - `tests/hermes_cli/test_main_return_codes.py`: `4 passed in 0.66s`.
+  - `tests/hermes_cli/test_main_return_codes.py tests/hermes_cli/test_kanban_cli.py tests/hermes_cli/test_kanban_db.py`: `312 passed in 24.35s`.
+  - Subprocess smoke: missing Kanban task rc=1; invalid Kanban board slug rc=2; top-level `--help` rc=0.
+- Boundary: no live profile state, gateway, token, production Kanban DB, `rk/live`, push, or tag was mutated.
+- Next action: D6 is ready for commit after final checks, then audit D7 doctor optional tool warning filter.
 
 ### D7 — Doctor optional tool warning filter
 
