@@ -445,6 +445,51 @@ def get_pool_strategy(provider: str) -> str:
     return STRATEGY_FILL_FIRST
 
 
+def _credential_pin_env_prefix(provider: str) -> str:
+    """Return the profile-local env prefix for a provider credential pin."""
+    normalized = re.sub(r"[^A-Za-z0-9]+", "_", str(provider or "").strip()).strip("_")
+    return f"HERMES_CREDENTIAL_PIN_{normalized.upper()}" if normalized else "HERMES_CREDENTIAL_PIN"
+
+
+def _credential_pin_env_value(key: str) -> str:
+    """Read a credential-pin value from profile-local .env only.
+
+    Do not read ambient process environment: gateway parents can carry another
+    profile's variables, while credential account affinity must stay scoped to
+    the launched profile's own .env file.
+    """
+    try:
+        return str(load_env().get(key, "") or "").strip()
+    except Exception:
+        return ""
+
+
+def get_credential_pin(provider: str, config: Optional[Dict[str, Any]] = None) -> Dict[str, str]:
+    """Return the configured profile-local credential pin for *provider*.
+
+    Supported keys are ``<PREFIX>_ID`` and ``<PREFIX>_LABEL`` where the prefix
+    is derived from the provider, e.g. ``HERMES_CREDENTIAL_PIN_OPENAI_CODEX``.
+    ID wins over label. A bare prefix value is accepted as a label convenience.
+    Config-based pins are intentionally unsupported for Root Kernel account
+    affinity; the setting is host/profile local, not release configuration.
+    """
+    _ = config
+    env_prefix = _credential_pin_env_prefix(provider)
+    env_id = _credential_pin_env_value(f"{env_prefix}_ID")
+    env_label = _credential_pin_env_value(f"{env_prefix}_LABEL") or _credential_pin_env_value(env_prefix)
+    result: Dict[str, str] = {}
+    if env_id:
+        result["id"] = env_id
+    elif env_label:
+        result["label"] = env_label
+    return result
+
+
+def has_configured_credential_pin(provider: str, config: Optional[Dict[str, Any]] = None) -> bool:
+    """True when profile-local .env pins *provider* to a credential id/label."""
+    return bool(get_credential_pin(provider, config=config))
+
+
 DEFAULT_MAX_CONCURRENT_PER_CREDENTIAL = 1
 
 
@@ -529,6 +574,54 @@ class CredentialPool:
         if not self._current_id:
             return None
         return next((entry for entry in self._entries if entry.id == self._current_id), None)
+
+    def configured_pin(self) -> Dict[str, str]:
+        """Return this provider's profile-local credential pin, if any."""
+        return get_credential_pin(self.provider)
+
+    def has_configured_pin(self) -> bool:
+        """True when this provider has a profile-local credential pin."""
+        return bool(self.configured_pin())
+
+    def _resolve_pinned_entry(
+        self,
+        pin: Dict[str, str],
+        candidates: Optional[List[PooledCredential]] = None,
+    ) -> Tuple[Optional[PooledCredential], Optional[str]]:
+        """Resolve a configured pin against pool entries.
+
+        ID matching is authoritative. Label matching is exact and must be
+        unique across the full pool, not just the currently available entries,
+        so an unavailable duplicate cannot silently route a profile to a
+        different account. If *candidates* is supplied, the resolved entry must
+        also be in that available set or the pin fails closed.
+        """
+        if not pin:
+            return None, "no credential pin configured"
+        available_ids = {entry.id for entry in candidates} if candidates is not None else None
+
+        pinned_id = str(pin.get("id") or "").strip()
+        if pinned_id:
+            entry = next((item for item in self._entries if item.id == pinned_id), None)
+            if entry is None:
+                return None, f'pinned credential id "{pinned_id}" not found'
+            if available_ids is not None and entry.id not in available_ids:
+                return None, f'pinned credential id "{pinned_id}" is unavailable'
+            return entry, None
+
+        pinned_label = str(pin.get("label") or "").strip()
+        if pinned_label:
+            matches = [item for item in self._entries if item.label == pinned_label]
+            if not matches:
+                return None, f'pinned credential label "{pinned_label}" not found'
+            if len(matches) > 1:
+                return None, f'pinned credential label "{pinned_label}" is not unique'
+            entry = matches[0]
+            if available_ids is not None and entry.id not in available_ids:
+                return None, f'pinned credential label "{pinned_label}" is unavailable'
+            return entry, None
+
+        return None, "empty credential pin"
 
     def _replace_entry(self, old: PooledCredential, new: PooledCredential) -> None:
         """Swap an entry in-place by id, preserving sort order."""
@@ -1488,6 +1581,20 @@ class CredentialPool:
             logger.info("credential pool: no available entries (all exhausted or empty)")
             return None
 
+        pin = self.configured_pin()
+        if pin:
+            pinned, error = self._resolve_pinned_entry(pin, available)
+            if pinned is None:
+                logger.warning(
+                    "credential pool: pinned %s credential unavailable: %s",
+                    self.provider,
+                    error,
+                )
+                self._current_id = None
+                return None
+            self._current_id = pinned.id
+            return pinned
+
         if self._strategy == STRATEGY_RANDOM:
             entry = random.choice(available)
             self._current_id = entry.id
@@ -1515,6 +1622,11 @@ class CredentialPool:
         return entry
 
     def peek(self) -> Optional[PooledCredential]:
+        pin = self.configured_pin()
+        if pin:
+            available = self._available_entries()
+            entry, _error = self._resolve_pinned_entry(pin, available)
+            return entry
         current = self.current()
         if current is not None:
             return current
@@ -1582,6 +1694,21 @@ class CredentialPool:
                 return credential_id
 
             available = self._available_entries(clear_expired=True, refresh=True)
+            pin = self.configured_pin()
+            if pin:
+                pinned, error = self._resolve_pinned_entry(pin, available)
+                if pinned is None:
+                    logger.warning(
+                        "credential pool: pinned %s credential lease unavailable: %s",
+                        self.provider,
+                        error,
+                    )
+                    self._current_id = None
+                    return None
+                self._active_leases[pinned.id] = self._active_leases.get(pinned.id, 0) + 1
+                self._current_id = pinned.id
+                return pinned.id
+
             if not available:
                 return None
 

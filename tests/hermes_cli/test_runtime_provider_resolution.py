@@ -230,6 +230,31 @@ def test_resolve_runtime_provider_falls_back_when_pool_empty(monkeypatch):
     assert resolved.get("credential_pool") is None
 
 
+def test_resolve_runtime_provider_codex_pin_unavailable_fails_closed(monkeypatch):
+    class _Pool:
+        def has_credentials(self):
+            return True
+
+        def has_configured_pin(self):
+            return True
+
+        def select(self):
+            return None
+
+    monkeypatch.setattr(rp, "resolve_provider", lambda *a, **k: "openai-codex")
+    monkeypatch.setattr(rp, "load_pool", lambda provider: _Pool())
+
+    def _unexpected_singleton_fallback():
+        raise AssertionError("pinned Codex runtime must not fall back to singleton auth.json")
+
+    monkeypatch.setattr(rp, "resolve_codex_runtime_credentials", _unexpected_singleton_fallback)
+
+    with pytest.raises(rp.AuthError) as excinfo:
+        rp.resolve_runtime_provider(requested="openai-codex")
+
+    assert excinfo.value.code == "credential_pin_unavailable"
+
+
 def test_resolve_runtime_provider_codex(monkeypatch):
     monkeypatch.setattr(
         rp,

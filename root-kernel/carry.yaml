@@ -146,7 +146,36 @@ entries:
   D8:
     title: OpenAI Codex credential pinning and labelled reauth
     previous_v0_17_status: minimized-local-keep-applied
-    v0_18_status: selected-next-audit
+    v0_18_status: local_minimize_applied
     priority: 1
-    code_patch_required: unknown
-    next_action: Start with upstream-overlap audit of credential_pool, auxiliary_client, runtime_provider, auth, and auth_commands; use fake-token/disposable-state smoke only.
+    code_patch_required: true
+    decision: "Preserve v0.18.2 upstream independent-account behavior and add only Root Kernel profile-local Codex pin/fail-closed seams plus label-targeted reauth duplicate guard."
+    files_changed:
+      - agent/credential_pool.py
+      - agent/auxiliary_client.py
+      - hermes_cli/runtime_provider.py
+      - hermes_cli/auth_commands.py
+      - tests/agent/test_credential_pool.py
+      - tests/agent/test_auxiliary_client.py
+      - tests/hermes_cli/test_runtime_provider_resolution.py
+      - tests/hermes_cli/test_auth_commands.py
+    upstream_absorbed:
+      - "v0.18.2 already creates independent openai-codex `manual:device_code` pool entries and avoids singleton collapse on add."
+      - "v0.18.2 `_sync_codex_pool_entries()` preserves independent manual entries while refreshing singleton/legacy aliases."
+    local_seams:
+      - "Profile-local `.env` pins: `HERMES_CREDENTIAL_PIN_OPENAI_CODEX_ID`, `_LABEL`, and bare prefix-as-label convenience."
+      - "Ambient process env is ignored for pins; only profile-local `.env` is read."
+      - "ID wins over label; label matching is exact and unique across the full pool."
+      - "Missing, duplicate, exhausted, dead, or otherwise unavailable pinned credentials fail closed and do not fall back to another pool entry or singleton auth.json."
+      - "Main runtime and auxiliary Codex paths share the same pin semantics."
+      - "`hermes auth add openai-codex --label <LABEL>` updates exactly one matching device-code/manual-device-code entry and fails closed on duplicate labels."
+    smoke:
+      - "RED: D8 pin/auth tests failed on v0.18.2 base before implementation."
+      - "GREEN: 28 passed, 80 deselected for D8-focused credential_pool/auxiliary/runtime/auth_commands tests."
+      - "GREEN: tests/hermes_cli/test_auth_commands.py + tests/hermes_cli/test_runtime_provider_resolution.py -> 204 passed."
+      - "GREEN: tests/agent/test_auxiliary_client.py -> 299 passed."
+      - "Disposable no-token host selection smoke -> selected_label HSY, selected_id hsy."
+      - "Docker pilot read-only candidate mount with disposable HERMES_HOME -> 4 credential_pool D8 tests passed."
+      - "Docker pilot functional smoke -> docker-pilot-positive pinned PINNED; docker-pilot-unavailable None."
+      - "Owner-approved Docker actual-JYH smoke with minimal temporary auth copy -> selected_label JYH, selected_id 253e66, response_text hi, smoke_ok True, container_removed true, temp_cleanup true."
+    next_action: D8 is ready for commit, then proceed to D4 audit.

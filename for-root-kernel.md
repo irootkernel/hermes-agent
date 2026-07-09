@@ -85,9 +85,38 @@ Every D item requires owner direction before code application: choose upstream-n
 ### D8 — OpenAI Codex credential pinning and labelled reauth
 
 - Previous v0.17 state: minimized local keep applied.
-- v0.18.2 state: selected as first audit item.
-- Next action: audit v0.18.2 `agent/credential_pool.py`, `agent/auxiliary_client.py`, `hermes_cli/runtime_provider.py`, `hermes_cli/auth.py`, and `hermes_cli/auth_commands.py` against the Root Kernel D8 requirements.
-- Smoke boundary: fake-token/disposable-state only; no live `.env`, `auth.json`, token, profile home, gateway process, or `rk/live` mutation.
+- v0.18.2 state: local-minimized carry applied on top of upstream native account-split behavior.
+- Decision: keep v0.18.2 upstream independent `openai-codex` pool behavior, then add only Root Kernel-specific account-affinity seams.
+- Upstream retained:
+  - `hermes auth add openai-codex` already creates independent `manual:device_code` pool entries instead of collapsing through the provider singleton.
+  - `_sync_codex_pool_entries()` preserves independent manual entries and only refreshes singleton/legacy aliases.
+- Local D8 seams added:
+  - profile-local `.env` pins: `HERMES_CREDENTIAL_PIN_OPENAI_CODEX_ID`, `HERMES_CREDENTIAL_PIN_OPENAI_CODEX_LABEL`, and bare prefix-as-label convenience;
+  - ambient process env is ignored for pins;
+  - ID wins over label; label matching is exact and unique across the whole pool;
+  - missing/duplicate/exhausted/dead/unavailable pinned credentials fail closed;
+  - main runtime and auxiliary Codex paths do not fall back to singleton `auth.json` when a pin is configured but unavailable;
+  - `hermes auth add openai-codex --label <LABEL>` updates exactly one matching device-code/manual-device-code pool entry and fails closed on duplicate labels.
+- Files changed:
+  - `agent/credential_pool.py`
+  - `agent/auxiliary_client.py`
+  - `hermes_cli/runtime_provider.py`
+  - `hermes_cli/auth_commands.py`
+  - `tests/agent/test_credential_pool.py`
+  - `tests/agent/test_auxiliary_client.py`
+  - `tests/hermes_cli/test_runtime_provider_resolution.py`
+  - `tests/hermes_cli/test_auth_commands.py`
+- RED evidence:
+  - D8 pin/auth tests failed on v0.18.2 base before implementation: label pin selected `JYH` instead of pinned `HSY`, duplicate label did not fail closed, auxiliary/runtime fell back to singleton auth.
+- GREEN evidence:
+  - D8-focused command: `28 passed, 80 deselected`.
+  - `tests/hermes_cli/test_auth_commands.py tests/hermes_cli/test_runtime_provider_resolution.py`: `204 passed`.
+  - `tests/agent/test_auxiliary_client.py`: `299 passed`.
+  - Disposable no-token host selection smoke: `selected_label HSY`, `selected_id hsy`.
+  - Docker pilot, read-only candidate mount + disposable `HERMES_HOME`: 4 D8 `credential_pool` tests passed.
+  - Docker pilot functional smoke: `docker-pilot-positive pinned PINNED`, `docker-pilot-unavailable None`.
+  - Owner-approved Docker actual-JYH smoke with minimal temporary auth copy: `selected_label JYH`, `selected_id 253e66`, `response_text hi`, `smoke_ok True`, `container_removed true`, `temp_cleanup true`.
+- Boundary: no live `.env`, `auth.json`, token, profile home, gateway process, `rk/live`, push, or tag was mutated.
 
 ## R-item activation boundary
 

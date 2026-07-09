@@ -470,6 +470,131 @@ def test_auth_add_codex_oauth_keeps_distinct_pool_accounts(tmp_path, monkeypatch
     assert payload["active_provider"] == "openai-codex"
 
 
+def test_auth_add_codex_oauth_updates_existing_matching_label(tmp_path, monkeypatch):
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes"))
+    old_hsy = _jwt_with_email("old-hsy@example.com")
+    old_jyh = _jwt_with_email("old-jyh@example.com")
+    new_hsy = _jwt_with_email("new-hsy@example.com")
+    _write_auth_store(
+        tmp_path,
+        {
+            "version": 1,
+            "active_provider": "openai-codex",
+            "providers": {},
+            "credential_pool": {
+                "openai-codex": [
+                    {
+                        "id": "hsy",
+                        "label": "HSY",
+                        "auth_type": "oauth",
+                        "priority": 0,
+                        "source": "manual:device_code",
+                        "access_token": old_hsy,
+                        "refresh_token": "old-hsy-refresh",
+                        "last_status": "exhausted",
+                        "last_error_code": 429,
+                    },
+                    {
+                        "id": "jyh",
+                        "label": "JYH",
+                        "auth_type": "oauth",
+                        "priority": 1,
+                        "source": "manual:device_code",
+                        "access_token": old_jyh,
+                        "refresh_token": "old-jyh-refresh",
+                    },
+                ],
+            },
+        },
+    )
+    monkeypatch.setattr(
+        "hermes_cli.auth._codex_device_code_login",
+        lambda: {
+            "tokens": {
+                "access_token": new_hsy,
+                "refresh_token": "new-hsy-refresh",
+            },
+            "base_url": "https://chatgpt.com/backend-api/codex",
+            "last_refresh": "2026-07-09T00:00:00Z",
+        },
+    )
+
+    from hermes_cli.auth_commands import auth_add_command
+
+    class _Args:
+        provider = "openai-codex"
+        auth_type = "oauth"
+        api_key = None
+        label = "HSY"
+
+    auth_add_command(_Args())
+
+    payload = json.loads((tmp_path / "hermes" / "auth.json").read_text())
+    entries = payload["credential_pool"]["openai-codex"]
+    assert [entry["label"] for entry in entries] == ["HSY", "JYH"]
+    hsy, jyh = entries
+    assert hsy["id"] == "hsy"
+    assert hsy["access_token"] == new_hsy
+    assert hsy["refresh_token"] == "new-hsy-refresh"
+    assert hsy["last_status"] is None
+    assert hsy["last_error_code"] is None
+    assert jyh["access_token"] == old_jyh
+    assert jyh["refresh_token"] == "old-jyh-refresh"
+    assert "openai-codex" not in payload.get("providers", {})
+
+
+def test_auth_add_codex_oauth_duplicate_matching_label_fails_closed(tmp_path, monkeypatch):
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes"))
+    _write_auth_store(
+        tmp_path,
+        {
+            "version": 1,
+            "credential_pool": {
+                "openai-codex": [
+                    {
+                        "id": "hsy-1",
+                        "label": "HSY",
+                        "auth_type": "oauth",
+                        "priority": 0,
+                        "source": "manual:device_code",
+                        "access_token": _jwt_with_email("hsy1@example.com"),
+                    },
+                    {
+                        "id": "hsy-2",
+                        "label": "HSY",
+                        "auth_type": "oauth",
+                        "priority": 1,
+                        "source": "manual:device_code",
+                        "access_token": _jwt_with_email("hsy2@example.com"),
+                    },
+                ],
+            },
+        },
+    )
+    monkeypatch.setattr(
+        "hermes_cli.auth._codex_device_code_login",
+        lambda: {
+            "tokens": {
+                "access_token": _jwt_with_email("new@example.com"),
+                "refresh_token": "new-refresh",
+            },
+            "base_url": "https://chatgpt.com/backend-api/codex",
+            "last_refresh": "2026-07-09T00:00:00Z",
+        },
+    )
+
+    from hermes_cli.auth_commands import auth_add_command
+
+    class _Args:
+        provider = "openai-codex"
+        auth_type = "oauth"
+        api_key = None
+        label = "HSY"
+
+    with pytest.raises(SystemExit, match='Multiple openai-codex credentials already use label "HSY"'):
+        auth_add_command(_Args())
+
+
 def test_codex_auth_status_reports_pool_only_credential(tmp_path, monkeypatch):
     monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes"))
     _write_auth_store(tmp_path, _codex_pool_only_store())

@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 import sys
 import time
+from dataclasses import replace
 from types import SimpleNamespace
 import uuid
 
@@ -313,6 +314,31 @@ def auth_add_command(args) -> None:
             creds["tokens"]["access_token"],
             _oauth_default_label(provider, len(pool.entries()) + 1),
         )
+        existing_label_matches = [
+            entry for entry in pool.entries()
+            if entry.label == label and entry.source in {"device_code", SOURCE_MANUAL_DEVICE_CODE}
+        ]
+        if len(existing_label_matches) > 1:
+            raise SystemExit(f'Multiple openai-codex credentials already use label "{label}"; remove duplicates before re-auth.')
+        if len(existing_label_matches) == 1:
+            existing = existing_label_matches[0]
+            updated = replace(
+                existing,
+                access_token=creds["tokens"]["access_token"],
+                refresh_token=creds["tokens"].get("refresh_token"),
+                base_url=creds.get("base_url"),
+                last_refresh=creds.get("last_refresh"),
+                last_status=None,
+                last_status_at=None,
+                last_error_code=None,
+                last_error_reason=None,
+                last_error_message=None,
+                last_error_reset_at=None,
+            )
+            entries = [updated if entry.id == existing.id else entry for entry in pool.entries()]
+            auth_mod.write_credential_pool(provider, [entry.to_dict() for entry in entries])
+            print(f'Updated {provider} OAuth credential "{updated.label}"')
+            return
         # Add a distinct, self-contained pool entry per account (matching the
         # xai-oauth / qwen-oauth patterns) instead of
         # routing through the singleton ``_save_codex_tokens`` save path.

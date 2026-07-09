@@ -188,6 +188,135 @@ def test_random_strategy_uses_random_choice(tmp_path, monkeypatch):
     assert selected.id == "cred-2"
 
 
+def _write_codex_pool_with_hsy_and_jyh(tmp_path, *, duplicate_hsy: bool = False) -> None:
+    entries = [
+        {
+            "id": "jyh",
+            "label": "JYH",
+            "auth_type": "oauth",
+            "priority": 0,
+            "source": "manual:device_code",
+            "access_token": "token-jyh",
+            "refresh_token": "refresh-jyh",
+        },
+        {
+            "id": "hsy",
+            "label": "HSY",
+            "auth_type": "oauth",
+            "priority": 1,
+            "source": "manual:device_code",
+            "access_token": "token-hsy",
+            "refresh_token": "refresh-hsy",
+        },
+    ]
+    if duplicate_hsy:
+        entries.append({**entries[-1], "id": "hsy-duplicate", "priority": 2, "access_token": "token-hsy-2"})
+    _write_auth_store(
+        tmp_path,
+        {
+            "version": 1,
+            "credential_pool": {
+                "openai-codex": entries,
+            },
+        },
+    )
+
+
+def test_codex_label_pin_selects_profile_local_entry(tmp_path, monkeypatch):
+    hermes_home = tmp_path / "hermes"
+    monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+    _write_codex_pool_with_hsy_and_jyh(tmp_path)
+    (hermes_home / ".env").write_text("HERMES_CREDENTIAL_PIN_OPENAI_CODEX_LABEL=HSY\n")
+
+    from agent.credential_pool import load_pool
+
+    selected = load_pool("openai-codex").select()
+
+    assert selected is not None
+    assert selected.id == "hsy"
+    assert selected.label == "HSY"
+
+
+def test_codex_id_pin_wins_over_label_pin(tmp_path, monkeypatch):
+    hermes_home = tmp_path / "hermes"
+    monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+    _write_codex_pool_with_hsy_and_jyh(tmp_path)
+    (hermes_home / ".env").write_text(
+        "HERMES_CREDENTIAL_PIN_OPENAI_CODEX_ID=hsy\n"
+        "HERMES_CREDENTIAL_PIN_OPENAI_CODEX_LABEL=JYH\n"
+    )
+
+    from agent.credential_pool import load_pool
+
+    selected = load_pool("openai-codex").select()
+
+    assert selected is not None
+    assert selected.id == "hsy"
+    assert selected.label == "HSY"
+
+
+def test_codex_duplicate_label_pin_fails_closed(tmp_path, monkeypatch):
+    hermes_home = tmp_path / "hermes"
+    monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+    _write_codex_pool_with_hsy_and_jyh(tmp_path, duplicate_hsy=True)
+    (hermes_home / ".env").write_text("HERMES_CREDENTIAL_PIN_OPENAI_CODEX_LABEL=HSY\n")
+
+    from agent.credential_pool import load_pool
+
+    assert load_pool("openai-codex").select() is None
+
+
+def test_codex_unavailable_pinned_entry_fails_closed(tmp_path, monkeypatch):
+    hermes_home = tmp_path / "hermes"
+    monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+    _write_auth_store(
+        tmp_path,
+        {
+            "version": 1,
+            "credential_pool": {
+                "openai-codex": [
+                    {
+                        "id": "jyh",
+                        "label": "JYH",
+                        "auth_type": "oauth",
+                        "priority": 0,
+                        "source": "manual:device_code",
+                        "access_token": "token-jyh",
+                    },
+                    {
+                        "id": "hsy",
+                        "label": "HSY",
+                        "auth_type": "oauth",
+                        "priority": 1,
+                        "source": "manual:device_code",
+                        "access_token": "token-hsy",
+                        "last_status": "exhausted",
+                        "last_status_at": time.time(),
+                        "last_error_code": 429,
+                    },
+                ],
+            },
+        },
+    )
+    (hermes_home / ".env").write_text("HERMES_CREDENTIAL_PIN_OPENAI_CODEX_LABEL=HSY\n")
+
+    from agent.credential_pool import load_pool
+
+    assert load_pool("openai-codex").select() is None
+
+
+def test_codex_pin_ignores_ambient_process_env(tmp_path, monkeypatch):
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes"))
+    monkeypatch.setenv("HERMES_CREDENTIAL_PIN_OPENAI_CODEX_LABEL", "HSY")
+    _write_codex_pool_with_hsy_and_jyh(tmp_path)
+
+    from agent.credential_pool import load_pool
+
+    selected = load_pool("openai-codex").select()
+
+    assert selected is not None
+    assert selected.id == "jyh"
+
 
 def test_exhausted_entry_resets_after_ttl(tmp_path, monkeypatch):
     monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes"))

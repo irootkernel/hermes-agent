@@ -11,7 +11,7 @@ from typing import Any, Dict, Optional
 logger = logging.getLogger(__name__)
 
 from hermes_cli import auth as auth_mod
-from agent.credential_pool import CredentialPool, PooledCredential, get_custom_provider_pool_key, load_pool
+from agent.credential_pool import CredentialPool, PooledCredential, get_custom_provider_pool_key, has_configured_credential_pin, load_pool
 from agent.secret_scope import get_secret as _get_secret
 from hermes_cli.auth import (
     AuthError,
@@ -1689,6 +1689,14 @@ def resolve_runtime_provider(
         pool = load_pool(provider) if should_use_pool else None
     except Exception:
         pool = None
+    if should_use_pool and has_configured_credential_pin(provider) and (
+        not pool or not pool.has_credentials()
+    ):
+        raise AuthError(
+            f"Pinned credential for {provider} is unavailable.",
+            provider=provider,
+            code="credential_pin_unavailable",
+        )
     if pool and pool.has_credentials():
         entry = pool.select()
         pool_api_key = ""
@@ -1696,6 +1704,14 @@ def resolve_runtime_provider(
             pool_api_key = (
                 getattr(entry, "runtime_api_key", None)
                 or getattr(entry, "access_token", "")
+            )
+        has_pin = getattr(pool, "has_configured_pin", None)
+        pin_configured = bool(has_pin()) if callable(has_pin) else False
+        if pin_configured and (entry is None or not pool_api_key):
+            raise AuthError(
+                f"Pinned credential for {provider} is unavailable.",
+                provider=provider,
+                code="credential_pin_unavailable",
             )
         # For Nous, the pool entry's runtime_api_key is the agent_key
         # compatibility field. It must be an invoke JWT. The pool doesn't
