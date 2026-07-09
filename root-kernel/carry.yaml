@@ -1,0 +1,152 @@
+schema_version: 1
+ledger_kind: agent_facing_operational_sot
+release:
+  branch: rk/v0.18.2
+  upstream_base_tag: v2026.7.7.2
+  upstream_base_version: v0.18.2
+  upstream_base_commit: 9de9c25f620ff7f1ce0fd5457d596052d5159596
+  evidence_window:
+    - tag: v2026.7.1
+      version: v0.18.0
+      commit: 7c1a029553d87c43ecff8a3821336bc95872213b
+      evidence: root-kernel/evidence/release-note-v2026.7.1.md
+    - tag: v2026.7.7
+      version: v0.18.1
+      commit: f9eca7e15f1c2bfe5194aae5aa489af53c0a1a23
+      evidence: root-kernel/evidence/release-note-v2026.7.7.md
+    - tag: v2026.7.7.2
+      version: v0.18.2
+      commit: 9de9c25f620ff7f1ce0fd5457d596052d5159596
+      evidence: root-kernel/evidence/release-note-v2026.7.7.2.md
+  previous_downstream_branch: rk/v0.17.0
+  previous_downstream_commit: 79780a587ecb260788a23767d9996d5f7042a311
+  previous_downstream_restore_points:
+    - rk/tag/v0.17.0
+    - origin/rk/v0.17.0
+    - origin/rk/live
+  current_head_at_scaffold: 9de9c25f620ff7f1ce0fd5457d596052d5159596
+  scaffold_created_at: 2026-07-09T16:05:24+09:00
+policy:
+  code_base_is_final_patch_tag: true
+  base_selection: v2026.7.7.2 is the code base; v0.18.0/v0.18.1/v0.18.2 release notes are evidence for impact analysis, not sequential merge steps.
+  prefer_upstream_native_features_first: true
+  no_patch_before_owner_direction_alignment: true
+  local_carries_are_minimal_fail_closed_rk_extensions: true
+  d_items_are_runtime_diffs_only: true
+  r_items_are_activation_or_host_local_gates: true
+  verification_scope: targeted_smoke_not_full_macos_suite
+  docker_smoke_required_before_live_checkout_migration: true
+  live_checkout_migration_target: /Users/draccoon/.hermes/hermes-agent
+baseline_evidence:
+  source_freeze:
+    - command: git reset --hard v2026.7.7.2^{}
+      result: rk/v0.18.2 HEAD reset to exact upstream v0.18.2 commit 9de9c25f620ff7f1ce0fd5457d596052d5159596
+    - command: git merge-base --is-ancestor v2026.7.1 HEAD && git merge-base --is-ancestor v2026.7.7 HEAD && git merge-base --is-ancestor v2026.7.7.2 HEAD
+      result: v0.18.0, v0.18.1, and v0.18.2 tags are all ancestors of the scaffold HEAD.
+  local_hygiene:
+    - command: add .omx/ to .gitignore and verify with git check-ignore
+      result: .omx machine-local editor/agent state is ignored; no runtime/live state changed.
+release_notes_signals:
+  summary:
+    - v0.18.0 is the Judgment Release; it reports a P0/P1 clean sweep, Mixture-of-Agents as a first-class model, evidence-based self-verification, /goal completion contracts, /learn and /journey visibility, background subagent fanout, gateway scale-to-zero/drain coordination, and desktop/dashboard changes.
+    - v0.18.1 is an infrastructure-driven patch tag rolling up roughly 660 PRs since v0.18.0, including installer/updater self-healing on Windows, dashboard/gateway fixes, WhatsApp dashboard pairing, MCP/provider fixes, and broad stability work.
+    - v0.18.2 is a same-day patch on v0.18.1 that unpins WhatsApp Baileys from a git commit and uses published 7.0.0-rc13 for reliable installs and Docker image builds.
+  decision_impact:
+    D8: Re-audit OpenAI Codex/OAuth provider, credential pool, auxiliary client, and labelled reauth changes before reapplying profile-local credential pins.
+    D4: Re-audit Discord/gateway/free-response/auto-thread/thread ownership behavior after v0.18 gateway and dashboard fixes.
+    D2: Re-audit Kanban, /goal completion contracts, background subagents, and any workflow/review native behavior before carrying same-card review/final-gate/mutex/workflow seams.
+    D6: Re-audit CLI command dispatch and subprocess exit behavior before carrying return-code passthrough.
+    D7: Re-audit doctor/tool availability warning behavior before carrying optional-warning filtering.
+docker_smoke_policy:
+  required_before_activation: true
+  activation_boundary: Do not migrate /Users/draccoon/.hermes/hermes-agent, reinstall editable runtime, move rk/live, or restart gateways until candidate smoke for retained D-items has passed or blockers are explicitly accepted.
+  default_shape:
+    - read-only repository mount where possible
+    - disposable HERMES_HOME inside container
+    - no live .env, auth.json, tokens, production state.db, or production kanban.db mounts
+    - candidate imports must resolve from this worktree, not the live checkout
+    - smoke must exercise actual CLI/tool/runtime behavior for the D-item where applicable
+  forbidden_without_separate_approval:
+    - live messaging tokens in container
+    - production profile homes or production databases in container
+    - gateway restarts or live platform sends
+rules:
+  R1:
+    title: Config/profile activation policy
+    status: pending-r-pre
+    activation_impact: host-local config/schema/profile migration gate; not a runtime D carry.
+    next_action: Run read-only R-pre config/schema/profile audit after D-item code candidate stabilizes and before any live activation.
+  R2:
+    title: Skill provenance, overrides, and compatibility policy
+    status: pending-r-pre
+    activation_impact: host-local bundled/optional/shared/profile-local skill compatibility gate; not a runtime D carry.
+    next_action: Compare v0.17 to v0.18.2 bundled/optional skill changes and profile/shared resolver shadows before activation.
+  R3:
+    title: Web dashboard and desktop activation gate
+    status: pending-r-pre
+    activation_impact: dashboard/desktop local GUI gate; not a runtime D carry.
+    next_action: Re-check dashboard build/runtime readiness and continue treating Desktop as unused unless 주군 changes scope.
+  R4:
+    title: Cron, local scripts, watchers, and automation gate
+    status: pending-r-pre
+    activation_impact: active cron/script/local automation readiness; not a runtime D carry unless product code changes.
+    next_action: Re-run active cron/script/watcher audit against v0.18.2 candidate before activation.
+  R5:
+    title: Profile-owned local asset optimization after v0.18 activation
+    status: pending-post-activation-nonblocking
+    activation_impact: post-release profile-owned skill/cron/script usage-style optimization; not a tag blocker unless explicitly scoped by 주군.
+    next_action: Defer broad profile-owned asset optimization until after D and R-pre gates, unless release notes reveal a direct blocker.
+entries:
+  D1:
+    title: Tool Search pair
+    previous_v0_17_status: resolved-no-local-carry-no-future-consideration
+    v0_18_status: retired-carry-forward
+    code_patch_required: false
+    next_action: Do not replay; only a new independent regression may receive a new D-ID.
+  D2:
+    title: Kanban review and same-card handoff helpers
+    previous_v0_17_status: d2-a-through-d2-i-applied
+    v0_18_status: not_evaluated
+    priority: 3
+    code_patch_required: unknown
+    next_action: Audit v0.18.2 Kanban, /goal, background subagent, review, final-gate, watcher, mutex, and workflow-banner overlap before applying code.
+  D3:
+    title: Kanban assignee alias dispatch seam
+    previous_v0_17_status: retired
+    v0_18_status: retired-carry-forward
+    code_patch_required: false
+    next_action: Do not replay unless a new independent alias regression is discovered and assigned a new D-ID.
+  D4:
+    title: Discord owner/thread routing and role-mention fail-close
+    previous_v0_17_status: local-keep-applied
+    v0_18_status: not_evaluated
+    priority: 2
+    code_patch_required: unknown
+    next_action: Audit v0.18.2 Discord/gateway routing and auto-thread behavior before applying minimal safety seams.
+  D5:
+    title: Support-only plugin strategy
+    previous_v0_17_status: retired-no-code
+    v0_18_status: retired-carry-forward
+    code_patch_required: false
+    next_action: Do not replay; future plugin strategy needs a new current D-ID and concrete consumer.
+  D6:
+    title: CLI return-code passthrough
+    previous_v0_17_status: local-keep-applied
+    v0_18_status: not_evaluated
+    priority: 4
+    code_patch_required: unknown
+    next_action: Audit top-level CLI dispatch process return codes before carrying exact-int passthrough.
+  D7:
+    title: Doctor optional tool warning filter
+    previous_v0_17_status: local-keep-applied
+    v0_18_status: not_evaluated
+    priority: 5
+    code_patch_required: unknown
+    next_action: Audit doctor Tool Availability warning scoping before carrying optional-warning filter.
+  D8:
+    title: OpenAI Codex credential pinning and labelled reauth
+    previous_v0_17_status: minimized-local-keep-applied
+    v0_18_status: selected-next-audit
+    priority: 1
+    code_patch_required: unknown
+    next_action: Start with upstream-overlap audit of credential_pool, auxiliary_client, runtime_provider, auth, and auth_commands; use fake-token/disposable-state smoke only.

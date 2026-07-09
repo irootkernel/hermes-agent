@@ -100,6 +100,7 @@ models-dev-upstream/
 .codex/
 .cursor/
 .gemini/
+.omx/
 .zed/
 .mcp.json
 opencode.json
