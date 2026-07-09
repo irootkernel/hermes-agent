@@ -57,7 +57,8 @@ def test_kanban_tools_visible_with_env_var(monkeypatch, tmp_path):
     expected = {
         "kanban_show", "kanban_complete", "kanban_block", "kanban_heartbeat",
         "kanban_comment", "kanban_create", "kanban_link",
-        "kanban_reassign", "kanban_submit_review", "kanban_request_changes",
+        "kanban_reassign", "kanban_submit_review", "kanban_submit_result",
+        "kanban_request_changes",
     }
     assert kanban == expected, f"expected {expected}, got {kanban}"
 
@@ -87,6 +88,7 @@ def test_kanban_worker_env_overrides_profile_toolset_filter(monkeypatch, tmp_pat
     assert "kanban_block" in names
     assert "kanban_reassign" in names
     assert "kanban_submit_review" in names
+    assert "kanban_submit_result" in names
     assert "kanban_request_changes" in names
     assert "kanban_list" not in names
 
@@ -141,7 +143,8 @@ def test_kanban_tools_visible_with_toolset_config(monkeypatch, tmp_path):
         "kanban_list",
         "kanban_show", "kanban_complete", "kanban_block", "kanban_heartbeat",
         "kanban_comment", "kanban_create", "kanban_link",
-        "kanban_reassign", "kanban_submit_review", "kanban_request_changes",
+        "kanban_reassign", "kanban_submit_review", "kanban_submit_result",
+        "kanban_request_changes",
         "kanban_unblock",
     }
     assert kanban == expected, f"expected {expected}, got {kanban}"
@@ -426,6 +429,62 @@ def test_kanban_submit_review_tool_submits_current_worker_task(
     assert task.status == "review"
     assert task.assignee == "reviewer"
     assert run.outcome == "submitted_review"
+
+
+def test_kanban_submit_result_tool_routes_current_worker_task_to_acceptor(
+    monkeypatch, worker_env,
+):
+    from hermes_cli import profiles
+    monkeypatch.setattr(profiles, "profile_exists", lambda name: True)
+    monkeypatch.setenv("HERMES_SESSION_ID", "session-d2g")
+    from tools import kanban_tools as kt
+    from tools.registry import registry
+
+    assert registry.get_entry("kanban_submit_result") is not None
+    out = kt._handle_submit_result({
+        "reviewer": "creator",
+        "summary": "ready for creator acceptance",
+        "metadata": {"tests": ["pytest"]},
+    })
+    d = json.loads(out)
+    assert d["ok"] is True, d
+    assert d["task_id"] == worker_env
+    assert d["status"] == "review"
+    assert d["reviewer"] == "creator"
+
+    from hermes_cli import kanban_db as kb
+    conn = kb.connect()
+    try:
+        task = kb.get_task(conn, worker_env)
+        run = kb.latest_run(conn, worker_env)
+    finally:
+        conn.close()
+    assert task.status == "review"
+    assert task.assignee == "creator"
+    assert run.outcome == "submitted_result"
+    assert run.metadata == {"tests": ["pytest"], "worker_session_id": "session-d2g"}
+
+
+def test_kanban_submit_result_tool_rejects_non_dict_metadata(worker_env):
+    from tools import kanban_tools as kt
+
+    out = kt._handle_submit_result({
+        "reviewer": "creator",
+        "summary": "ready",
+        "metadata": ["bad"],
+    })
+    assert "metadata must be an object" in json.loads(out).get("error", "")
+
+
+def test_kanban_submit_result_tool_rejects_invalid_acceptor(
+    monkeypatch, worker_env,
+):
+    from hermes_cli import profiles
+    monkeypatch.setattr(profiles, "profile_exists", lambda name: False)
+    from tools import kanban_tools as kt
+
+    out = kt._handle_submit_result({"reviewer": "missing", "summary": "ready"})
+    assert "could not submit" in json.loads(out).get("error", "")
 
 
 def test_kanban_request_changes_tool_returns_review_to_rework(
@@ -1636,6 +1695,8 @@ def test_kanban_guidance_in_worker_prompt(monkeypatch, tmp_path):
     # Lifecycle signals
     assert "kanban_show()" in prompt
     assert "kanban_complete" in prompt
+    assert "kanban_submit_review" in prompt
+    assert "kanban_submit_result" in prompt
     assert "kanban_block" in prompt
     assert "kanban_create" in prompt
     # Anti-shell guidance

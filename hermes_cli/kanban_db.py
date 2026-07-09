@@ -3429,6 +3429,102 @@ def submit_task_for_review(
     return True
 
 
+def submit_task_result(
+    conn: sqlite3.Connection,
+    task_id: str,
+    *,
+    reviewer: Optional[str] = None,
+    summary: Optional[str] = None,
+    metadata: Optional[dict[str, Any]] = None,
+    expected_run_id: Optional[int] = None,
+) -> bool:
+    """Release a worker result to creator/acceptor review on the same card."""
+    with write_txn(conn):
+        row = conn.execute(
+            """
+            SELECT assignee, status, current_run_id, created_by
+              FROM tasks
+             WHERE id = ?
+            """,
+            (task_id,),
+        ).fetchone()
+        if not row or row["status"] not in {"running", "ready", "blocked"}:
+            return False
+
+        reviewer_name = _canonical_assignee(reviewer) if reviewer else None
+        if reviewer_name:
+            if not _is_spawnable_profile_name(reviewer_name):
+                return False
+        else:
+            created_by = _canonical_assignee(row["created_by"])
+            if not _is_spawnable_profile_name(created_by):
+                return False
+            reviewer_name = created_by
+
+        active_run_id = int(row["current_run_id"]) if row["current_run_id"] else None
+        if expected_run_id is not None:
+            if active_run_id is None or active_run_id != int(expected_run_id):
+                return False
+
+        run_id = active_run_id
+        if active_run_id is not None:
+            closed_run_id = _end_run(
+                conn,
+                task_id,
+                outcome="submitted_result",
+                status="released",
+                summary=summary,
+                metadata=metadata,
+            )
+            if closed_run_id != active_run_id:
+                return False
+            run_id = closed_run_id
+        elif summary or metadata:
+            run_id = _synthesize_ended_run(
+                conn,
+                task_id,
+                outcome="submitted_result",
+                status="released",
+                summary=summary,
+                metadata=metadata,
+            )
+
+        conn.execute(
+            """
+            UPDATE tasks
+               SET status = 'review',
+                   assignee = ?,
+                   claim_lock = NULL,
+                   claim_expires = NULL,
+                   worker_pid = NULL,
+                   current_run_id = NULL,
+                   last_heartbeat_at = NULL,
+                   consecutive_failures = 0,
+                   last_failure_error = NULL,
+                   block_kind = NULL,
+                   block_recurrences = 0
+             WHERE id = ?
+            """,
+            (reviewer_name, task_id),
+        )
+        payload: dict[str, Any] = {
+            "from_assignee": row["assignee"],
+            "reviewer": reviewer_name,
+            "summary": summary,
+            "submission_type": "result",
+        }
+        if metadata is not None:
+            payload["metadata"] = metadata
+        _append_event(
+            conn,
+            task_id,
+            "submitted_result",
+            payload,
+            run_id=run_id,
+        )
+    return True
+
+
 def _latest_submitted_review_payload(
     conn: sqlite3.Connection,
     task_id: str,
@@ -3466,14 +3562,57 @@ def _latest_submitted_review_assignee(
     return assignee or None
 
 
+def _latest_submission_payload(
+    conn: sqlite3.Connection,
+    task_id: str,
+) -> Optional[dict[str, Any]]:
+    """Return the latest submitted_review/submitted_result payload."""
+    row = conn.execute(
+        """
+        SELECT kind, payload
+          FROM task_events
+         WHERE task_id = ?
+           AND kind IN ('submitted_review', 'submitted_result')
+         ORDER BY created_at DESC, id DESC
+         LIMIT 1
+        """,
+        (task_id,),
+    ).fetchone()
+    if not row or not row["payload"]:
+        return None
+    try:
+        payload = json.loads(row["payload"])
+    except Exception:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    payload = dict(payload)
+    payload["_kind"] = row["kind"]
+    return payload
+
+
+def _latest_submission_assignee(
+    conn: sqlite3.Connection,
+    task_id: str,
+) -> Optional[str]:
+    """Return implementer from latest submitted_review/submitted_result event."""
+    payload = _latest_submission_payload(conn, task_id)
+    if not payload:
+        return None
+    assignee = _canonical_assignee(payload.get("from_assignee"))
+    return assignee or None
+
+
 def _review_final_gate_for_reviewer(
     conn: sqlite3.Connection,
     task_id: str,
     reviewer: str,
 ) -> tuple[str, Optional[str]]:
     """Return final-gate state for a running review completion."""
-    payload = _latest_submitted_review_payload(conn, task_id)
+    payload = _latest_submission_payload(conn, task_id)
     if not payload:
+        return "none", None
+    if payload.get("_kind") != "submitted_review":
         return "none", None
     event_reviewer = _canonical_assignee(payload.get("reviewer"))
     if event_reviewer != _canonical_assignee(reviewer):
@@ -3511,7 +3650,7 @@ def request_changes_task(
 
         target = _canonical_assignee(assignee) if assignee else None
         if not target:
-            target = _latest_submitted_review_assignee(conn, task_id)
+            target = _latest_submission_assignee(conn, task_id)
         if not target:
             return False
 

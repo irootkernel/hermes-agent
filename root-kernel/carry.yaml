@@ -109,7 +109,7 @@ entries:
     v0_18_status: local_minimize_partially_applied
     priority: 3
     code_patch_required: true
-    decision: "D2-a audit complete, then D2-b unified implementation and D2-f review watcher applied: preserve v0.18.2 native review/goal/notify/swarm/workflow foundations and carry only the missing Root Kernel same-card review-loop and async review-outcome notification seams. Remaining D2-g/h/i seams still require audit/implementation."
+    decision: "D2-a audit complete, then D2-b unified implementation, D2-f review watcher, and D2-g creator/acceptor result submission loop applied: preserve v0.18.2 native review/goal/notify/swarm/workflow foundations and carry only the missing Root Kernel same-card review-loop, async review-outcome notification, and result-acceptance seams. Remaining D2-h/i seams still require audit/implementation."
     evidence:
       - root-kernel/evidence/d2-a-kanban-native-overlap.md
     upstream_native_foundations:
@@ -143,8 +143,23 @@ entries:
           - gateway/kanban_watchers.py
           - tests/tools/test_kanban_tools.py
           - tests/gateway/test_kanban_notifier.py
+      D2-g:
+        title: creator/acceptor result submission loop
+        includes:
+          - "`submit_task_result` closes worker runs as `submitted_result` / `released` and routes the same card to creator/acceptor review."
+          - "`kanban_submit_result` and CLI `submit-result` expose same-card result acceptance without marking the task done."
+          - "`kanban_request_changes` can return creator/acceptor review from either `submitted_review` or `submitted_result` provenance while `review_accepted` remains peer-review-only."
+          - "Worker lifecycle guidance distinguishes `kanban_complete`, `kanban_submit_review`, and `kanban_submit_result`."
+        files_changed:
+          - hermes_cli/kanban_db.py
+          - tools/kanban_tools.py
+          - toolsets.py
+          - hermes_cli/kanban.py
+          - agent/prompt_builder.py
+          - tests/hermes_cli/test_kanban_db.py
+          - tests/tools/test_kanban_tools.py
+          - tests/hermes_cli/test_kanban_cli.py
     remaining_local_seams:
-      - D2-g creator/acceptor result submission loop
       - D2-h mutex-key serialization
       - D2-i closed workflow context banners
     smoke:
@@ -158,7 +173,10 @@ entries:
       - "D2-f RED: 5 focused review watcher tests failed on v0.18.2+D2-b because `review_watch` receipt/subscription and review-outcome notifier delivery were absent."
       - "D2-f GREEN: focused review watcher tests -> 5 passed in 0.66s."
       - "D2-f GREEN: tests/tools/test_kanban_tools.py tests/gateway/test_kanban_notifier.py -> 113 passed in 10.38s."
-    next_action: Apply D2-g creator/acceptor result submission loop next, preserving D2-b same-card review loop and D2-f async review-outcome notifications.
+      - "D2-g RED: 9 focused result-submission tests failed on v0.18.2+D2-b/f because `submit_task_result`, `kanban_submit_result`, CLI `submit-result`, toolset visibility, request-changes result provenance, and worker prompt guidance were absent."
+      - "D2-g GREEN: focused DB/tool/CLI/prompt result-submission tests -> 9 passed in 2.90s."
+      - "D2-g GREEN: tests/hermes_cli/test_kanban_db.py tests/tools/test_kanban_tools.py tests/hermes_cli/test_kanban_cli.py tests/gateway/test_kanban_notifier.py -> 407 passed in 34.13s."
+    next_action: Apply D2-h mutex-key serialization next, preserving D2-b same-card review loop, D2-f async review-outcome notifications, and D2-g result acceptance semantics.
   D3:
     title: Kanban assignee alias dispatch seam
     previous_v0_17_status: retired

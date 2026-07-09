@@ -4150,6 +4150,129 @@ def test_review_approval_rejects_final_gate_that_became_invalid(
     assert task.current_run_id == review.current_run_id
     assert run.ended_at is None
 
+def test_submit_task_result_routes_same_card_to_acceptor_review(
+    kanban_home, all_assignees_spawnable,
+):
+    with kb.connect() as conn:
+        t = kb.create_task(conn, title="result", assignee="worker", created_by="creator")
+        claimed = kb.claim_task(conn, t)
+        assert claimed is not None
+
+        ok = kb.submit_task_result(
+            conn,
+            t,
+            reviewer="creator",
+            summary="ready for creator acceptance",
+            metadata={"tests": ["pytest"]},
+            expected_run_id=claimed.current_run_id,
+        )
+        task = kb.get_task(conn, t)
+        run = kb.latest_run(conn, t)
+        submitted = [e for e in kb.list_events(conn, t) if e.kind == "submitted_result"]
+
+    assert ok is True
+    assert task.status == "review"
+    assert task.assignee == "creator"
+    assert task.current_run_id is None
+    assert run.outcome == "submitted_result"
+    assert run.status == "released"
+    assert submitted[-1].payload["from_assignee"] == "worker"
+    assert submitted[-1].payload["reviewer"] == "creator"
+    assert submitted[-1].payload["submission_type"] == "result"
+    assert submitted[-1].payload["metadata"] == {"tests": ["pytest"]}
+
+
+def test_result_acceptor_complete_marks_done_without_review_accepted(
+    kanban_home, all_assignees_spawnable,
+):
+    with kb.connect() as conn:
+        t = kb.create_task(conn, title="result", assignee="worker", created_by="creator")
+        assert kb.claim_task(conn, t) is not None
+        assert kb.submit_task_result(conn, t, reviewer="creator", summary="done")
+        review = kb.claim_review_task(conn, t)
+        assert review is not None
+
+        ok = kb.complete_task(
+            conn,
+            t,
+            summary="accepted by creator",
+            expected_run_id=review.current_run_id,
+        )
+        task = kb.get_task(conn, t)
+        completed = [e for e in kb.list_events(conn, t) if e.kind == "completed"]
+        accepted = [e for e in kb.list_events(conn, t) if e.kind == "review_accepted"]
+
+    assert ok is True
+    assert task.status == "done"
+    assert completed
+    assert accepted == []
+
+
+def test_request_changes_after_submitted_result_returns_to_original_worker(
+    kanban_home, all_assignees_spawnable,
+):
+    with kb.connect() as conn:
+        t = kb.create_task(conn, title="result", assignee="worker", created_by="creator")
+        assert kb.claim_task(conn, t) is not None
+        assert kb.submit_task_result(conn, t, reviewer="creator", summary="result")
+        review = kb.claim_review_task(conn, t)
+        assert review is not None
+
+        ok = kb.request_changes_task(
+            conn,
+            t,
+            reason="tighten acceptance evidence",
+            expected_run_id=review.current_run_id,
+        )
+        task = kb.get_task(conn, t)
+        run = kb.latest_run(conn, t)
+        requested = [e for e in kb.list_events(conn, t) if e.kind == "requested_changes"]
+
+    assert ok is True
+    assert task.status == "ready"
+    assert task.assignee == "worker"
+    assert run.outcome == "requested_changes"
+    assert requested[-1].payload["assignee"] == "worker"
+
+
+def test_submit_task_result_rejects_invalid_acceptor_without_mutation(
+    kanban_home, monkeypatch,
+):
+    from hermes_cli import profiles
+    monkeypatch.setattr(profiles, "profile_exists", lambda name: False)
+    with kb.connect() as conn:
+        t = kb.create_task(conn, title="result", assignee="worker", created_by="creator")
+        assert kb.claim_task(conn, t) is not None
+        ok = kb.submit_task_result(conn, t, reviewer="missing", summary="result")
+        task = kb.get_task(conn, t)
+        events = [e for e in kb.list_events(conn, t) if e.kind == "submitted_result"]
+
+    assert ok is False
+    assert task.status == "running"
+    assert task.assignee == "worker"
+    assert events == []
+
+
+def test_submit_task_result_rejects_stale_run_id_without_mutation(
+    kanban_home, all_assignees_spawnable,
+):
+    with kb.connect() as conn:
+        t = kb.create_task(conn, title="result", assignee="worker", created_by="creator")
+        claimed = kb.claim_task(conn, t)
+        assert claimed is not None
+        ok = kb.submit_task_result(
+            conn, t, reviewer="creator", expected_run_id=claimed.current_run_id + 1
+        )
+        task = kb.get_task(conn, t)
+        run = kb.latest_run(conn, t)
+
+    assert ok is False
+    assert task.status == "running"
+    assert task.assignee == "worker"
+    assert task.current_run_id == claimed.current_run_id
+    assert run.ended_at is None
+
+
 # Stale detection — detect_stale_running
 # ---------------------------------------------------------------------------
 

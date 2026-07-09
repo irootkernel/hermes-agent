@@ -533,6 +533,28 @@ def build_parser(parent_subparsers: argparse._SubParsersAction) -> argparse.Argu
                             help='JSON dict of structured facts (e.g. \'{"changed_files": [...], '
                                  '"tests_run": 12}\'). Stored on the closing run.')
 
+    p_submit_result = sub.add_parser(
+        "submit-result",
+        help="Submit a task result to creator/acceptor review without marking it done",
+    )
+    p_submit_result.add_argument("task_id")
+    p_submit_result.add_argument(
+        "--reviewer",
+        default=None,
+        help="Creator/acceptor profile (default: task created_by if spawnable)",
+    )
+    p_submit_result.add_argument(
+        "--summary",
+        default=None,
+        help="Short result summary for the creator/acceptor",
+    )
+    p_submit_result.add_argument(
+        "--metadata",
+        default=None,
+        help="JSON object of structured result evidence",
+    )
+    p_submit_result.add_argument("--json", action="store_true", help="Emit JSON output")
+
     p_edit = sub.add_parser(
         "edit",
         help="Edit recovery fields on an already-completed task",
@@ -952,6 +974,7 @@ def kanban_command(args: argparse.Namespace) -> int:
             "claim":    _cmd_claim,
             "comment":  _cmd_comment,
             "complete": _cmd_complete,
+            "submit-result": _cmd_submit_result,
             "edit":     _cmd_edit,
             "block":    _cmd_block,
             "schedule": _cmd_schedule,
@@ -1906,6 +1929,51 @@ def _cmd_complete(args: argparse.Namespace) -> int:
             else:
                 print(f"Completed {tid}")
     return 0 if not failed else 1
+
+
+def _cmd_submit_result(args: argparse.Namespace) -> int:
+    raw_meta = getattr(args, "metadata", None)
+    metadata = None
+    if raw_meta:
+        try:
+            metadata = json.loads(raw_meta)
+            if not isinstance(metadata, dict):
+                raise ValueError("must be a JSON object")
+        except (ValueError, json.JSONDecodeError) as exc:
+            print(f"kanban: --metadata: {exc}", file=sys.stderr)
+            return 2
+    reviewer = getattr(args, "reviewer", None)
+    reviewer_name = str(reviewer).strip() if reviewer else None
+    with kb.connect_closing() as conn:
+        ok = kb.submit_task_result(
+            conn,
+            args.task_id,
+            reviewer=reviewer_name,
+            summary=getattr(args, "summary", None),
+            metadata=metadata,
+            expected_run_id=_worker_run_id_for(args.task_id),
+        )
+        if not ok:
+            print(
+                f"cannot submit result for {args.task_id} "
+                "(unknown id, invalid reviewer, not reviewable, or stale run)",
+                file=sys.stderr,
+            )
+            return 1
+        task = kb.get_task(conn, args.task_id)
+        run = kb.latest_run(conn, args.task_id)
+    payload = {
+        "ok": True,
+        "task_id": args.task_id,
+        "status": "review",
+        "reviewer": task.assignee if task else reviewer_name,
+        "run_id": run.id if run else None,
+    }
+    if getattr(args, "json", False):
+        print(json.dumps(payload, indent=2, ensure_ascii=False))
+    else:
+        print(f"Submitted {args.task_id} result for review by {payload['reviewer']}")
+    return 0
 
 
 def _cmd_edit(args: argparse.Namespace) -> int:

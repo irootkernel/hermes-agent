@@ -519,6 +519,48 @@ def test_run_slash_help_aliases_match_bare(kanban_home, alias):
     assert out == bare
 
 
+def test_run_slash_submit_result_json_routes_to_acceptor_review(
+    kanban_home, monkeypatch,
+):
+    from hermes_cli import profiles
+    monkeypatch.setattr(profiles, "profile_exists", lambda name: True)
+    raw = kc.run_slash("create 'needs acceptance' --assignee worker --created-by creator --json")
+    tid = json.loads(raw)["id"]
+    with kb.connect() as conn:
+        assert kb.claim_task(conn, tid) is not None
+
+    out = kc.run_slash(
+        f"submit-result {tid} --reviewer creator --summary 'ready for acceptance' "
+        "--metadata '{\"tests\":[\"pytest\"]}' --json"
+    )
+    payload = json.loads(out)
+    assert payload["ok"] is True, payload
+    assert payload["task_id"] == tid
+    assert payload["status"] == "review"
+    assert payload["reviewer"] == "creator"
+
+    with kb.connect() as conn:
+        task = kb.get_task(conn, tid)
+        run = kb.latest_run(conn, tid)
+        events = [e for e in kb.list_events(conn, tid) if e.kind == "submitted_result"]
+    assert task.status == "review"
+    assert task.assignee == "creator"
+    assert run.outcome == "submitted_result"
+    assert events[-1].payload["submission_type"] == "result"
+
+
+def test_run_slash_submit_result_rejects_bad_metadata(kanban_home, monkeypatch):
+    from hermes_cli import profiles
+    monkeypatch.setattr(profiles, "profile_exists", lambda name: True)
+    raw = kc.run_slash("create 'bad metadata' --assignee worker --created-by creator --json")
+    tid = json.loads(raw)["id"]
+
+    out = kc.run_slash(f"submit-result {tid} --reviewer creator --metadata '[1, 2]'")
+
+    assert "--metadata" in out
+    assert "JSON object" in out or "must be" in out
+
+
 def test_run_slash_subcommand_help_returns_help_text(kanban_home):
     """`/kanban show -h` returns the actual subcommand help, not a
     fake `(usage error: 0)` sentinel."""

@@ -74,7 +74,7 @@ _HERMES_CORE_TOOLS = [
     "kanban_show", "kanban_list",
     "kanban_complete", "kanban_block", "kanban_heartbeat",
     "kanban_comment", "kanban_create", "kanban_link", "kanban_reassign",
-    "kanban_submit_review", "kanban_request_changes",
+    "kanban_submit_review", "kanban_submit_result", "kanban_request_changes",
     "kanban_unblock",
     # Computer use (macOS, gated on cua-driver being installed via check_fn)
     "computer_use",
@@ -272,7 +272,7 @@ TOOLSETS = {
             "kanban_show", "kanban_list", "kanban_complete", "kanban_block",
             "kanban_heartbeat", "kanban_comment",
             "kanban_create", "kanban_link", "kanban_reassign",
-            "kanban_submit_review", "kanban_request_changes",
+            "kanban_submit_review", "kanban_submit_result", "kanban_request_changes",
             "kanban_unblock",
         ],
         "includes": [],

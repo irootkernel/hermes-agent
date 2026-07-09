@@ -51,7 +51,7 @@ Every D item requires owner direction before code application: choose upstream-n
 ### D2 — Kanban review and same-card handoff helpers
 
 - Previous v0.17 state: D2-a through D2-i applied.
-- v0.18.2 state: D2-a native-overlap audit complete; D2-b unified same-card review loop applied; D2-f async review watcher applied; D2-g through D2-i remain pending.
+- v0.18.2 state: D2-a native-overlap audit complete; D2-b unified same-card review loop applied; D2-f async review watcher applied; D2-g creator/acceptor result loop applied; D2-h through D2-i remain pending.
 - Decision: use partial-native local-minimized carry. Preserve v0.18.2 native review/goal/notify/swarm/workflow foundations and add only missing Root Kernel same-card seams.
 - Evidence: `root-kernel/evidence/d2-a-kanban-native-overlap.md`.
 - Native foundations retained:
@@ -71,7 +71,11 @@ Every D item requires owner direction before code application: choose upstream-n
     - `kanban_submit_review` auto-attaches a review watch subscription when a gateway/TUI delivery source is available;
     - worker response includes `review_watch` attachment metadata or `attached: false` for CLI/cron/unattached contexts;
     - gateway Kanban notifier delivers `requested_changes` and `review_accepted` review outcomes without unsubscribing before final task state.
-  - D2-g creator/acceptor result submission loop;
+  - D2-g creator/acceptor result submission loop applied:
+    - `submit_task_result` closes worker runs as `submitted_result` / `released` and routes the same card to creator/acceptor review;
+    - `kanban_submit_result` tool and CLI `submit-result` expose result acceptance without marking the task done;
+    - creator/acceptor `kanban_complete` marks final `done`, while `kanban_request_changes` returns to the original worker from `submitted_result` provenance;
+    - worker guidance distinguishes final completion, peer review, and creator/acceptor result acceptance.
   - D2-h mutex-key serialization;
   - D2-i closed workflow context banners.
 - Audit smoke:
@@ -89,8 +93,13 @@ Every D item requires owner direction before code application: choose upstream-n
 - D2-f GREEN evidence:
   - Focused review watcher tests: `5 passed in 0.66s`.
   - `tests/tools/test_kanban_tools.py tests/gateway/test_kanban_notifier.py`: `113 passed in 10.38s`.
+- D2-g RED evidence:
+  - Focused result-submission tests failed on v0.18.2+D2-b/f because `submit_task_result`, `kanban_submit_result`, CLI `submit-result`, toolset visibility, request-changes result provenance, and worker prompt guidance were absent: `9 failed`.
+- D2-g GREEN evidence:
+  - Focused DB/tool/CLI/prompt result-submission tests: `9 passed in 2.90s`.
+  - `tests/hermes_cli/test_kanban_db.py tests/tools/test_kanban_tools.py tests/hermes_cli/test_kanban_cli.py tests/gateway/test_kanban_notifier.py`: `407 passed in 34.13s`.
 - Boundary: no live profile state, gateway, token, production Kanban DB, `rk/live`, push, or tag was mutated.
-- Next action: implement D2-g creator/acceptor result submission loop, preserving D2-b same-card review loop and D2-f async review-outcome notifications.
+- Next action: implement D2-h mutex-key serialization, preserving D2-b same-card review loop, D2-f async review-outcome notifications, and D2-g result acceptance semantics.
 
 ### D3 — Kanban assignee alias dispatch seam
 
