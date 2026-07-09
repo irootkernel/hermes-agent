@@ -249,4 +249,3 @@ Also: Lucas Nicolas.
 ---
 
 **Full Changelog**: [v2026.6.19...v2026.7.1](https://github.com/NousResearch/hermes-agent/compare/v2026.6.19...v2026.7.1)
-

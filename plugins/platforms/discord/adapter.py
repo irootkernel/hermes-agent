@@ -4692,9 +4692,14 @@ class DiscordAdapter(BasePlatformAdapter):
         if deferred_response:
             await interaction.followup.send(f"Created thread {link}", ephemeral=True)
 
-        # Track thread participation so follow-ups don't require @mention
+        # Track slash-created threads as both participated and owned by this
+        # bot, matching auto-thread ownership semantics for mention-free
+        # follow-ups.
         if thread_id:
             self._threads.mark(thread_id)
+            owner_key = self._discord_thread_owner_key()
+            if owner_key:
+                self._thread_owners.mark_owner(thread_id, owner_key)
 
         # If a message was provided, kick off a new Hermes session in the thread
         starter = (message or "").strip()

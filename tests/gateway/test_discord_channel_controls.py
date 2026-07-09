@@ -75,7 +75,23 @@ class FakeThread:
 
 @pytest.fixture
 def adapter(monkeypatch, tmp_path):
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes"))
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    # Channel-control tests set only the knobs they exercise. Clear live
+    # Discord routing env so smoke under an active agent shell cannot silently
+    # fail-close before the assertion path.
+    for var in (
+        "DISCORD_ALLOWED_CHANNELS",
+        "DISCORD_IGNORED_CHANNELS",
+        "DISCORD_FREE_RESPONSE_CHANNELS",
+        "DISCORD_AUTO_THREAD_FREE_RESPONSE",
+        "DISCORD_DEFAULT_THREAD_OWNER_PARENT_CHANNELS",
+        "DISCORD_NO_THREAD_CHANNELS",
+        "DISCORD_AUTO_THREAD",
+        "DISCORD_REQUIRE_MENTION",
+        "DISCORD_THREAD_REQUIRE_MENTION",
+    ):
+        monkeypatch.delenv(var, raising=False)
     monkeypatch.setattr(discord_platform.discord, "DMChannel", FakeDMChannel, raising=False)
     monkeypatch.setattr(discord_platform.discord, "Thread", FakeThread, raising=False)
 

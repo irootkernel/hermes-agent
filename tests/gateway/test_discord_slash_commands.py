@@ -97,7 +97,24 @@ class FakeTree:
 
 
 @pytest.fixture
-def adapter():
+def adapter(monkeypatch, tmp_path):
+    hermes_home = tmp_path / "hermes"
+    home = tmp_path / "home"
+    monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+    monkeypatch.setenv("HOME", str(home))
+    # Keep native slash-command tests deterministic under live agent shells
+    # that may export Discord routing allowlists/free-response knobs.
+    for var in (
+        "DISCORD_ALLOWED_CHANNELS",
+        "DISCORD_IGNORED_CHANNELS",
+        "DISCORD_FREE_RESPONSE_CHANNELS",
+        "DISCORD_AUTO_THREAD_FREE_RESPONSE",
+        "DISCORD_DEFAULT_THREAD_OWNER_PARENT_CHANNELS",
+        "DISCORD_REQUIRE_MENTION",
+        "DISCORD_THREAD_REQUIRE_MENTION",
+    ):
+        monkeypatch.delenv(var, raising=False)
+
     config = PlatformConfig(enabled=True, token="***")
     adapter = DiscordAdapter(config)
     adapter._client = SimpleNamespace(
@@ -404,6 +421,27 @@ async def test_handle_thread_create_slash_reports_success(adapter):
     args, kwargs = interaction.followup.send.await_args
     assert "<#555>" in args[0]
     assert kwargs["ephemeral"] is True
+    assert "555" in adapter._threads
+    assert adapter._thread_owners.is_owner("555", "99999")
+
+
+@pytest.mark.asyncio
+async def test_handle_thread_create_slash_preserves_existing_thread_owner(adapter):
+    adapter._thread_owners.mark_owner("555", "other-bot")
+    created_thread = SimpleNamespace(id=555, name="Planning", send=AsyncMock())
+    parent_channel = SimpleNamespace(create_thread=AsyncMock(return_value=created_thread))
+    interaction = SimpleNamespace(
+        channel=SimpleNamespace(parent=parent_channel),
+        channel_id=123,
+        user=SimpleNamespace(display_name="Jezza", id=42),
+        guild=SimpleNamespace(name="TestGuild"),
+        followup=SimpleNamespace(send=AsyncMock()),
+        response=SimpleNamespace(defer=AsyncMock()),
+    )
+
+    await adapter._handle_thread_create_slash(interaction, "Planning", "", 1440)
+
+    assert adapter._thread_owners.owner_for("555") == "other-bot"
 
 
 @pytest.mark.asyncio

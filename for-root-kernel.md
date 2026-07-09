@@ -117,7 +117,7 @@ Every D item requires owner direction before code application: choose upstream-n
   - Focused DB/tool/CLI workflow-banner tests: `10 passed in 0.86s`.
   - `tests/hermes_cli/test_kanban_db.py tests/tools/test_kanban_tools.py tests/hermes_cli/test_kanban_cli.py tests/hermes_cli/test_kanban_core_functionality.py tests/gateway/test_kanban_notifier.py`: `597 passed, 1 skipped in 46.14s`.
 - Boundary: no live profile state, gateway, token, production Kanban DB, `rk/live`, push, or tag was mutated.
-- Next action: D2 local carry is complete for v0.18.2; audit D6 CLI return-code passthrough next.
+- Next action: applied for rk/v0.18.2; no remaining D2 runtime seams are pending unless 주군 scopes an additional follow-up.
 
 ### D3 — Kanban assignee alias dispatch seam
 
@@ -138,6 +138,7 @@ Every D item requires owner direction before code application: choose upstream-n
   - persistent `ThreadOwnerTracker` (`discord_thread_owners.json`) for thread default responder ownership;
   - mention-free thread replies require this bot to own the thread, not merely have participated;
   - auto-created threads are marked as participated and owned by the creating bot;
+  - slash-created `/thread` Discord threads are also marked as participated and owned by the creating bot without stealing existing owners;
   - `DISCORD_AUTO_THREAD_FREE_RESPONSE` and config-extra `auto_thread_free_response` allow selected free-response channels to spawn owned auto-threads;
   - top-level `discord.auto_thread_free_response` bridges through the plugin `_apply_yaml_config()` hook;
   - env-only `DISCORD_DEFAULT_THREAD_OWNER_PARENT_CHANNELS` can claim unowned user-created child threads under approved single-owner parents;
@@ -148,6 +149,7 @@ Every D item requires owner direction before code application: choose upstream-n
   - `plugins/platforms/discord/adapter.py`
   - `tests/gateway/test_discord_free_response.py`
   - `tests/gateway/test_discord_channel_controls.py`
+  - `tests/gateway/test_discord_slash_commands.py`
   - `tests/e2e/conftest.py`
 - RED evidence:
   - D4 focused tests failed on v0.18.2 base: missing `_thread_owners`, role mentions processed, free-response auto-thread option ignored, YAML bridge absent.
@@ -157,6 +159,7 @@ Every D item requires owner direction before code application: choose upstream-n
   - `tests/e2e/test_discord_adapter.py`: `7 passed`.
   - Combined D4 Discord suite: `89 passed`, with 2 upstream dependency deprecation warnings.
   - Isolation check: gateway/e2e Discord tests now use temp/no-op tracker state; live `/Users/draccoon/.hermes/discord_threads.json` and `discord_thread_owners.json` stat unchanged across final run and fake IDs absent.
+  - Review cleanup: slash-created `/thread` owner marking plus Discord env/HOME-isolated slash/free-response/channel/e2e suite: `128 passed, 2 warnings in 15.24s`.
 - Boundary: no live Discord token, profile env, gateway process, `rk/live`, push, or tag was mutated.
 
 ### D5 — Support-only plugin strategy
@@ -183,7 +186,7 @@ Every D item requires owner direction before code application: choose upstream-n
   - `tests/hermes_cli/test_main_return_codes.py tests/hermes_cli/test_kanban_cli.py tests/hermes_cli/test_kanban_db.py`: `312 passed in 24.35s`.
   - Subprocess smoke: missing Kanban task rc=1; invalid Kanban board slug rc=2; top-level `--help` rc=0.
 - Boundary: no live profile state, gateway, token, production Kanban DB, `rk/live`, push, or tag was mutated.
-- Next action: D6 is ready for commit after final checks, then audit D7 doctor optional tool warning filter.
+- Next action: applied for rk/v0.18.2; no remaining D6 runtime action is pending unless 주군 scopes an additional follow-up.
 
 ### D7 — Doctor optional tool warning filter
 
@@ -245,6 +248,7 @@ Every D item requires owner direction before code application: choose upstream-n
   - Docker pilot, read-only candidate mount + disposable `HERMES_HOME`: 4 D8 `credential_pool` tests passed.
   - Docker pilot functional smoke: `docker-pilot-positive pinned PINNED`, `docker-pilot-unavailable None`.
   - Owner-approved Docker actual-JYH smoke with minimal temporary auth copy: `selected_label JYH`, `selected_id 253e66`, `response_text hi`, `smoke_ok True`, `container_removed true`, `temp_cleanup true`.
+  - Review cleanup: credential pool tests run with per-test `HOME` isolation to avoid real `~/.claude` leakage; credential/auth/runtime suite: `294 passed in 16.72s`.
 - Boundary: no live `.env`, `auth.json`, token, profile home, gateway process, `rk/live`, push, or tag was mutated.
 
 ## R-item post-rk/live boundary

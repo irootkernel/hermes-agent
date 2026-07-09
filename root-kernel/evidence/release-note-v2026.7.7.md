@@ -31,4 +31,3 @@ pip install -U hermes-agent
 ```
 
 **Full Changelog**: [v2026.7.1...v2026.7.7](https://github.com/NousResearch/hermes-agent/compare/v2026.7.1...v2026.7.7)
-

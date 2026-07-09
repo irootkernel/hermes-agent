@@ -436,7 +436,23 @@ def _make_discord_adapter_wired(runner=None):
 
 
 @pytest.fixture()
-def discord_setup():
+def discord_setup(monkeypatch, tmp_path):
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes"))
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    # Keep Discord e2e tests independent of the live shell's routing policy.
+    # Individual tests opt into auto-thread/mention behavior explicitly.
+    for var in (
+        "DISCORD_ALLOWED_CHANNELS",
+        "DISCORD_IGNORED_CHANNELS",
+        "DISCORD_FREE_RESPONSE_CHANNELS",
+        "DISCORD_AUTO_THREAD_FREE_RESPONSE",
+        "DISCORD_DEFAULT_THREAD_OWNER_PARENT_CHANNELS",
+        "DISCORD_NO_THREAD_CHANNELS",
+        "DISCORD_AUTO_THREAD",
+        "DISCORD_REQUIRE_MENTION",
+        "DISCORD_THREAD_REQUIRE_MENTION",
+    ):
+        monkeypatch.delenv(var, raising=False)
     return _make_discord_adapter_wired()
 
 

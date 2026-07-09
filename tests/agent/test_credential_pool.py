@@ -10,6 +10,17 @@ from datetime import datetime, timezone
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def _isolate_host_credential_files(tmp_path, monkeypatch):
+    """Keep pool tests from reading real host singleton credential stores.
+
+    Some pool paths can seed/sync from files under HOME (not HERMES_HOME),
+    such as Claude Code's ~/.claude/.credentials.json.  Use a per-test HOME
+    so broad smoke under a live agent shell remains deterministic.
+    """
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+
+
 def _write_auth_store(tmp_path, payload: dict) -> None:
     hermes_home = tmp_path / "hermes"
     hermes_home.mkdir(parents=True, exist_ok=True)

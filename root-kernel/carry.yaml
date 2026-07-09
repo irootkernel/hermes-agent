@@ -208,7 +208,7 @@ entries:
       - "D2-i RED: 10 focused workflow-banner tests failed on v0.18.2+D2-b/f/g/h because `workflow_type`, closed workflow banners, CLI `--workflow-type`, tool schema/output, and invalid persisted-value sanitization were absent."
       - "D2-i GREEN: focused DB/tool/CLI workflow-banner tests -> 10 passed in 0.86s."
       - "D2-i GREEN: tests/hermes_cli/test_kanban_db.py tests/tools/test_kanban_tools.py tests/hermes_cli/test_kanban_cli.py tests/hermes_cli/test_kanban_core_functionality.py tests/gateway/test_kanban_notifier.py -> 597 passed, 1 skipped in 46.14s."
-    next_action: D2 local carry is complete for v0.18.2; audit D6 CLI return-code passthrough next.
+    next_action: Applied for rk/v0.18.2; no remaining D2 runtime seams are pending unless 주군 scopes an additional follow-up.
   D3:
     title: Kanban assignee alias dispatch seam
     previous_v0_17_status: retired
@@ -227,6 +227,7 @@ entries:
       - plugins/platforms/discord/adapter.py
       - tests/gateway/test_discord_free_response.py
       - tests/gateway/test_discord_channel_controls.py
+      - tests/gateway/test_discord_slash_commands.py
       - tests/e2e/conftest.py
     upstream_absorbed:
       - "v0.18.2 already has current channel-key matching, auto-thread failure visible-error/no-agent fallback, auto-thread rename metadata, and Discord liveness/reconnect improvements."
@@ -234,6 +235,7 @@ entries:
       - "Persistent `ThreadOwnerTracker` records Discord thread_id -> owner key in `discord_thread_owners.json` without stealing existing owners."
       - "Mention-free thread follow-up now requires this bot to own the thread; participation alone is not enough."
       - "Auto-created Discord threads are marked as both participated and owned by the creating bot."
+      - "Slash-created `/thread` Discord threads are also marked as both participated and owned by the creating bot without stealing existing owners."
       - "`DISCORD_AUTO_THREAD_FREE_RESPONSE` / config-extra `auto_thread_free_response` allow selected free-response channels to spawn owned auto-threads."
       - "`discord.auto_thread_free_response` bridges through plugin `_apply_yaml_config()` to `DISCORD_AUTO_THREAD_FREE_RESPONSE`."
       - "`DISCORD_DEFAULT_THREAD_OWNER_PARENT_CHANNELS` remains env-only and lets profile-local single-owner parent channels claim unowned user-created child threads."
@@ -246,7 +248,8 @@ entries:
       - "GREEN: tests/e2e/test_discord_adapter.py -> 7 passed."
       - "GREEN: combined D4 Discord suite -> 89 passed, 2 upstream dependency deprecation warnings."
       - "Isolation: gateway/e2e Discord tests now use temp/no-op tracker state; live `/Users/draccoon/.hermes/discord_threads.json` and `discord_thread_owners.json` stat unchanged across final run and fake IDs absent."
-    next_action: D4 is ready for commit after diff/yaml checks; then proceed to D2 audit unless 주군 chooses another D item.
+      - "Review cleanup: slash-created `/thread` owner marking plus Discord env/HOME-isolated slash/free-response/channel/e2e suite -> 128 passed, 2 warnings in 15.24s."
+    next_action: Applied for rk/v0.18.2 with review cleanup; no remaining D4 runtime action is pending after final candidate smoke unless 주군 scopes an additional follow-up.
   D5:
     title: Support-only plugin strategy
     previous_v0_17_status: retired-no-code
@@ -272,7 +275,7 @@ entries:
       - "D6 GREEN: tests/hermes_cli/test_main_return_codes.py -> 4 passed in 0.66s."
       - "D6 GREEN: tests/hermes_cli/test_main_return_codes.py tests/hermes_cli/test_kanban_cli.py tests/hermes_cli/test_kanban_db.py -> 312 passed in 24.35s."
       - "D6 subprocess smoke: missing Kanban task rc=1; invalid Kanban board slug rc=2; top-level --help rc=0."
-    next_action: D6 is ready for commit after final py_compile/yaml/diff checks; then audit D7 doctor optional tool warning filter.
+    next_action: Applied for rk/v0.18.2; no remaining D6 runtime action is pending unless 주군 scopes an additional follow-up.
   D7:
     title: Doctor optional tool warning filter
     previous_v0_17_status: local-keep-applied
@@ -329,4 +332,5 @@ entries:
       - "Docker pilot read-only candidate mount with disposable HERMES_HOME -> 4 credential_pool D8 tests passed."
       - "Docker pilot functional smoke -> docker-pilot-positive pinned PINNED; docker-pilot-unavailable None."
       - "Owner-approved Docker actual-JYH smoke with minimal temporary auth copy -> selected_label JYH, selected_id 253e66, response_text hi, smoke_ok True, container_removed true, temp_cleanup true."
-    next_action: D8 is ready for commit, then proceed to D4 audit.
+      - "Review cleanup: credential pool tests run with per-test HOME isolation to avoid real `~/.claude` leakage; credential/auth/runtime suite -> 294 passed in 16.72s."
+    next_action: Applied for rk/v0.18.2 with review cleanup; no remaining D8 runtime action is pending after final candidate smoke unless 주군 scopes an additional follow-up.
