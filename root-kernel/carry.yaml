@@ -119,10 +119,35 @@ entries:
   D4:
     title: Discord owner/thread routing and role-mention fail-close
     previous_v0_17_status: local-keep-applied
-    v0_18_status: not_evaluated
+    v0_18_status: local_minimize_applied
     priority: 2
-    code_patch_required: unknown
-    next_action: Audit v0.18.2 Discord/gateway routing and auto-thread behavior before applying minimal safety seams.
+    code_patch_required: true
+    decision: "주군 selected option A: reapply only the missing Root Kernel Discord owner/thread safety seams on top of v0.18.2 upstream behavior."
+    files_changed:
+      - gateway/platforms/helpers.py
+      - plugins/platforms/discord/adapter.py
+      - tests/gateway/test_discord_free_response.py
+      - tests/gateway/test_discord_channel_controls.py
+      - tests/e2e/conftest.py
+    upstream_absorbed:
+      - "v0.18.2 already has current channel-key matching, auto-thread failure visible-error/no-agent fallback, auto-thread rename metadata, and Discord liveness/reconnect improvements."
+    local_seams:
+      - "Persistent `ThreadOwnerTracker` records Discord thread_id -> owner key in `discord_thread_owners.json` without stealing existing owners."
+      - "Mention-free thread follow-up now requires this bot to own the thread; participation alone is not enough."
+      - "Auto-created Discord threads are marked as both participated and owned by the creating bot."
+      - "`DISCORD_AUTO_THREAD_FREE_RESPONSE` / config-extra `auto_thread_free_response` allow selected free-response channels to spawn owned auto-threads."
+      - "`discord.auto_thread_free_response` bridges through plugin `_apply_yaml_config()` to `DISCORD_AUTO_THREAD_FREE_RESPONSE`."
+      - "`DISCORD_DEFAULT_THREAD_OWNER_PARENT_CHANNELS` remains env-only and lets profile-local single-owner parent channels claim unowned user-created child threads."
+      - "Discord role mentions fail closed unless this bot is explicitly mentioned, so free-response/default-owner routing cannot steal role-addressed work."
+      - "`thread_require_mention=true` still gates owned/default parent-thread fallback."
+    smoke:
+      - "RED: D4 focused tests failed on v0.18.2 base: missing `_thread_owners`, role mentions processed, free-response auto-thread option ignored, YAML bridge absent."
+      - "GREEN: tests/gateway/test_discord_free_response.py -> 66 passed."
+      - "GREEN: tests/gateway/test_discord_free_response.py tests/gateway/test_discord_channel_controls.py -> 82 passed, 2 upstream dependency deprecation warnings."
+      - "GREEN: tests/e2e/test_discord_adapter.py -> 7 passed."
+      - "GREEN: combined D4 Discord suite -> 89 passed, 2 upstream dependency deprecation warnings."
+      - "Isolation: gateway/e2e Discord tests now use temp/no-op tracker state; live `/Users/draccoon/.hermes/discord_threads.json` and `discord_thread_owners.json` stat unchanged across final run and fake IDs absent."
+    next_action: D4 is ready for commit after diff/yaml checks; then proceed to D2 audit unless 주군 chooses another D item.
   D5:
     title: Support-only plugin strategy
     previous_v0_17_status: retired-no-code

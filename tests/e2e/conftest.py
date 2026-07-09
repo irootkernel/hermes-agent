@@ -411,8 +411,13 @@ def _make_discord_adapter_wired(runner=None):
         runner = make_runner(Platform.DISCORD)
 
     config = PlatformConfig(enabled=True, token="e2e-test-token")
-    from gateway.platforms.helpers import ThreadParticipationTracker
-    with patch.object(ThreadParticipationTracker, "_load", return_value=set()):
+    from gateway.platforms.helpers import ThreadOwnerTracker, ThreadParticipationTracker
+    with (
+        patch.object(ThreadParticipationTracker, "_load", return_value=[]),
+        patch.object(ThreadParticipationTracker, "_save", return_value=None),
+        patch.object(ThreadOwnerTracker, "_load", return_value={}),
+        patch.object(ThreadOwnerTracker, "_save", return_value=None),
+    ):
         adapter = DiscordAdapter(config)
 
     bot_user = make_fake_bot_user()
