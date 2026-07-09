@@ -51,7 +51,7 @@ Every D item requires owner direction before code application: choose upstream-n
 ### D2 — Kanban review and same-card handoff helpers
 
 - Previous v0.17 state: D2-a through D2-i applied.
-- v0.18.2 state: D2-a native-overlap audit complete; D2-b unified same-card review loop applied; D2-f async review watcher applied; D2-g creator/acceptor result loop applied; D2-h mutex-key serialization applied; D2-i remains pending.
+- v0.18.2 state: D2-a native-overlap audit complete; D2-b unified same-card review loop applied; D2-f async review watcher applied; D2-g creator/acceptor result loop applied; D2-h mutex-key serialization applied; D2-i closed workflow context banners applied.
 - Decision: use partial-native local-minimized carry. Preserve v0.18.2 native review/goal/notify/swarm/workflow foundations and add only missing Root Kernel same-card seams.
 - Evidence: `root-kernel/evidence/d2-a-kanban-native-overlap.md`.
 - Native foundations retained:
@@ -61,7 +61,7 @@ Every D item requires owner direction before code application: choose upstream-n
   - background `delegate_task` fan-out;
   - Kanban Swarm v1 (`parallel workers -> verifier -> synthesizer`);
   - `workflow_template_id` / `current_step_key` generic workflow metadata.
-- Missing Root Kernel seams to carry, without changing the user-facing D2 workflow:
+- Root Kernel seams carried, without changing the user-facing D2 workflow:
   - D2-b same-card review loop applied as a unified patch, preserving former D2-b/c/d/e lineage:
     - cooperative same-card handoff / worker-facing reassign;
     - worker submit-for-review seam on top of native review;
@@ -81,7 +81,11 @@ Every D item requires owner direction before code application: choose upstream-n
     - ready/review dispatch defers same-key cards behind running or same-tick-selected owners and reports `skipped_mutex_locked` diagnostics;
     - direct `claim_task` / `claim_review_task` reject same-key claims while another task is running;
     - spawnability health checks ignore mutex-deferred ready/review work.
-  - D2-i closed workflow context banners.
+  - D2-i closed workflow context banners applied:
+    - tasks carry nullable closed-enum `workflow_type` values without replacing upstream `workflow_template_id` / `current_step_key`;
+    - worker context injects a prompt-safe `## Workflow context` banner only for known Root Kernel workflow protocols;
+    - unknown create-time values fail closed, while invalid persisted values sanitize to null and never render as prompt text;
+    - CLI `--workflow-type` and `kanban_create` / list / show surfaces expose sanitized workflow types.
 - Audit smoke:
   - Symbol probe: D2 handoff/submit-review/request-changes/submit-result symbols absent; native review/workflow metadata present; `mutex_key` / `workflow_type` absent.
   - Native review focused pytest slice: `10 passed in 0.76s`.
@@ -107,8 +111,13 @@ Every D item requires owner direction before code application: choose upstream-n
 - D2-h GREEN evidence:
   - Focused DB/tool/CLI mutex-key tests: `12 passed in 1.09s`.
   - `tests/hermes_cli/test_kanban_db.py tests/tools/test_kanban_tools.py tests/hermes_cli/test_kanban_cli.py tests/gateway/test_kanban_notifier.py`: `419 passed in 41.82s`.
+- D2-i RED evidence:
+  - Focused workflow-banner tests failed on v0.18.2+D2-b/f/g/h because `workflow_type`, closed workflow banners, CLI `--workflow-type`, tool schema/output, and invalid persisted-value sanitization were absent: `10 failed`.
+- D2-i GREEN evidence:
+  - Focused DB/tool/CLI workflow-banner tests: `10 passed in 0.86s`.
+  - `tests/hermes_cli/test_kanban_db.py tests/tools/test_kanban_tools.py tests/hermes_cli/test_kanban_cli.py tests/hermes_cli/test_kanban_core_functionality.py tests/gateway/test_kanban_notifier.py`: `597 passed, 1 skipped in 46.14s`.
 - Boundary: no live profile state, gateway, token, production Kanban DB, `rk/live`, push, or tag was mutated.
-- Next action: implement D2-i closed workflow context banners, preserving D2-b same-card review loop, D2-f async review-outcome notifications, D2-g result acceptance, and D2-h mutex serialization.
+- Next action: D2 local carry is complete for v0.18.2; audit D6 CLI return-code passthrough next.
 
 ### D3 — Kanban assignee alias dispatch seam
 

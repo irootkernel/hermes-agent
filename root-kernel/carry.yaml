@@ -106,10 +106,10 @@ entries:
   D2:
     title: Kanban review and same-card handoff helpers
     previous_v0_17_status: d2-a-through-d2-i-applied
-    v0_18_status: local_minimize_partially_applied
+    v0_18_status: local_minimize_applied
     priority: 3
     code_patch_required: true
-    decision: "D2-a audit complete, then D2-b unified implementation, D2-f review watcher, and D2-g creator/acceptor result submission loop applied: preserve v0.18.2 native review/goal/notify/swarm/workflow foundations and carry only the missing Root Kernel same-card review-loop, async review-outcome notification, and result-acceptance seams. Remaining D2-h/i seams still require audit/implementation."
+    decision: "D2-a audit complete, then D2-b unified implementation, D2-f review watcher, D2-g creator/acceptor result submission loop, D2-h mutex serialization, and D2-i closed workflow context banners applied: preserve v0.18.2 native review/goal/notify/swarm/workflow foundations and carry only missing Root Kernel same-card and prompt-safe workflow seams."
     evidence:
       - root-kernel/evidence/d2-a-kanban-native-overlap.md
     upstream_native_foundations:
@@ -173,8 +173,21 @@ entries:
           - tests/hermes_cli/test_kanban_db.py
           - tests/tools/test_kanban_tools.py
           - tests/hermes_cli/test_kanban_cli.py
-    remaining_local_seams:
-      - D2-i closed workflow context banners
+      D2-i:
+        title: closed workflow context banners
+        includes:
+          - "Tasks can carry nullable closed-enum `workflow_type` values without replacing upstream `workflow_template_id` / `current_step_key` metadata."
+          - "Worker context injects a prompt-safe `## Workflow context` banner only for known Root Kernel workflow protocols."
+          - "Create-time unknown `workflow_type` values fail closed, while invalid persisted values sanitize to null and never render as prompt text."
+          - "CLI `--workflow-type` and `kanban_create` / list / show surfaces expose sanitized workflow types."
+        files_changed:
+          - hermes_cli/kanban_db.py
+          - tools/kanban_tools.py
+          - hermes_cli/kanban.py
+          - tests/hermes_cli/test_kanban_db.py
+          - tests/tools/test_kanban_tools.py
+          - tests/hermes_cli/test_kanban_cli.py
+    remaining_local_seams: []
     smoke:
       - "D2-a symbol probe: D2 handoff/submit-review/request-changes/submit-result symbols absent; native review/workflow metadata present; mutex_key/workflow_type absent."
       - "D2-a native review focused pytest slice -> 10 passed in 0.76s."
@@ -192,7 +205,10 @@ entries:
       - "D2-h RED: 10 focused mutex-key tests failed on v0.18.2+D2-b/f/g because `mutex_key`, dispatcher deferral, direct-claim guards, tool schema, and CLI `--mutex-key` were absent."
       - "D2-h GREEN: focused DB/tool/CLI mutex-key tests -> 12 passed in 1.09s."
       - "D2-h GREEN: tests/hermes_cli/test_kanban_db.py tests/tools/test_kanban_tools.py tests/hermes_cli/test_kanban_cli.py tests/gateway/test_kanban_notifier.py -> 419 passed in 41.82s."
-    next_action: Apply D2-i closed workflow context banners next, preserving D2-b same-card review loop, D2-f async review-outcome notifications, D2-g result acceptance, and D2-h mutex serialization.
+      - "D2-i RED: 10 focused workflow-banner tests failed on v0.18.2+D2-b/f/g/h because `workflow_type`, closed workflow banners, CLI `--workflow-type`, tool schema/output, and invalid persisted-value sanitization were absent."
+      - "D2-i GREEN: focused DB/tool/CLI workflow-banner tests -> 10 passed in 0.86s."
+      - "D2-i GREEN: tests/hermes_cli/test_kanban_db.py tests/tools/test_kanban_tools.py tests/hermes_cli/test_kanban_cli.py tests/hermes_cli/test_kanban_core_functionality.py tests/gateway/test_kanban_notifier.py -> 597 passed, 1 skipped in 46.14s."
+    next_action: D2 local carry is complete for v0.18.2; audit D6 CLI return-code passthrough next.
   D3:
     title: Kanban assignee alias dispatch seam
     previous_v0_17_status: retired

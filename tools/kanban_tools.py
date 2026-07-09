@@ -353,6 +353,8 @@ def _task_summary_dict(kb, conn, task) -> dict[str, Any]:
         "completed_at": task.completed_at,
         "current_run_id": task.current_run_id,
         "model_override": task.model_override,
+        "mutex_key": task.mutex_key,
+        "workflow_type": task.workflow_type,
         "parents": parents,
         "children": children,
         "parent_count": len(parents),
@@ -398,6 +400,8 @@ def _handle_show(args: dict, **kw) -> str:
                     "result": t.result,
                     "current_run_id": t.current_run_id,
                     "model_override": t.model_override,
+                    "mutex_key": t.mutex_key,
+                    "workflow_type": t.workflow_type,
                 }
 
             def _run_dict(r):
@@ -1183,6 +1187,7 @@ def _handle_create(args: dict, **kw) -> str:
         return tool_error(bool_error)
     idempotency_key = args.get("idempotency_key")
     mutex_key = args.get("mutex_key")
+    workflow_type = args.get("workflow_type")
     max_runtime_seconds = args.get("max_runtime_seconds")
     initial_status = args.get("initial_status") or "running"
     skills = args.get("skills")
@@ -1246,6 +1251,7 @@ def _handle_create(args: dict, **kw) -> str:
                 created_by=os.environ.get("HERMES_PROFILE") or "worker",
                 session_id=session_id,
                 mutex_key=mutex_key,
+                workflow_type=workflow_type,
             )
             new_task = kb.get_task(conn, new_tid)
             subscribed = _maybe_auto_subscribe(conn, new_tid)
@@ -1253,6 +1259,7 @@ def _handle_create(args: dict, **kw) -> str:
                 task_id=new_tid,
                 status=new_task.status if new_task else None,
                 mutex_key=new_task.mutex_key if new_task else None,
+                workflow_type=new_task.workflow_type if new_task else None,
                 subscribed=subscribed,
             )
         finally:
@@ -1957,6 +1964,24 @@ KANBAN_CREATE_SCHEMA = {
                     "same-key task is running, the dispatcher defers this "
                     "card instead of spawning it concurrently. Trimmed only; "
                     "schemes/case are preserved."
+                ),
+            },
+            "workflow_type": {
+                "type": "string",
+                "enum": [
+                    "creator_adjudicated_review",
+                    "creator_accepted_work",
+                    "parallel_color_review",
+                    "round_based_color_consensus",
+                    "fanout_fanin",
+                    "serial_dependency_chain",
+                    "single_card_baton",
+                ],
+                "description": (
+                    "Optional closed workflow context banner injected into "
+                    "the worker prompt. Use only when the card participates "
+                    "in one of these known operating protocols; arbitrary "
+                    "values are rejected to keep prompt guidance safe."
                 ),
             },
             "max_runtime_seconds": {

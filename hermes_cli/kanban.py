@@ -79,6 +79,7 @@ def _task_to_dict(t: kb.Task) -> dict[str, Any]:
         "max_retries": t.max_retries,
         "session_id": t.session_id,
         "mutex_key": t.mutex_key,
+        "workflow_type": t.workflow_type,
         "workflow_template_id": t.workflow_template_id,
         "current_step_key": t.current_step_key,
     }
@@ -330,6 +331,12 @@ def build_parser(parent_subparsers: argparse._SubParsersAction) -> argparse.Argu
     p_create.add_argument("--mutex-key", default=None,
                           help="Shared-resource serialization key. Same-key tasks are "
                                "dispatched/claimed one at a time; whitespace is trimmed.")
+    p_create.add_argument(
+        "--workflow-type",
+        default=None,
+        choices=sorted(kb.VALID_WORKFLOW_TYPES),
+        help="Inject a closed workflow context banner into the dispatched worker prompt.",
+    )
     p_create.add_argument("--max-runtime", default=None,
                           help="Per-task runtime cap. Accepts seconds (300) or "
                                "durations (90s, 30m, 2h, 1d). When exceeded, "
@@ -1369,6 +1376,7 @@ def _cmd_create(args: argparse.Namespace) -> int:
             triage=bool(getattr(args, "triage", False)),
             idempotency_key=getattr(args, "idempotency_key", None),
             mutex_key=getattr(args, "mutex_key", None),
+            workflow_type=getattr(args, "workflow_type", None),
             max_runtime_seconds=max_runtime,
             skills=getattr(args, "skills", None) or None,
             max_retries=max_retries,
