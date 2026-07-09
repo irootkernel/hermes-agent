@@ -51,7 +51,7 @@ Every D item requires owner direction before code application: choose upstream-n
 ### D2 — Kanban review and same-card handoff helpers
 
 - Previous v0.17 state: D2-a through D2-i applied.
-- v0.18.2 state: D2-a native-overlap audit complete; product-code subitems D2-b through D2-i remain pending.
+- v0.18.2 state: D2-a native-overlap audit complete; D2-b unified same-card review loop applied; D2-f through D2-i remain pending.
 - Decision: use partial-native local-minimized carry. Preserve v0.18.2 native review/goal/notify/swarm/workflow foundations and add only missing Root Kernel same-card seams.
 - Evidence: `root-kernel/evidence/d2-a-kanban-native-overlap.md`.
 - Native foundations retained:
@@ -62,10 +62,11 @@ Every D item requires owner direction before code application: choose upstream-n
   - Kanban Swarm v1 (`parallel workers -> verifier -> synthesizer`);
   - `workflow_template_id` / `current_step_key` generic workflow metadata.
 - Missing Root Kernel seams to carry, without changing the user-facing D2 workflow:
-  - D2-b cooperative same-card handoff / worker-facing reassign;
-  - D2-c worker submit-for-review seam on top of native review;
-  - D2-d reviewer request-changes return-to-rework loop;
-  - D2-e creator/final gate after reviewer approval;
+  - D2-b same-card review loop applied as a unified patch, preserving former D2-b/c/d/e lineage:
+    - cooperative same-card handoff / worker-facing reassign;
+    - worker submit-for-review seam on top of native review;
+    - reviewer request-changes return-to-rework loop;
+    - creator/final gate after reviewer approval.
   - D2-f review-specific watcher/notification events;
   - D2-g creator/acceptor result submission loop;
   - D2-h mutex-key serialization;
@@ -74,8 +75,14 @@ Every D item requires owner direction before code application: choose upstream-n
   - Symbol probe: D2 handoff/submit-review/request-changes/submit-result symbols absent; native review/workflow metadata present; `mutex_key` / `workflow_type` absent.
   - Native review focused pytest slice: `10 passed in 0.76s`.
   - Review/goal/notify overlap pytest slice: `15 passed in 1.37s`.
-- Boundary: no product code, live profile state, gateway, token, production Kanban DB, `rk/live`, push, or tag was mutated.
-- Next action: implement D2-b/c/d/e as the next product-code subitem group, preserving upstream native review claim/dispatch.
+- D2-b RED evidence:
+  - Focused same-card review-loop tests failed on v0.18.2 base because `handoff_task`, `submit_task_for_review`, `request_changes_task`, and `kanban_reassign` / `kanban_submit_review` / `kanban_request_changes` registrations were absent: `7 failed`.
+- D2-b GREEN evidence:
+  - Focused DB/tool same-card review loop tests: `18 passed in 1.31s`.
+  - Worker/orchestrator Kanban tool visibility tests: `4 passed in 0.91s`.
+  - `tests/hermes_cli/test_kanban_db.py tests/tools/test_kanban_tools.py`: `338 passed in 27.70s`.
+- Boundary: no live profile state, gateway, token, production Kanban DB, `rk/live`, push, or tag was mutated.
+- Next action: implement D2-f review-specific watcher/notification seam, preserving upstream native review dispatch and D2-b same-card review loop compatibility.
 
 ### D3 — Kanban assignee alias dispatch seam
 

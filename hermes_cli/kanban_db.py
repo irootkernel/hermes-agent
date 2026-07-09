@@ -3193,6 +3193,7 @@ def _synthesize_ended_run(
     summary: Optional[str] = None,
     error: Optional[str] = None,
     metadata: Optional[dict] = None,
+    status: Optional[str] = None,
 ) -> int:
     """Insert a zero-duration, already-closed run row.
 
@@ -3227,13 +3228,343 @@ def _synthesize_ended_run(
         """,
         (
             task_id, profile, step_key,
-            outcome, outcome,
+            status or outcome, outcome,
             summary, error,
             json.dumps(metadata, ensure_ascii=False) if metadata else None,
             now, now,
         ),
     )
     return int(cur.lastrowid or 0)
+
+
+def _is_spawnable_profile_name(name: Optional[str]) -> bool:
+    """Return True only when ``name`` maps to a real Hermes profile."""
+    candidate = (name or "").strip()
+    if not candidate or candidate.startswith("t_"):
+        return False
+    try:
+        from hermes_cli.profiles import profile_exists
+    except Exception:
+        return False
+    try:
+        return bool(profile_exists(candidate))
+    except Exception:
+        return False
+
+
+def handoff_task(
+    conn: sqlite3.Connection,
+    task_id: str,
+    assignee: str,
+    *,
+    summary: Optional[str] = None,
+    reason: Optional[str] = None,
+    metadata: Optional[dict[str, Any]] = None,
+    expected_run_id: Optional[int] = None,
+) -> bool:
+    """Release a running task back to ``ready`` for another assignee.
+
+    The same task id remains the durable work bus. The active run is closed
+    as ``handed_off`` / ``released`` and ``expected_run_id`` prevents a stale
+    dispatcher-spawned worker from releasing a newer run.
+    """
+    target = _canonical_assignee(assignee)
+    if not target:
+        raise ValueError("assignee is required")
+    with write_txn(conn):
+        row = conn.execute(
+            "SELECT assignee, status, current_run_id FROM tasks WHERE id = ?",
+            (task_id,),
+        ).fetchone()
+        if not row or row["status"] != "running" or not row["current_run_id"]:
+            return False
+        run_id = int(row["current_run_id"])
+        if expected_run_id is not None and run_id != int(expected_run_id):
+            return False
+
+        closed_run_id = _end_run(
+            conn,
+            task_id,
+            outcome="handed_off",
+            status="released",
+            summary=summary,
+            metadata=metadata,
+        )
+        if closed_run_id != run_id:
+            return False
+        conn.execute(
+            """
+            UPDATE tasks
+               SET status = 'ready',
+                   assignee = ?,
+                   claim_lock = NULL,
+                   claim_expires = NULL,
+                   worker_pid = NULL,
+                   current_run_id = NULL,
+                   last_heartbeat_at = NULL,
+                   consecutive_failures = 0,
+                   last_failure_error = NULL,
+                   block_kind = NULL,
+                   block_recurrences = 0
+             WHERE id = ?
+            """,
+            (target, task_id),
+        )
+        payload: dict[str, Any] = {
+            "from": row["assignee"],
+            "to": target,
+            "summary": summary,
+            "reason": reason,
+        }
+        if metadata is not None:
+            payload["metadata"] = metadata
+        _append_event(conn, task_id, "handed_off", payload, run_id=run_id)
+    return True
+
+
+def submit_task_for_review(
+    conn: sqlite3.Connection,
+    task_id: str,
+    *,
+    reviewer: Optional[str] = None,
+    final_assignee: Optional[str] = None,
+    summary: Optional[str] = None,
+    metadata: Optional[dict[str, Any]] = None,
+    expected_run_id: Optional[int] = None,
+) -> bool:
+    """Release a worker-owned task into the native ``review`` queue."""
+    with write_txn(conn):
+        row = conn.execute(
+            """
+            SELECT assignee, status, current_run_id, created_by
+              FROM tasks
+             WHERE id = ?
+            """,
+            (task_id,),
+        ).fetchone()
+        if not row or row["status"] not in {"running", "ready", "blocked"}:
+            return False
+
+        reviewer_name = _canonical_assignee(reviewer) if reviewer else None
+        if reviewer_name:
+            if not _is_spawnable_profile_name(reviewer_name):
+                return False
+        else:
+            created_by = _canonical_assignee(row["created_by"])
+            if not _is_spawnable_profile_name(created_by):
+                return False
+            reviewer_name = created_by
+
+        active_run_id = int(row["current_run_id"]) if row["current_run_id"] else None
+        if expected_run_id is not None:
+            if active_run_id is None or active_run_id != int(expected_run_id):
+                return False
+
+        final_gate = _canonical_assignee(final_assignee) if final_assignee else None
+        if final_gate:
+            if not _is_spawnable_profile_name(final_gate):
+                return False
+        else:
+            created_by = _canonical_assignee(row["created_by"])
+            if created_by != reviewer_name and _is_spawnable_profile_name(created_by):
+                final_gate = created_by
+
+        run_id = active_run_id
+        if active_run_id is not None:
+            closed_run_id = _end_run(
+                conn,
+                task_id,
+                outcome="submitted_review",
+                status="released",
+                summary=summary,
+                metadata=metadata,
+            )
+            if closed_run_id != active_run_id:
+                return False
+            run_id = closed_run_id
+        elif summary or metadata:
+            run_id = _synthesize_ended_run(
+                conn,
+                task_id,
+                outcome="submitted_review",
+                status="released",
+                summary=summary,
+                metadata=metadata,
+            )
+
+        conn.execute(
+            """
+            UPDATE tasks
+               SET status = 'review',
+                   assignee = ?,
+                   claim_lock = NULL,
+                   claim_expires = NULL,
+                   worker_pid = NULL,
+                   current_run_id = NULL,
+                   last_heartbeat_at = NULL,
+                   consecutive_failures = 0,
+                   last_failure_error = NULL,
+                   block_kind = NULL,
+                   block_recurrences = 0
+             WHERE id = ?
+            """,
+            (reviewer_name, task_id),
+        )
+        payload: dict[str, Any] = {
+            "from_assignee": row["assignee"],
+            "reviewer": reviewer_name,
+            "summary": summary,
+        }
+        if final_gate:
+            payload["final_assignee"] = final_gate
+        if metadata is not None:
+            payload["metadata"] = metadata
+        _append_event(
+            conn,
+            task_id,
+            "submitted_review",
+            payload,
+            run_id=run_id,
+        )
+    return True
+
+
+def _latest_submitted_review_payload(
+    conn: sqlite3.Connection,
+    task_id: str,
+) -> Optional[dict[str, Any]]:
+    """Return the latest submitted_review payload for ``task_id``."""
+    row = conn.execute(
+        """
+        SELECT payload
+          FROM task_events
+         WHERE task_id = ?
+           AND kind = 'submitted_review'
+         ORDER BY created_at DESC, id DESC
+         LIMIT 1
+        """,
+        (task_id,),
+    ).fetchone()
+    if not row or not row["payload"]:
+        return None
+    try:
+        payload = json.loads(row["payload"])
+    except Exception:
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def _latest_submitted_review_assignee(
+    conn: sqlite3.Connection,
+    task_id: str,
+) -> Optional[str]:
+    """Return the implementer from the latest submitted_review event."""
+    payload = _latest_submitted_review_payload(conn, task_id)
+    if not payload:
+        return None
+    assignee = _canonical_assignee(payload.get("from_assignee"))
+    return assignee or None
+
+
+def _review_final_gate_for_reviewer(
+    conn: sqlite3.Connection,
+    task_id: str,
+    reviewer: str,
+) -> tuple[str, Optional[str]]:
+    """Return final-gate state for a running review completion."""
+    payload = _latest_submitted_review_payload(conn, task_id)
+    if not payload:
+        return "none", None
+    event_reviewer = _canonical_assignee(payload.get("reviewer"))
+    if event_reviewer != _canonical_assignee(reviewer):
+        return "none", None
+    final_assignee = _canonical_assignee(payload.get("final_assignee"))
+    if not final_assignee:
+        return "none", None
+    if _is_spawnable_profile_name(final_assignee):
+        return "valid", final_assignee
+    return "invalid", final_assignee
+
+
+def request_changes_task(
+    conn: sqlite3.Connection,
+    task_id: str,
+    *,
+    assignee: Optional[str] = None,
+    reason: Optional[str] = None,
+    summary: Optional[str] = None,
+    metadata: Optional[dict[str, Any]] = None,
+    expected_run_id: Optional[int] = None,
+) -> bool:
+    """Return a running review task to ``ready`` for rework on the same id."""
+    with write_txn(conn):
+        row = conn.execute(
+            """
+            SELECT assignee, status, current_run_id
+              FROM tasks
+             WHERE id = ?
+            """,
+            (task_id,),
+        ).fetchone()
+        if not row or row["status"] != "running" or not row["current_run_id"]:
+            return False
+
+        target = _canonical_assignee(assignee) if assignee else None
+        if not target:
+            target = _latest_submitted_review_assignee(conn, task_id)
+        if not target:
+            return False
+
+        run_id = int(row["current_run_id"])
+        if expected_run_id is not None and run_id != int(expected_run_id):
+            return False
+
+        review_summary = summary if summary is not None else reason
+        closed_run_id = _end_run(
+            conn,
+            task_id,
+            outcome="requested_changes",
+            status="released",
+            summary=review_summary,
+            metadata=metadata,
+        )
+        if closed_run_id != run_id:
+            return False
+
+        conn.execute(
+            """
+            UPDATE tasks
+               SET status = 'ready',
+                   assignee = ?,
+                   claim_lock = NULL,
+                   claim_expires = NULL,
+                   worker_pid = NULL,
+                   current_run_id = NULL,
+                   last_heartbeat_at = NULL,
+                   consecutive_failures = 0,
+                   last_failure_error = NULL,
+                   block_kind = NULL,
+                   block_recurrences = 0
+             WHERE id = ?
+            """,
+            (target, task_id),
+        )
+        payload: dict[str, Any] = {
+            "reviewer": row["assignee"],
+            "assignee": target,
+            "reason": reason,
+            "summary": summary,
+        }
+        if metadata is not None:
+            payload["metadata"] = metadata
+        _append_event(
+            conn,
+            task_id,
+            "requested_changes",
+            payload,
+            run_id=run_id,
+        )
+    return True
 
 
 # ---------------------------------------------------------------------------
@@ -4042,8 +4373,81 @@ def complete_task(
     else:
         verified_cards = []
 
+    review_gate_routed = False
+    run_id: Optional[int] = None
     with write_txn(conn):
-        if expected_run_id is None:
+        row = conn.execute(
+            """
+            SELECT status, assignee, current_run_id
+              FROM tasks
+             WHERE id = ?
+            """,
+            (task_id,),
+        ).fetchone()
+        if not row or row["status"] not in {"running", "ready", "blocked"}:
+            return False
+        active_run_id = int(row["current_run_id"]) if row["current_run_id"] else None
+        if expected_run_id is not None:
+            if active_run_id is None or active_run_id != int(expected_run_id):
+                return False
+
+        gate_state, final_assignee = ("none", None)
+        if row["status"] == "running" and active_run_id is not None:
+            gate_state, final_assignee = _review_final_gate_for_reviewer(
+                conn,
+                task_id,
+                row["assignee"],
+            )
+        if gate_state == "invalid":
+            return False
+        if gate_state == "valid" and final_assignee:
+            run_id = _end_run(
+                conn,
+                task_id,
+                outcome="review_accepted",
+                status="released",
+                summary=summary if summary is not None else result,
+                metadata=metadata,
+            )
+            if run_id != active_run_id:
+                return False
+            conn.execute(
+                """
+                UPDATE tasks
+                   SET status = 'ready',
+                       assignee = ?,
+                       claim_lock = NULL,
+                       claim_expires = NULL,
+                       worker_pid = NULL,
+                       current_run_id = NULL,
+                       last_heartbeat_at = NULL,
+                       consecutive_failures = 0,
+                       last_failure_error = NULL,
+                       block_kind = NULL,
+                       block_recurrences = 0
+                 WHERE id = ?
+                """,
+                (final_assignee, task_id),
+            )
+            ev_summary = (summary if summary is not None else result) or ""
+            ev_summary = ev_summary.strip().splitlines()[0][:400] if ev_summary else ""
+            accepted_payload: dict[str, Any] = {
+                "reviewer": row["assignee"],
+                "final_assignee": final_assignee,
+                "summary": ev_summary or None,
+                "result_len": len(result) if result else 0,
+            }
+            if isinstance(metadata, dict):
+                accepted_payload["metadata"] = metadata
+            _append_event(
+                conn,
+                task_id,
+                "review_accepted",
+                accepted_payload,
+                run_id=run_id,
+            )
+            review_gate_routed = True
+        else:
             cur = conn.execute(
                 """
                 UPDATE tasks
@@ -4060,74 +4464,58 @@ def complete_task(
                 """,
                 (result, now, task_id),
             )
-        else:
-            cur = conn.execute(
-                """
-                UPDATE tasks
-                   SET status       = 'done',
-                       result       = ?,
-                       completed_at = ?,
-                       claim_lock   = NULL,
-                       claim_expires= NULL,
-                       worker_pid   = NULL,
-                       block_kind   = NULL,
-                       block_recurrences = 0
-                 WHERE id = ?
-                   AND status IN ('running', 'ready', 'blocked')
-                   AND current_run_id = ?
-                """,
-                (result, now, task_id, int(expected_run_id)),
-            )
-        if cur.rowcount != 1:
-            return False
-        run_id = _end_run(
-            conn, task_id,
-            outcome="completed", status="done",
-            summary=summary if summary is not None else result,
-            metadata=metadata,
-        )
-        # If complete_task was called on a never-claimed task (ready or
-        # blocked → done with no run in flight), synthesize a
-        # zero-duration run so the handoff fields are persisted in
-        # attempt history instead of silently lost.
-        if run_id is None and (summary or metadata or result):
-            run_id = _synthesize_ended_run(
+            if cur.rowcount != 1:
+                return False
+            run_id = _end_run(
                 conn, task_id,
-                outcome="completed",
+                outcome="completed", status="done",
                 summary=summary if summary is not None else result,
                 metadata=metadata,
             )
-        # Carry the handoff summary in the event payload so gateway
-        # notifiers and dashboard WS consumers can render it without a
-        # second SQL round-trip. First line only, 400 char cap — the
-        # full summary stays on the run row.
-        ev_summary = (summary if summary is not None else result) or ""
-        ev_summary = ev_summary.strip().splitlines()[0][:400] if ev_summary else ""
-        completed_payload: dict = {
-            "result_len": len(result) if result else 0,
-            "summary": ev_summary or None,
-        }
-        if verified_cards:
-            completed_payload["verified_cards"] = verified_cards
-        # Carry artifact paths in the event payload so the gateway
-        # notifier can upload them as native attachments alongside the
-        # completion message. Workers pass these via
-        # ``kanban_complete(artifacts=[...])`` which stashes the list in
-        # ``metadata["artifacts"]`` — we promote it onto the event so
-        # consumers don't have to fetch the run row to find it.
-        if isinstance(metadata, dict):
-            md_artifacts = metadata.get("artifacts")
-            if isinstance(md_artifacts, (list, tuple)):
-                cleaned_artifacts = [
-                    str(p).strip() for p in md_artifacts if isinstance(p, str) and str(p).strip()
-                ]
-                if cleaned_artifacts:
-                    completed_payload["artifacts"] = cleaned_artifacts
-        _append_event(
-            conn, task_id, "completed",
-            completed_payload,
-            run_id=run_id,
-        )
+            # If complete_task was called on a never-claimed task (ready or
+            # blocked → done with no run in flight), synthesize a
+            # zero-duration run so the handoff fields are persisted in
+            # attempt history instead of silently lost.
+            if run_id is None and (summary or metadata or result):
+                run_id = _synthesize_ended_run(
+                    conn, task_id,
+                    outcome="completed",
+                    summary=summary if summary is not None else result,
+                    metadata=metadata,
+                )
+            # Carry the handoff summary in the event payload so gateway
+            # notifiers and dashboard WS consumers can render it without a
+            # second SQL round-trip. First line only, 400 char cap — the
+            # full summary stays on the run row.
+            ev_summary = (summary if summary is not None else result) or ""
+            ev_summary = ev_summary.strip().splitlines()[0][:400] if ev_summary else ""
+            completed_payload: dict = {
+                "result_len": len(result) if result else 0,
+                "summary": ev_summary or None,
+            }
+            if verified_cards:
+                completed_payload["verified_cards"] = verified_cards
+            # Carry artifact paths in the event payload so the gateway
+            # notifier can upload them as native attachments alongside the
+            # completion message. Workers pass these via
+            # ``kanban_complete(artifacts=[...])`` which stashes the list in
+            # ``metadata["artifacts"]`` — we promote it onto the event so
+            # consumers don't have to fetch the run row to find it.
+            if isinstance(metadata, dict):
+                md_artifacts = metadata.get("artifacts")
+                if isinstance(md_artifacts, (list, tuple)):
+                    cleaned_artifacts = [
+                        str(p).strip() for p in md_artifacts if isinstance(p, str) and str(p).strip()
+                    ]
+                    if cleaned_artifacts:
+                        completed_payload["artifacts"] = cleaned_artifacts
+            _append_event(
+                conn, task_id, "completed",
+                completed_payload,
+                run_id=run_id,
+            )
+    if review_gate_routed:
+        return True
     # Prose-scan the summary + result for t_<hex> references that do
     # not resolve. Advisory — does not block the completion. Runs in
     # its own txn so the completion itself is already durable by the

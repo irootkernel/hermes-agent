@@ -3838,6 +3838,318 @@ def test_dispatch_review_does_not_claim_ready_tasks(
         claimed = kb.claim_review_task(conn, t)
     assert claimed is None
 
+
+def test_handoff_task_closes_run_and_returns_same_card_to_ready(kanban_home):
+    with kb.connect() as conn:
+        t = kb.create_task(conn, title="handoff", assignee="alice")
+        claimed = kb.claim_task(conn, t)
+        assert claimed is not None
+        run_id = claimed.current_run_id
+
+        ok = kb.handoff_task(
+            conn,
+            t,
+            "bob",
+            summary="alice finished setup",
+            reason="needs review expertise",
+            metadata={"files": ["a.py"]},
+            expected_run_id=run_id,
+        )
+
+        task = kb.get_task(conn, t)
+        run = kb.latest_run(conn, t)
+        events = kb.list_events(conn, t)
+
+    assert ok is True
+    assert task.status == "ready"
+    assert task.assignee == "bob"
+    assert task.current_run_id is None
+    assert task.claim_lock is None
+    assert run.id == run_id
+    assert run.outcome == "handed_off"
+    assert run.status == "released"
+    assert run.summary == "alice finished setup"
+    assert run.metadata == {"files": ["a.py"]}
+    handed_off = [e for e in events if e.kind == "handed_off"]
+    assert len(handed_off) == 1
+    assert handed_off[0].payload["from"] == "alice"
+    assert handed_off[0].payload["to"] == "bob"
+
+
+def test_handoff_task_rejects_stale_run_id_without_mutation(kanban_home):
+    with kb.connect() as conn:
+        t = kb.create_task(conn, title="handoff", assignee="alice")
+        claimed = kb.claim_task(conn, t)
+        assert claimed is not None
+        ok = kb.handoff_task(conn, t, "bob", expected_run_id=claimed.current_run_id + 1)
+        task = kb.get_task(conn, t)
+        run = kb.latest_run(conn, t)
+
+    assert ok is False
+    assert task.status == "running"
+    assert task.assignee == "alice"
+    assert task.current_run_id == claimed.current_run_id
+    assert run.ended_at is None
+
+
+def test_submit_task_for_review_moves_same_card_to_review(
+    kanban_home, all_assignees_spawnable,
+):
+    with kb.connect() as conn:
+        t = kb.create_task(conn, title="review", assignee="alice", created_by="creator")
+        claimed = kb.claim_task(conn, t)
+        assert claimed is not None
+
+        ok = kb.submit_task_for_review(
+            conn,
+            t,
+            reviewer="reviewer",
+            final_assignee="creator",
+            summary="ready for review",
+            metadata={"tests": ["pytest"]},
+            expected_run_id=claimed.current_run_id,
+        )
+
+        task = kb.get_task(conn, t)
+        run = kb.latest_run(conn, t)
+        submitted = [e for e in kb.list_events(conn, t) if e.kind == "submitted_review"]
+
+    assert ok is True
+    assert task.status == "review"
+    assert task.assignee == "reviewer"
+    assert task.current_run_id is None
+    assert run.outcome == "submitted_review"
+    assert run.status == "released"
+    assert submitted[-1].payload["from_assignee"] == "alice"
+    assert submitted[-1].payload["reviewer"] == "reviewer"
+    assert submitted[-1].payload["final_assignee"] == "creator"
+
+
+def test_submit_task_for_review_defaults_to_profile_created_by(
+    kanban_home, all_assignees_spawnable,
+):
+    with kb.connect() as conn:
+        t = kb.create_task(conn, title="review", assignee="alice", created_by="creator")
+        ok = kb.submit_task_for_review(conn, t, summary="review me")
+        task = kb.get_task(conn, t)
+
+    assert ok is True
+    assert task.status == "review"
+    assert task.assignee == "creator"
+
+
+def test_submit_task_for_review_fails_without_real_reviewer(kanban_home, monkeypatch):
+    from hermes_cli import profiles
+    monkeypatch.setattr(profiles, "profile_exists", lambda name: False)
+    with kb.connect() as conn:
+        t = kb.create_task(conn, title="review", assignee="alice", created_by="missing")
+        ok_default = kb.submit_task_for_review(conn, t)
+        ok_explicit = kb.submit_task_for_review(conn, t, reviewer="missing")
+        task = kb.get_task(conn, t)
+
+    assert ok_default is False
+    assert ok_explicit is False
+    assert task.status == "ready"
+    assert task.assignee == "alice"
+
+
+def test_submit_task_for_review_rejects_stale_run_id_without_mutation(
+    kanban_home, all_assignees_spawnable,
+):
+    with kb.connect() as conn:
+        t = kb.create_task(conn, title="review", assignee="alice", created_by="creator")
+        claimed = kb.claim_task(conn, t)
+        assert claimed is not None
+        ok = kb.submit_task_for_review(
+            conn, t, reviewer="reviewer", expected_run_id=claimed.current_run_id + 1
+        )
+        task = kb.get_task(conn, t)
+        run = kb.latest_run(conn, t)
+
+    assert ok is False
+    assert task.status == "running"
+    assert task.assignee == "alice"
+    assert task.current_run_id == claimed.current_run_id
+    assert run.ended_at is None
+
+
+def test_request_changes_returns_review_to_original_assignee(
+    kanban_home, all_assignees_spawnable,
+):
+    with kb.connect() as conn:
+        t = kb.create_task(conn, title="review", assignee="alice", created_by="creator")
+        assert kb.submit_task_for_review(conn, t, reviewer="reviewer")
+        review = kb.claim_review_task(conn, t)
+        assert review is not None
+
+        ok = kb.request_changes_task(
+            conn,
+            t,
+            reason="tighten tests",
+            summary="needs more tests",
+            metadata={"missing": ["edge case"]},
+            expected_run_id=review.current_run_id,
+        )
+        task = kb.get_task(conn, t)
+        run = kb.latest_run(conn, t)
+        requested = [e for e in kb.list_events(conn, t) if e.kind == "requested_changes"]
+
+    assert ok is True
+    assert task.status == "ready"
+    assert task.assignee == "alice"
+    assert task.current_run_id is None
+    assert run.outcome == "requested_changes"
+    assert run.status == "released"
+    assert requested[-1].payload["assignee"] == "alice"
+    assert requested[-1].payload["reason"] == "tighten tests"
+
+
+def test_request_changes_allows_explicit_assignee_override(
+    kanban_home, all_assignees_spawnable,
+):
+    with kb.connect() as conn:
+        t = kb.create_task(conn, title="review", assignee="alice", created_by="creator")
+        assert kb.submit_task_for_review(conn, t, reviewer="reviewer")
+        assert kb.claim_review_task(conn, t) is not None
+        ok = kb.request_changes_task(conn, t, assignee="bob", reason="needs bob")
+        task = kb.get_task(conn, t)
+
+    assert ok is True
+    assert task.status == "ready"
+    assert task.assignee == "bob"
+
+
+def test_request_changes_rejects_stale_run_id_without_mutation(
+    kanban_home, all_assignees_spawnable,
+):
+    with kb.connect() as conn:
+        t = kb.create_task(conn, title="review", assignee="alice", created_by="creator")
+        assert kb.submit_task_for_review(conn, t, reviewer="reviewer")
+        review = kb.claim_review_task(conn, t)
+        assert review is not None
+        ok = kb.request_changes_task(
+            conn, t, reason="stale", expected_run_id=review.current_run_id + 1
+        )
+        task = kb.get_task(conn, t)
+        run = kb.latest_run(conn, t)
+
+    assert ok is False
+    assert task.status == "running"
+    assert task.assignee == "reviewer"
+    assert task.current_run_id == review.current_run_id
+    assert run.ended_at is None
+
+
+def test_request_changes_same_task_review_rework_loop(
+    kanban_home, all_assignees_spawnable,
+):
+    with kb.connect() as conn:
+        t = kb.create_task(conn, title="review", assignee="alice", created_by="creator")
+        assert kb.claim_task(conn, t) is not None
+        assert kb.submit_task_for_review(conn, t, reviewer="reviewer", summary="first")
+        assert kb.claim_review_task(conn, t) is not None
+        assert kb.request_changes_task(conn, t, reason="tighten tests")
+        assert kb.claim_task(conn, t) is not None
+        assert kb.submit_task_for_review(conn, t, reviewer="reviewer", summary="second")
+        task = kb.get_task(conn, t)
+        submitted = [e for e in kb.list_events(conn, t) if e.kind == "submitted_review"]
+        requested = [e for e in kb.list_events(conn, t) if e.kind == "requested_changes"]
+
+    assert task.status == "review"
+    assert task.assignee == "reviewer"
+    assert len(submitted) == 2
+    assert len(requested) == 1
+
+
+def test_review_approval_routes_to_creator_final_gate(
+    kanban_home, all_assignees_spawnable,
+):
+    with kb.connect() as conn:
+        t = kb.create_task(conn, title="review", assignee="alice", created_by="creator")
+        assert kb.claim_task(conn, t) is not None
+        assert kb.submit_task_for_review(
+            conn, t, reviewer="reviewer", final_assignee="creator"
+        )
+        review = kb.claim_review_task(conn, t)
+        assert review is not None
+
+        ok = kb.complete_task(
+            conn,
+            t,
+            summary="review accepted",
+            result="approved",
+            expected_run_id=review.current_run_id,
+        )
+
+        task = kb.get_task(conn, t)
+        run = kb.latest_run(conn, t)
+        accepted = [e for e in kb.list_events(conn, t) if e.kind == "review_accepted"]
+
+    assert ok is True
+    assert task.status == "ready"
+    assert task.assignee == "creator"
+    assert task.completed_at is None
+    assert task.current_run_id is None
+    assert run.outcome == "review_accepted"
+    assert run.status == "released"
+    assert accepted[-1].payload["reviewer"] == "reviewer"
+    assert accepted[-1].payload["final_assignee"] == "creator"
+
+
+def test_submit_task_for_review_rejects_invalid_final_assignee(kanban_home, monkeypatch):
+    from hermes_cli import profiles
+    monkeypatch.setattr(profiles, "profile_exists", lambda name: name == "reviewer")
+    with kb.connect() as conn:
+        t = kb.create_task(conn, title="review", assignee="alice", created_by="creator")
+        ok = kb.submit_task_for_review(
+            conn, t, reviewer="reviewer", final_assignee="missing"
+        )
+        task = kb.get_task(conn, t)
+
+    assert ok is False
+    assert task.status == "ready"
+    assert task.assignee == "alice"
+
+
+def test_submit_task_for_review_rejects_invalid_reviewer_without_event(
+    kanban_home, monkeypatch,
+):
+    from hermes_cli import profiles
+    monkeypatch.setattr(profiles, "profile_exists", lambda name: False)
+    with kb.connect() as conn:
+        t = kb.create_task(conn, title="review", assignee="alice", created_by="creator")
+        ok = kb.submit_task_for_review(conn, t, reviewer="missing")
+        events = [e for e in kb.list_events(conn, t) if e.kind == "submitted_review"]
+
+    assert ok is False
+    assert events == []
+
+
+def test_review_approval_rejects_final_gate_that_became_invalid(
+    kanban_home, monkeypatch,
+):
+    from hermes_cli import profiles
+    valid = {"reviewer", "creator"}
+    monkeypatch.setattr(profiles, "profile_exists", lambda name: name in valid)
+    with kb.connect() as conn:
+        t = kb.create_task(conn, title="review", assignee="alice", created_by="creator")
+        assert kb.submit_task_for_review(
+            conn, t, reviewer="reviewer", final_assignee="creator"
+        )
+        review = kb.claim_review_task(conn, t)
+        assert review is not None
+        valid.remove("creator")
+
+        ok = kb.complete_task(conn, t, summary="approve", expected_run_id=review.current_run_id)
+        task = kb.get_task(conn, t)
+        run = kb.latest_run(conn, t)
+
+    assert ok is False
+    assert task.status == "running"
+    assert task.assignee == "reviewer"
+    assert task.current_run_id == review.current_run_id
+    assert run.ended_at is None
+
 # Stale detection — detect_stale_running
 # ---------------------------------------------------------------------------
 

@@ -106,10 +106,10 @@ entries:
   D2:
     title: Kanban review and same-card handoff helpers
     previous_v0_17_status: d2-a-through-d2-i-applied
-    v0_18_status: partial_native_overlap_audited
+    v0_18_status: local_minimize_partially_applied
     priority: 3
     code_patch_required: true
-    decision: "D2-a audit complete: preserve v0.18.2 native review/goal/notify/swarm/workflow foundations and carry only missing Root Kernel same-card handoff, submit-review, request-changes, creator/final-gate, review-watcher, result-acceptance, mutex, and workflow-banner seams."
+    decision: "D2-a audit complete, then D2-b unified implementation applied: preserve v0.18.2 native review/goal/notify/swarm/workflow foundations and carry the missing Root Kernel same-card review loop as one cohesive D2-b patch. Remaining D2-f/g/h/i seams still require audit/implementation."
     evidence:
       - root-kernel/evidence/d2-a-kanban-native-overlap.md
     upstream_native_foundations:
@@ -118,20 +118,34 @@ entries:
       - "`/goal` completion contracts and Kanban `goal_mode` / `goal_max_turns` exist; they are complementary, not replacements for same-card review gates."
       - "Background `delegate_task` fan-out and Kanban Swarm v1 exist; they do not provide D2's durable same-card id, formal assignee/reviewer/final gate, mutex, or workflow-banner semantics."
       - "Generic `workflow_template_id` / `current_step_key` metadata exists; D2-i should add only closed Root Kernel workflow context banners if carried."
-    missing_local_seams:
-      - D2-b cooperative same-card handoff / worker-facing reassign
-      - D2-c worker submit-for-review seam on top of native review
-      - D2-d reviewer request-changes return-to-rework loop
-      - D2-e creator/final gate after reviewer approval
+    applied_subitems:
+      D2-b:
+        title: same-card review loop
+        includes:
+          - "former D2-b cooperative same-card handoff / worker-facing reassign"
+          - "former D2-c worker submit-for-review seam on top of native review"
+          - "former D2-d reviewer request-changes return-to-rework loop"
+          - "former D2-e creator/final gate after reviewer approval"
+        files_changed:
+          - hermes_cli/kanban_db.py
+          - tools/kanban_tools.py
+          - toolsets.py
+          - tests/hermes_cli/test_kanban_db.py
+          - tests/tools/test_kanban_tools.py
+    remaining_local_seams:
       - D2-f review-specific watcher/notification events
       - D2-g creator/acceptor result submission loop
       - D2-h mutex-key serialization
       - D2-i closed workflow context banners
     smoke:
-      - "Symbol probe: D2 handoff/submit-review/request-changes/submit-result symbols absent; native review/workflow metadata present; mutex_key/workflow_type absent."
-      - "Native review focused pytest slice -> 10 passed in 0.76s."
-      - "Review/goal/notify overlap pytest slice -> 15 passed in 1.37s."
-    next_action: Apply D2-b/c/d/e as the next product-code subitem group, preserving upstream native review claim/dispatch and keeping user-facing D2 workflow compatibility.
+      - "D2-a symbol probe: D2 handoff/submit-review/request-changes/submit-result symbols absent; native review/workflow metadata present; mutex_key/workflow_type absent."
+      - "D2-a native review focused pytest slice -> 10 passed in 0.76s."
+      - "D2-a review/goal/notify overlap pytest slice -> 15 passed in 1.37s."
+      - "D2-b RED: 7 focused same-card review loop tests failed on v0.18.2 base due to missing `handoff_task`, `submit_task_for_review`, `request_changes_task`, and tool registrations."
+      - "D2-b GREEN: 18 focused DB/tool same-card review loop tests -> 18 passed in 1.31s."
+      - "D2-b GREEN: worker/orchestrator Kanban tool visibility tests -> 4 passed in 0.91s."
+      - "D2-b GREEN: tests/hermes_cli/test_kanban_db.py tests/tools/test_kanban_tools.py -> 338 passed in 27.70s."
+    next_action: Apply D2-f review watcher/notification seam next, preserving D2-b same-card review loop compatibility and upstream native review dispatch.
   D3:
     title: Kanban assignee alias dispatch seam
     previous_v0_17_status: retired

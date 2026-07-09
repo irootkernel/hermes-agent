@@ -57,6 +57,7 @@ def test_kanban_tools_visible_with_env_var(monkeypatch, tmp_path):
     expected = {
         "kanban_show", "kanban_complete", "kanban_block", "kanban_heartbeat",
         "kanban_comment", "kanban_create", "kanban_link",
+        "kanban_reassign", "kanban_submit_review", "kanban_request_changes",
     }
     assert kanban == expected, f"expected {expected}, got {kanban}"
 
@@ -84,6 +85,9 @@ def test_kanban_worker_env_overrides_profile_toolset_filter(monkeypatch, tmp_pat
     assert "kanban_show" in names
     assert "kanban_complete" in names
     assert "kanban_block" in names
+    assert "kanban_reassign" in names
+    assert "kanban_submit_review" in names
+    assert "kanban_request_changes" in names
     assert "kanban_list" not in names
 
 
@@ -137,6 +141,7 @@ def test_kanban_tools_visible_with_toolset_config(monkeypatch, tmp_path):
         "kanban_list",
         "kanban_show", "kanban_complete", "kanban_block", "kanban_heartbeat",
         "kanban_comment", "kanban_create", "kanban_link",
+        "kanban_reassign", "kanban_submit_review", "kanban_request_changes",
         "kanban_unblock",
     }
     assert kanban == expected, f"expected {expected}, got {kanban}"
@@ -360,6 +365,117 @@ def test_complete_stamps_worker_session_id_from_env(monkeypatch, worker_env):
         }
     finally:
         conn.close()
+
+
+def test_kanban_reassign_tool_handoffs_current_worker_task(monkeypatch, worker_env):
+    from tools import kanban_tools as kt
+    from tools.registry import registry
+
+    assert registry.get_entry("kanban_reassign") is not None
+    out = kt._handle_reassign({
+        "assignee": "peer-worker",
+        "summary": "setup complete",
+        "reason": "peer owns next step",
+        "metadata": {"files": ["a.py"]},
+    })
+    d = json.loads(out)
+    assert d["ok"] is True
+    assert d["task_id"] == worker_env
+    assert d["assignee"] == "peer-worker"
+
+    from hermes_cli import kanban_db as kb
+    conn = kb.connect()
+    try:
+        task = kb.get_task(conn, worker_env)
+        run = kb.latest_run(conn, worker_env)
+    finally:
+        conn.close()
+    assert task.status == "ready"
+    assert task.assignee == "peer-worker"
+    assert run.outcome == "handed_off"
+
+
+def test_kanban_submit_review_tool_submits_current_worker_task(
+    monkeypatch, worker_env,
+):
+    from hermes_cli import profiles
+    monkeypatch.setattr(profiles, "profile_exists", lambda name: True)
+    from tools import kanban_tools as kt
+    from tools.registry import registry
+
+    assert registry.get_entry("kanban_submit_review") is not None
+    out = kt._handle_submit_review({
+        "reviewer": "reviewer",
+        "final_assignee": "creator",
+        "summary": "ready for review",
+        "metadata": {"tests": ["pytest"]},
+    })
+    d = json.loads(out)
+    assert d["ok"] is True
+    assert d["task_id"] == worker_env
+    assert d["status"] == "review"
+    assert d["reviewer"] == "reviewer"
+
+    from hermes_cli import kanban_db as kb
+    conn = kb.connect()
+    try:
+        task = kb.get_task(conn, worker_env)
+        run = kb.latest_run(conn, worker_env)
+    finally:
+        conn.close()
+    assert task.status == "review"
+    assert task.assignee == "reviewer"
+    assert run.outcome == "submitted_review"
+
+
+def test_kanban_request_changes_tool_returns_review_to_rework(
+    monkeypatch, worker_env,
+):
+    from hermes_cli import profiles
+    monkeypatch.setattr(profiles, "profile_exists", lambda name: True)
+    from hermes_cli import kanban_db as kb
+    conn = kb.connect()
+    try:
+        assert kb.submit_task_for_review(conn, worker_env, reviewer="reviewer")
+        assert kb.claim_review_task(conn, worker_env) is not None
+    finally:
+        conn.close()
+
+    from tools import kanban_tools as kt
+    from tools.registry import registry
+
+    assert registry.get_entry("kanban_request_changes") is not None
+    out = kt._handle_request_changes({
+        "reason": "tighten tests",
+        "summary": "needs more tests",
+        "metadata": {"missing": ["edge case"]},
+    })
+    d = json.loads(out)
+    assert d["ok"] is True
+    assert d["task_id"] == worker_env
+    assert d["status"] == "ready"
+    assert d["assignee"] == "test-worker"
+
+    conn = kb.connect()
+    try:
+        task = kb.get_task(conn, worker_env)
+        run = kb.latest_run(conn, worker_env)
+    finally:
+        conn.close()
+    assert task.status == "ready"
+    assert task.assignee == "test-worker"
+    assert run.outcome == "requested_changes"
+
+
+def test_kanban_submit_review_tool_rejects_invalid_reviewer(
+    monkeypatch, worker_env,
+):
+    from hermes_cli import profiles
+    monkeypatch.setattr(profiles, "profile_exists", lambda name: False)
+    from tools import kanban_tools as kt
+
+    out = kt._handle_submit_review({"reviewer": "missing", "summary": "ready"})
+    assert "could not submit" in json.loads(out).get("error", "")
 
 
 def test_complete_does_not_stamp_worker_session_id_without_scoped_task(
