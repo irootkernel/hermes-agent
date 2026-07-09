@@ -51,8 +51,31 @@ Every D item requires owner direction before code application: choose upstream-n
 ### D2 — Kanban review and same-card handoff helpers
 
 - Previous v0.17 state: D2-a through D2-i applied.
-- v0.18.2 state: not yet evaluated.
-- Next action: audit v0.18.2 Kanban, `/goal`, background subagents, review/final-gate/watcher/mutex/workflow native behavior before carrying code.
+- v0.18.2 state: D2-a native-overlap audit complete; product-code subitems D2-b through D2-i remain pending.
+- Decision: use partial-native local-minimized carry. Preserve v0.18.2 native review/goal/notify/swarm/workflow foundations and add only missing Root Kernel same-card seams.
+- Evidence: `root-kernel/evidence/d2-a-kanban-native-overlap.md`.
+- Native foundations retained:
+  - `review` status, `claim_review_task`, review dispatch, and `has_spawnable_review`;
+  - `kanban_notify_subs`, notify subscribe/list/unsubscribe, dashboard home-subscribe, and gateway Kanban notifier;
+  - `/goal` completion contracts and Kanban `goal_mode` / `goal_max_turns`;
+  - background `delegate_task` fan-out;
+  - Kanban Swarm v1 (`parallel workers -> verifier -> synthesizer`);
+  - `workflow_template_id` / `current_step_key` generic workflow metadata.
+- Missing Root Kernel seams to carry, without changing the user-facing D2 workflow:
+  - D2-b cooperative same-card handoff / worker-facing reassign;
+  - D2-c worker submit-for-review seam on top of native review;
+  - D2-d reviewer request-changes return-to-rework loop;
+  - D2-e creator/final gate after reviewer approval;
+  - D2-f review-specific watcher/notification events;
+  - D2-g creator/acceptor result submission loop;
+  - D2-h mutex-key serialization;
+  - D2-i closed workflow context banners.
+- Audit smoke:
+  - Symbol probe: D2 handoff/submit-review/request-changes/submit-result symbols absent; native review/workflow metadata present; `mutex_key` / `workflow_type` absent.
+  - Native review focused pytest slice: `10 passed in 0.76s`.
+  - Review/goal/notify overlap pytest slice: `15 passed in 1.37s`.
+- Boundary: no product code, live profile state, gateway, token, production Kanban DB, `rk/live`, push, or tag was mutated.
+- Next action: implement D2-b/c/d/e as the next product-code subitem group, preserving upstream native review claim/dispatch.
 
 ### D3 — Kanban assignee alias dispatch seam
 

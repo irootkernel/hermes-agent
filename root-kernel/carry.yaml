@@ -106,10 +106,32 @@ entries:
   D2:
     title: Kanban review and same-card handoff helpers
     previous_v0_17_status: d2-a-through-d2-i-applied
-    v0_18_status: not_evaluated
+    v0_18_status: partial_native_overlap_audited
     priority: 3
-    code_patch_required: unknown
-    next_action: Audit v0.18.2 Kanban, /goal, background subagent, review, final-gate, watcher, mutex, and workflow-banner overlap before applying code.
+    code_patch_required: true
+    decision: "D2-a audit complete: preserve v0.18.2 native review/goal/notify/swarm/workflow foundations and carry only missing Root Kernel same-card handoff, submit-review, request-changes, creator/final-gate, review-watcher, result-acceptance, mutex, and workflow-banner seams."
+    evidence:
+      - root-kernel/evidence/d2-a-kanban-native-overlap.md
+    upstream_native_foundations:
+      - "Native `review` status, `claim_review_task`, review dispatch, and `has_spawnable_review` exist and should not be reimplemented."
+      - "`kanban_notify_subs`, notify subscribe/list/unsubscribe, dashboard home-subscribe, and gateway Kanban notifier exist and should be extended only for review-specific outcomes."
+      - "`/goal` completion contracts and Kanban `goal_mode` / `goal_max_turns` exist; they are complementary, not replacements for same-card review gates."
+      - "Background `delegate_task` fan-out and Kanban Swarm v1 exist; they do not provide D2's durable same-card id, formal assignee/reviewer/final gate, mutex, or workflow-banner semantics."
+      - "Generic `workflow_template_id` / `current_step_key` metadata exists; D2-i should add only closed Root Kernel workflow context banners if carried."
+    missing_local_seams:
+      - D2-b cooperative same-card handoff / worker-facing reassign
+      - D2-c worker submit-for-review seam on top of native review
+      - D2-d reviewer request-changes return-to-rework loop
+      - D2-e creator/final gate after reviewer approval
+      - D2-f review-specific watcher/notification events
+      - D2-g creator/acceptor result submission loop
+      - D2-h mutex-key serialization
+      - D2-i closed workflow context banners
+    smoke:
+      - "Symbol probe: D2 handoff/submit-review/request-changes/submit-result symbols absent; native review/workflow metadata present; mutex_key/workflow_type absent."
+      - "Native review focused pytest slice -> 10 passed in 0.76s."
+      - "Review/goal/notify overlap pytest slice -> 15 passed in 1.37s."
+    next_action: Apply D2-b/c/d/e as the next product-code subitem group, preserving upstream native review claim/dispatch and keeping user-facing D2 workflow compatibility.
   D3:
     title: Kanban assignee alias dispatch seam
     previous_v0_17_status: retired
