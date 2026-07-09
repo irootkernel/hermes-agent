@@ -478,6 +478,98 @@ def test_kanban_submit_review_tool_rejects_invalid_reviewer(
     assert "could not submit" in json.loads(out).get("error", "")
 
 
+def test_submit_review_auto_attaches_review_watch_from_gateway_session(
+    monkeypatch, worker_env,
+):
+    from hermes_cli import profiles
+    monkeypatch.setattr(profiles, "profile_exists", lambda name: True)
+    monkeypatch.setenv("HERMES_SESSION_PLATFORM", "telegram")
+    monkeypatch.setenv("HERMES_SESSION_CHAT_ID", "chat-d2f")
+    monkeypatch.setenv("HERMES_SESSION_THREAD_ID", "thread-d2f")
+    monkeypatch.setenv("HERMES_SESSION_USER_ID", "user-d2f")
+    monkeypatch.setenv("HERMES_SESSION_PROFILE", "watcher-profile")
+
+    from tools import kanban_tools as kt
+
+    out = kt._handle_submit_review({
+        "reviewer": "reviewer",
+        "final_assignee": "creator",
+        "summary": "ready for async review",
+    })
+    d = json.loads(out)
+    assert d["ok"] is True, d
+    assert d["review_watch"] == {
+        "attached": True,
+        "platform": "telegram",
+        "chat_id": "chat-d2f",
+        "thread_id": "thread-d2f",
+        "user_id": "user-d2f",
+        "profile": "watcher-profile",
+    }
+
+    from hermes_cli import kanban_db as kb
+    conn = kb.connect()
+    try:
+        subs = kb.list_notify_subs(conn, worker_env)
+    finally:
+        conn.close()
+    assert len(subs) == 1
+    assert subs[0]["platform"] == "telegram"
+    assert subs[0]["chat_id"] == "chat-d2f"
+    assert subs[0]["thread_id"] == "thread-d2f"
+    assert subs[0]["user_id"] == "user-d2f"
+    assert subs[0]["notifier_profile"] == "watcher-profile"
+
+
+def test_submit_review_review_watch_skips_unattached_cli_context(
+    monkeypatch, worker_env,
+):
+    from hermes_cli import profiles
+    monkeypatch.setattr(profiles, "profile_exists", lambda name: True)
+    monkeypatch.delenv("HERMES_SESSION_PLATFORM", raising=False)
+    monkeypatch.delenv("HERMES_SESSION_CHAT_ID", raising=False)
+    monkeypatch.delenv("HERMES_SESSION_THREAD_ID", raising=False)
+    monkeypatch.delenv("HERMES_SESSION_USER_ID", raising=False)
+    monkeypatch.delenv("HERMES_SESSION_KEY", raising=False)
+    monkeypatch.setenv("HERMES_SESSION_ID", "telemetry-only-session")
+
+    from tools import kanban_tools as kt
+
+    out = kt._handle_submit_review({"reviewer": "reviewer", "summary": "ready"})
+    d = json.loads(out)
+    assert d["ok"] is True, d
+    assert d["review_watch"] == {"attached": False}
+
+    from hermes_cli import kanban_db as kb
+    conn = kb.connect()
+    try:
+        subs = kb.list_notify_subs(conn, worker_env)
+    finally:
+        conn.close()
+    assert subs == []
+
+
+def test_submit_review_review_watch_swallows_add_notify_sub_failure(
+    monkeypatch, worker_env,
+):
+    from hermes_cli import profiles
+    monkeypatch.setattr(profiles, "profile_exists", lambda name: True)
+    monkeypatch.setenv("HERMES_SESSION_PLATFORM", "telegram")
+    monkeypatch.setenv("HERMES_SESSION_CHAT_ID", "chat-d2f")
+    from hermes_cli import kanban_db as kb
+
+    def _boom(*a, **kw):
+        raise RuntimeError("simulated notify-sub failure")
+
+    monkeypatch.setattr(kb, "add_notify_sub", _boom)
+    from tools import kanban_tools as kt
+
+    out = kt._handle_submit_review({"reviewer": "reviewer", "summary": "ready"})
+    d = json.loads(out)
+    assert d["ok"] is True, d
+    assert d["review_watch"] == {"attached": False}
+
+
 def test_complete_does_not_stamp_worker_session_id_without_scoped_task(
     monkeypatch, worker_env
 ):

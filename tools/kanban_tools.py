@@ -691,6 +691,72 @@ def _redact_metadata(metadata: Any) -> Any:
         return metadata
 
 
+def _maybe_attach_review_watch(conn: Any, task_id: str) -> dict[str, Any]:
+    """Subscribe the originating session to same-card review outcomes.
+
+    Unlike create-time auto-subscribe, this D2-f seam is tied to an explicit
+    review submission: if the caller has a real gateway/TUI delivery channel,
+    keep the origin in the loop for requested-changes / review-accepted events.
+    ``HERMES_SESSION_ID`` is intentionally not a fallback because ACP/CLI
+    telemetry sets it without implying a durable notification target.
+    """
+    platform = ""
+    chat_id = ""
+    try:
+        from gateway.session_context import get_session_env
+
+        platform = get_session_env("HERMES_SESSION_PLATFORM", "")
+        chat_id = get_session_env("HERMES_SESSION_CHAT_ID", "")
+        if not platform or not chat_id:
+            session_key = (
+                get_session_env("HERMES_SESSION_KEY", "")
+                or os.environ.get("HERMES_SESSION_KEY", "")
+            )
+            if not session_key:
+                return {"attached": False}
+            platform = "tui"
+            chat_id = session_key
+        thread_id = get_session_env("HERMES_SESSION_THREAD_ID", "") or None
+        user_id = get_session_env("HERMES_SESSION_USER_ID", "") or None
+        notifier_profile = (
+            get_session_env("HERMES_SESSION_PROFILE", "")
+            or os.environ.get("HERMES_PROFILE")
+            or None
+        )
+
+        from hermes_cli import kanban_db as _kb
+
+        _kb.add_notify_sub(
+            conn,
+            task_id=task_id,
+            platform=platform,
+            chat_id=chat_id,
+            thread_id=thread_id,
+            user_id=user_id,
+            notifier_profile=notifier_profile,
+        )
+        receipt: dict[str, Any] = {
+            "attached": True,
+            "platform": platform,
+            "chat_id": chat_id,
+        }
+        if thread_id:
+            receipt["thread_id"] = thread_id
+        if user_id:
+            receipt["user_id"] = user_id
+        if notifier_profile:
+            receipt["profile"] = notifier_profile
+        return receipt
+    except Exception as _exc:
+        logger.warning(
+            "_maybe_attach_review_watch failed: %r (platform=%r key_set=%r)",
+            _exc,
+            platform,
+            bool(chat_id),
+        )
+        return {"attached": False}
+
+
 def _handle_reassign(args: dict[str, Any], **kw) -> str:
     """Cooperatively hand off the current task to another assignee."""
     tid = _default_task_id(args.get("task_id"))
@@ -785,11 +851,13 @@ def _handle_submit_review(args: dict[str, Any], **kw) -> str:
                 )
             task = kb.get_task(conn, tid)
             run = kb.latest_run(conn, tid)
+            review_watch = _maybe_attach_review_watch(conn, tid)
             return _ok(
                 task_id=tid,
                 status="review",
                 reviewer=task.assignee if task else reviewer_name,
                 run_id=run.id if run else None,
+                review_watch=review_watch,
             )
         finally:
             conn.close()

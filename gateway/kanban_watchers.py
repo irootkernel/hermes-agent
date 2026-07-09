@@ -164,7 +164,11 @@ class GatewayKanbanWatchersMixin:
 
         # "status" covers dashboard drag-drop and `_set_status_direct()`
         # writes — surface those transitions to subscribers too.
-        TERMINAL_KINDS = ("completed", "blocked", "gave_up", "crashed", "timed_out", "status", "archived", "unblocked")
+        TERMINAL_KINDS = (
+            "completed", "blocked", "gave_up", "crashed", "timed_out",
+            "requested_changes", "review_accepted",
+            "status", "archived", "unblocked",
+        )
         # Subscriptions are removed only when the task reaches a truly final
         # status (done / archived). We used to also unsub on any terminal
         # event kind (gave_up / crashed / timed_out / blocked), but that
@@ -391,6 +395,28 @@ class GatewayKanbanWatchersMixin:
                                 f"⏱ {board_tag}{tag}Kanban {sub['task_id']} timed out "
                                 f"(max_runtime={limit}s); will retry"
                             )
+                        elif kind == "requested_changes":
+                            reason = ""
+                            if ev.payload and ev.payload.get("reason"):
+                                reason = f": {str(ev.payload['reason'])[:160]}"
+                            assignee = ""
+                            if ev.payload and ev.payload.get("assignee"):
+                                assignee = f" → @{str(ev.payload['assignee'])[:80]}"
+                            msg = (
+                                f"🛠 {board_tag}{tag}Kanban {sub['task_id']} "
+                                f"requested changes{assignee}{reason}"
+                            )
+                        elif kind == "review_accepted":
+                            final_gate = ""
+                            if ev.payload and ev.payload.get("final_assignee"):
+                                final_gate = (
+                                    f" — final gate required "
+                                    f"@{str(ev.payload['final_assignee'])[:80]}"
+                                )
+                            msg = (
+                                f"✅ {board_tag}{tag}Kanban {sub['task_id']} "
+                                f"review accepted{final_gate}"
+                            )
                         elif kind == "status":
                             new_status = ""
                             if ev.payload and ev.payload.get("status"):
@@ -489,7 +515,10 @@ class GatewayKanbanWatchersMixin:
                         # same state. See the longer comment on TERMINAL_KINDS
                         # above for the failure mode this prevents.
                         task_terminal = task and task.status in {"done", "archived"}
-                        _WAKE_KINDS = ("completed", "gave_up", "crashed", "timed_out", "blocked")
+                        _WAKE_KINDS = (
+                            "completed", "gave_up", "crashed", "timed_out",
+                            "blocked", "requested_changes", "review_accepted",
+                        )
                         _wake_kinds = {ev.kind for ev in d["events"] if ev.kind in _WAKE_KINDS}
                         if _wake_kinds:
                             try:
@@ -503,6 +532,8 @@ class GatewayKanbanWatchersMixin:
                                     if "crashed" in _wake_kinds: _parts.append(t("gateway.kanban.wake.crashed"))
                                     if "timed_out" in _wake_kinds: _parts.append(t("gateway.kanban.wake.timed_out"))
                                     if "blocked" in _wake_kinds: _parts.append(t("gateway.kanban.wake.blocked"))
+                                    if "requested_changes" in _wake_kinds: _parts.append("requested changes")
+                                    if "review_accepted" in _wake_kinds: _parts.append("review accepted; final gate required")
                                     _status = t("gateway.kanban.wake.status_joiner").join(_parts) or t("gateway.kanban.wake.status_default")
                                     _synth = t(
                                         "gateway.kanban.wake.message",

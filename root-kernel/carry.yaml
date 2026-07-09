@@ -109,7 +109,7 @@ entries:
     v0_18_status: local_minimize_partially_applied
     priority: 3
     code_patch_required: true
-    decision: "D2-a audit complete, then D2-b unified implementation applied: preserve v0.18.2 native review/goal/notify/swarm/workflow foundations and carry the missing Root Kernel same-card review loop as one cohesive D2-b patch. Remaining D2-f/g/h/i seams still require audit/implementation."
+    decision: "D2-a audit complete, then D2-b unified implementation and D2-f review watcher applied: preserve v0.18.2 native review/goal/notify/swarm/workflow foundations and carry only the missing Root Kernel same-card review-loop and async review-outcome notification seams. Remaining D2-g/h/i seams still require audit/implementation."
     evidence:
       - root-kernel/evidence/d2-a-kanban-native-overlap.md
     upstream_native_foundations:
@@ -132,8 +132,18 @@ entries:
           - toolsets.py
           - tests/hermes_cli/test_kanban_db.py
           - tests/tools/test_kanban_tools.py
+      D2-f:
+        title: async review watcher notifications
+        includes:
+          - "`kanban_submit_review` attaches a review watch subscription when a gateway/TUI delivery source is available."
+          - "The review watch receipt reports attached platform/chat/thread/user/profile metadata to the worker."
+          - "Gateway Kanban notifier delivers `requested_changes` and `review_accepted` review-outcome events without retiring the subscription before final task state."
+        files_changed:
+          - tools/kanban_tools.py
+          - gateway/kanban_watchers.py
+          - tests/tools/test_kanban_tools.py
+          - tests/gateway/test_kanban_notifier.py
     remaining_local_seams:
-      - D2-f review-specific watcher/notification events
       - D2-g creator/acceptor result submission loop
       - D2-h mutex-key serialization
       - D2-i closed workflow context banners
@@ -145,7 +155,10 @@ entries:
       - "D2-b GREEN: 18 focused DB/tool same-card review loop tests -> 18 passed in 1.31s."
       - "D2-b GREEN: worker/orchestrator Kanban tool visibility tests -> 4 passed in 0.91s."
       - "D2-b GREEN: tests/hermes_cli/test_kanban_db.py tests/tools/test_kanban_tools.py -> 338 passed in 27.70s."
-    next_action: Apply D2-f review watcher/notification seam next, preserving D2-b same-card review loop compatibility and upstream native review dispatch.
+      - "D2-f RED: 5 focused review watcher tests failed on v0.18.2+D2-b because `review_watch` receipt/subscription and review-outcome notifier delivery were absent."
+      - "D2-f GREEN: focused review watcher tests -> 5 passed in 0.66s."
+      - "D2-f GREEN: tests/tools/test_kanban_tools.py tests/gateway/test_kanban_notifier.py -> 113 passed in 10.38s."
+    next_action: Apply D2-g creator/acceptor result submission loop next, preserving D2-b same-card review loop and D2-f async review-outcome notifications.
   D3:
     title: Kanban assignee alias dispatch seam
     previous_v0_17_status: retired
