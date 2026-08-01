@@ -26,6 +26,9 @@ release:
     - origin/rk/live
   current_head_at_scaffold: 9de9c25f620ff7f1ce0fd5457d596052d5159596
   scaffold_created_at: 2026-07-09T16:05:24+09:00
+  live_branch: rk/live
+  release_tag: rk/tag/v0.18.2
+  runtime_activation_head: 217d28ddd5aed9e7f82764d8b8e049e9f9dcc9a3
 policy:
   code_base_is_final_patch_tag: true
   base_selection: v2026.7.7.2 is the code base; v0.18.0/v0.18.1/v0.18.2 release notes are evidence for impact analysis, not sequential merge steps.
@@ -73,29 +76,155 @@ docker_smoke_policy:
 rules:
   R1:
     title: Config/profile activation policy
-    status: pending-post-rk-live
+    status: completed
     activation_impact: host-local config/schema/profile migration gate; not a runtime D carry.
-    next_action: Verify config/schema/profile state after rk/live is applied; not part of rk/v0.18.2 candidate branch creation.
+    evidence:
+      - /Users/draccoon/Workspace/Hermes/17thHermes/50_health/team/heuktaeja/2026-08-01-root-kernel-v0.18.2-activation.md
+      - /Users/draccoon/Workspace/Hermes/17thHermes/50_health/team/heuktaeja/2026-08-01-root-kernel-v0.18.2-r1-focused-reaudit.md
+      - /Users/draccoon/Workspace/Hermes/update-backups/20260801-rk-v0182-activation/config-migration-results.json
+      - /Users/draccoon/Workspace/Hermes/update-backups/20260801-rk-v0182-activation/doctor-running-profiles.json
+      - /Users/draccoon/Workspace/Hermes/update-backups/20260801-rk-v0182-activation/r1-focused-post-activation-reaudit.json
+    tag_blocker: false
+    focused_reaudit: 49 of 49 configs at schema 33 and mode 0600; 49 config checks and ten running-profile doctor checks returned zero; no embedded secret candidates or backup integrity failures.
+    next_action: Next release must repeat schema migration, config check, doctor triage, and live-process restart verification.
   R2:
     title: Skill provenance, overrides, and compatibility policy
-    status: pending-post-rk-live
+    status: completed-closed-allowlist-reset
     activation_impact: host-local bundled/optional/shared/profile-local skill compatibility gate; not a runtime D carry.
-    next_action: Compare bundled/optional/shared/profile-local skill behavior after rk/live is applied, using the live activated runtime.
+    evidence:
+      - /Users/draccoon/Workspace/Hermes/update-backups/20260801-rk-v0182-activation/skills-enabled-profile-audit.json
+      - /Users/draccoon/Workspace/Hermes/update-backups/20260801-rk-v0182-activation/plugin-toolset-verification.json
+      - /Users/draccoon/Workspace/Hermes/update-backups/20260801-rk-v0182-activation/r2-upstream-skill-delta.json
+      - /Users/draccoon/Workspace/Hermes/update-backups/20260801-rk-v0182-activation/r2-runtime-skill-provenance.json
+      - /Users/draccoon/Workspace/Hermes/update-backups/20260801-rk-v0182-activation/r2-1-shared-skill-parity-prechange/prechange-rollback.json
+      - /Users/draccoon/Workspace/Hermes/update-backups/20260801-rk-v0182-activation/r2-1-shared-skill-parity-prechange/postchange-receipt.json
+      - /Users/draccoon/Workspace/Hermes/update-backups/20260801-rk-v0182-activation/r2-1-orca-computer-use-retirement-prechange/prechange-rollback.json
+      - /Users/draccoon/Workspace/Hermes/update-backups/20260801-rk-v0182-activation/r2-1-orca-computer-use-retirement-prechange/postchange-receipt.json
+      - /Users/draccoon/Workspace/Hermes/17thHermes/50_health/team/heuktaeja/2026-08-01-root-kernel-v0.18.2-r2-r4-r5-detailed-audit.md
+      - /Users/draccoon/Workspace/Hermes/17thHermes/50_health/team/heuktaeja/2026-08-01-root-kernel-v0.18.2-r2-1-shared-parity-plan.md
+      - /Users/draccoon/Workspace/Hermes/17thHermes/50_health/team/heuktaeja/2026-08-01-hermes-orca-computer-use-coexistence-analysis.md
+      - /Users/draccoon/Workspace/Hermes/17thHermes/50_health/team/heuktaeja/2026-08-01-root-kernel-v0.18.2-r2-2-kanban-fork-decision-report.md
+      - /Users/draccoon/Workspace/Hermes/17thHermes/50_health/team/heuktaeja/2026-08-01-root-kernel-v0.18.2-r2-2-upstream-removal-transition-design.md
+      - /Users/draccoon/Workspace/Hermes/17thHermes/50_health/team/heuktaeja/2026-08-01-near-vanilla-hermes-fleet-retirement-design.md
+      - /Users/draccoon/Workspace/Hermes/17thHermes/50_health/team/heuktaeja/2026-08-01-hermes-initial-state-skill-script-reset-plan.md
+      - /Users/draccoon/Workspace/Hermes/17thHermes/50_health/team/heuktaeja/2026-08-01-hermes-initial-state-skill-script-reset-closeout.md
+      - /Users/draccoon/Workspace/Hermes/update-backups/20260801-hermes-initial-state-reset/skill-reset-receipt.json
+      - /Users/draccoon/Workspace/Hermes/update-backups/20260801-hermes-initial-state-reset/final-verification.json
+    tag_blocker: false
+    r2_1_result: systematic-debugging and himalaya match the exact v0.18.2 blobs; macos-computer-use is retired; the exact Hermes v0.18.2 computer-use skill is preserved in default only while its optional tool runtime remains inactive; the nearly unused Orca implementation is retired with rollback backup.
+    correction: The first post-live pass proved only basic resolver and plugin visibility. The approved reset subsequently completed provenance classification and replaced the mixed shared/profile overlay model with the closed allowlist.
+    r2_2_direction: >-
+      Reset skill resolution to a closed allowlist: retain only iRootKernel Hermes lifecycle/update, active ATN, active KSCQ, exact upstream bundled/official optional, and retained-plugin skills. Remove all other runtime-created/local custom skills and profile overlays, including retired Kkachi/KAS/KAH/KAO plugin skills, while preserving approved Root Kernel Kanban runtime carries D2-b/f/g/h/i and their seven workflow_type behaviors. Restore bundled visibility, replace official-name divergences with exact current official content, and remove the universal ops/skills dependency where no retained local overlay is required.
+    result: >-
+      All 49 profiles now contain 72 re-seeded bundled skills with byte-identical non-cache upstream content, no .no-bundled-skills markers, no universal ops/skills dependency, and no retired kkachi-agent-skills enablement. The retained root contains eleven compact iRootKernel/ATN/KSCQ contracts plus six exact official optional skills. D2 workflow tests and KSCQ query smoke passed. The ATN tool surface loads and fails closed because its separately managed daemon socket is absent.
+    post_r5_follow_up: >-
+      After R5 acceptance, 주군 approved replacing the retained-root layout with one managed root. The final fleet root exposes five domain contracts to all profiles (KSCQ 1, ATN 3, ATN council 1), while the admin root exposes ten Munang lifecycle/update skills only to default. Six Hermes-provided official optional skills were then retired from managed storage by explicit direction; they remain available from upstream optional-skills for future explicit installation. Every profile retains 72 exact bundled skills.
+    next_action: Next release must re-seed bundled skills through the official opt-in sync path and revalidate the closed allowlist before activation.
   R3:
     title: Web dashboard and desktop activation gate
-    status: pending-post-rk-live
+    status: accepted
     activation_impact: dashboard/desktop local GUI gate; not a runtime D carry.
-    next_action: Re-check dashboard/runtime readiness after rk/live is applied; continue treating Desktop as unused unless 주군 changes scope.
+    evidence:
+      - /Users/draccoon/Workspace/Hermes/17thHermes/50_health/team/heuktaeja/2026-08-01-root-kernel-v0.18.2-activation.md
+      - /Users/draccoon/Workspace/Hermes/17thHermes/50_health/team/heuktaeja/2026-08-01-root-kernel-v0.18.2-r3-sequential-verification.md
+      - /Users/draccoon/Workspace/Hermes/update-backups/20260801-rk-v0182-r3-sequential/r3-verification.json
+    tag_blocker: false
+    result: Dashboard launchd state is running from the v0.18.2 live venv on 127.0.0.1:9119; /api/status and / return 200 with version 0.18.2, release 2026.7.7.2, and config version 33. Installed and source plists are byte-identical. Desktop source exists but no build, packaged app, launchd service, or process exists, so Desktop remains intentionally unused.
+    operator_acceptance: 주군 explicitly accepted R3 in the Munang sequential review thread.
+    next_action: R3 is closed. R4 analysis is authorized; do not begin R5 before explicit R4 acceptance.
   R4:
     title: Cron, local scripts, watchers, and automation gate
-    status: pending-post-rk-live
+    status: accepted
     activation_impact: active cron/script/local automation readiness; not a runtime D carry unless product code changes.
-    next_action: Re-run active cron/script/watcher audit against the activated rk/live runtime.
+    evidence:
+      - /Users/draccoon/Workspace/Hermes/update-backups/20260801-rk-v0182-activation/r4-cron-script-audit.json
+      - /Users/draccoon/Workspace/Hermes/update-backups/20260801-rk-v0182-activation/credential-pin-running-profiles.json
+      - /Users/draccoon/Workspace/Hermes/update-backups/20260801-rk-v0182-activation/r4-detailed-automation-audit.json
+      - /Users/draccoon/Workspace/Hermes/17thHermes/50_health/team/heuktaeja/2026-08-01-root-kernel-v0.18.2-r2-r4-r5-detailed-audit.md
+      - /Users/draccoon/Workspace/Hermes/17thHermes/50_health/team/heuktaeja/2026-08-01-hermes-initial-state-skill-script-reset-plan.md
+      - /Users/draccoon/Workspace/Hermes/17thHermes/50_health/team/heuktaeja/2026-08-01-hermes-initial-state-skill-script-reset-closeout.md
+      - /Users/draccoon/Workspace/Hermes/update-backups/20260801-hermes-initial-state-reset/script-reset-receipt.json
+      - /Users/draccoon/Workspace/Hermes/update-backups/20260801-hermes-initial-state-reset/final-verification.json
+      - /Users/draccoon/Workspace/Hermes/17thHermes/50_health/team/heuktaeja/2026-08-01-root-kernel-v0.18.2-r4-sequential-analysis.md
+      - /Users/draccoon/Workspace/Hermes/update-backups/20260801-rk-v0182-r4-sequential/r4-analysis.json
+      - /Users/draccoon/Workspace/Hermes/17thHermes/50_health/team/heuktaeja/2026-08-01-root-kernel-v0.18.2-r4-repair-execution.md
+      - /Users/draccoon/Workspace/Hermes/update-backups/20260801-r4-repair/r4-repair-results.json
+      - /Users/draccoon/Workspace/Hermes/update-backups/20260801-r4-repair/backup-manifest.json
+      - /Users/draccoon/Workspace/Hermes/update-backups/20260801-r4-repair/kscq-state-migration-receipt.json
+      - /Users/draccoon/Workspace/Hermes/update-backups/20260801-r4-gateway-activation/prechange-rollback.json
+      - /Users/draccoon/Workspace/Hermes/update-backups/20260801-r4-gateway-activation/r4-gateway-activation-closeout.json
+      - /Users/draccoon/Workspace/Hermes/17thHermes/50_health/team/heuktaeja/2026-08-01-root-kernel-v0.18.2-r4-gateway-activation-closeout.md
+    tag_blocker: false
+    correction: The previous top-level path/syntax pass was insufficient. Sequential R4 analysis found a missing transitive Mibang cleanup target, a stale nonexistent jingun diary participant whose failure is masked by exit 0, six retired Kkachi queue strings in the live KSCQ runner, 48 unconsumed profile runtime state/backup files, three loaded SongEon LaunchAgents without matching current canonical plists, five enabled jobs dormant under stopped gateways, and governance-audit blind spots for hidden files and transitive dependencies.
+    result: >-
+      Fifteen enabled schedules are structurally valid and all top-level cron wrappers exist and are executable. Forty-eight retained Python/shell files pass syntax checks. Four installed custom launchd consumers have existing targets and last exit 0; the optional dashboard proxy remains unloaded. These positive checks do not clear the discovered execution and governance blockers.
+    repair_result: >-
+      The approved R4 repair removed the retired jingun diary participant and made partial diary failures return nonzero; migrated KSCQ runtime emissions and current state to `KSCQ knowledge study queue` with legacy-state compatibility; created three byte-identical canonical SongEon LaunchAgent plists; and extended the governance audit to inspect hidden runtime files, recursive executable/config dependencies, and enabled cron jobs under stopped gateway schedulers. Twelve focused tests passed, 25 Python and 24 shell files passed syntax checks, and the live audit now returns exit 1 for 57 findings instead of silently succeeding.
+    activation_closeout_result: >-
+      주군 approved the remaining R4 work. Mibang cleanup.py and the D2 watcher compatibility wrapper were restored from exact rollback hashes; Mibang and SongEon now run supervised profile gateways with their own verified Discord bot identities and active schedulers; 51 hash-gated runtime residuals were backed up and removed; SongEon cron and LaunchAgent checks pass; Mibang dry-run, live-model marker, and summary-gate integration pass; Wolyeong live smoke and the next regular orphan-link run completed with status ok; and the final governance audit reports zero violations and zero dormant enabled jobs. Fourteen focused tests and 53 syntax checks pass.
+    operator_acceptance: 주군 explicitly accepted R4 and authorized R5 in the Munang sequential review thread on 2026-08-01.
+    next_action: >-
+      R4 is closed. R5 sequential verification is authorized.
   R5:
     title: Profile-owned local asset optimization after v0.18 activation
-    status: pending-post-activation-nonblocking
-    activation_impact: post-release profile-owned skill/cron/script usage-style optimization; not a tag blocker unless explicitly scoped by 주군.
-    next_action: Defer broad profile-owned asset optimization until after rk/live activation and post-live R checks, unless 주군 explicitly scopes a blocker.
+    status: accepted
+    activation_impact: post-release profile-owned skill/cron/script usage-style optimization; accepted and no longer a tag blocker.
+    evidence:
+      - /Users/draccoon/Workspace/Hermes/update-backups/20260801-rk-v0182-activation/r5-ownership-guidance-audit.json
+      - /Users/draccoon/Workspace/Hermes/17thHermes/50_health/team/heuktaeja/2026-08-01-root-kernel-v0.18.2-r2-r4-r5-detailed-audit.md
+      - /Users/draccoon/Workspace/Hermes/update-backups/20260801-r5-sequential-verification/r5-profile-asset-final.json
+      - /Users/draccoon/Workspace/Hermes/update-backups/20260801-r5-sequential-verification/r5-skill-provenance.json
+      - /Users/draccoon/Workspace/Hermes/update-backups/20260801-r5-sequential-verification/r5-owner-consumer-inventory.json
+      - /Users/draccoon/Workspace/Hermes/update-backups/20260801-r5-sequential-verification/r5-profile-asset-optimization-closeout.json
+      - /Users/draccoon/Workspace/Hermes/17thHermes/50_health/team/heuktaeja/2026-08-01-root-kernel-v0.18.2-r5-profile-asset-optimization-closeout.md
+      - /Users/draccoon/Workspace/Hermes/update-backups/20260801-managed-skills-fleet/managed-skills-fleet-closeout.json
+      - /Users/draccoon/Workspace/Hermes/17thHermes/50_health/managed-skills-fleet-migration-2026-08-01.md
+      - /Users/draccoon/Workspace/Hermes/update-backups/20260801-managed-official-optional-retirement/managed-official-optional-retirement-closeout.json
+      - /Users/draccoon/Workspace/Hermes/17thHermes/50_health/managed-official-optional-retirement-2026-08-01.md
+    tag_blocker: false
+    correction: R5 changes were largely applied by the approved R2/R4 closed-allowlist reset, but that earlier work was not separate R5 acceptance. R5 now has current sequential evidence and explicit operator acceptance.
+    result: >-
+      Current R5 verification checked all 49 Hermes homes: every home has 72 exact bundled skills, with zero local extra skills, archive directories, no-bundled markers, nested skill homes, missing external roots, or bundled hash mismatches. Three allowlisted lifecycle skills created after R2 were moved byte-for-byte from default-local storage into the existing iRootKernel retained root and registered in SOURCE_MAP, which now has 20 entries with zero missing or hash mismatches. Two stale unconsumed watcher markers were backed up and removed; the remaining 18 runtime files all have direct, dynamic, generated-mirror, cron, launchd, or transitive consumer authority. Fresh resolvers, 49 config checks, doctor, governance audit, retained-skill frontmatter validation, and 14 focused automation tests pass. Accepted R2 retained plugin exceptions remain unchanged; identity, routing, tokens, registry, aliases, and the non-profile .omx auxiliary directory remain outside R5.
+    post_acceptance_follow_up: >-
+      Managed skill storage now has one owner-audited root with 15 entries and 15 MANAGED.yaml sidecars: fleet 5 and admin 10. All 49 profile configs retain write_approval=true and resolve 72 bundled skills; non-default profiles resolve 5 managed local skills and default resolves 15. Fresh resolver checks passed 49 of 49, managed and integrated script governance returned zero violations, the final focused host-cleanup suite reported 24 passed, and 11 running named gateways refreshed while the default gateway remained on the no-self-restart boundary.
+    operator_acceptance: 주군 explicitly accepted R5 in the Munang sequential review thread at 2026-08-01T16:55:55+09:00.
+    next_action: R5 is closed. 주군 explicitly authorized release closeout, commit, push, rk/live advancement, and rk/tag/v0.18.2 publication on 2026-08-01.
+release_closeout:
+  status: ready-for-publication
+  authorized_at: 2026-08-01T19:09:09+09:00
+  operator_direction: Complete the remaining work and release rk/v0.18.2.
+  candidate_precloseout_head: 217d28ddd5aed9e7f82764d8b8e049e9f9dcc9a3
+  ops_repository_commit: d35460fd1fdec5105d7d7068843602b7c77163eb
+  publication_refs:
+    release_branch: rk/v0.18.2
+    live_branch: rk/live
+    annotated_tag: rk/tag/v0.18.2
+  current_runtime:
+    version: v0.18.2
+    gateway_count: 12
+    all_gateways_use_live_venv: true
+  final_managed_skill_state:
+    bundled_per_profile: 72
+    fleet_managed: 5
+    admin_managed: 10
+    managed_total: 15
+    official_optional_retained: 0
+  rollback_ref: rk/rollback/pre-v0.18.2-20260801T014431
+  live_publication:
+    mechanism: force-with-lease-repoint
+    authorized_at: 2026-08-01T20:25:29+09:00
+    expected_old_remote_live: 79780a587ecb260788a23767d9996d5f7042a311
+    preserved_release_branch: origin/rk/v0.17.0
+    preserved_release_tag: rk/tag/v0.17.0
+    rollback_ref_location: /Users/draccoon/.hermes/hermes-agent
+  verification:
+    candidate_targeted_tests: 1394 passed
+    ops_focused_tests: 24 passed
+    managed_governance_violations: 0
+    integrated_script_governance_violations: 0
+    independent_ops_review: passed
+    candidate_sot_review: passed-after-force-with-lease-contract-correction
+    high_confidence_credential_hits: 0
 entries:
   D1:
     title: Tool Search pair

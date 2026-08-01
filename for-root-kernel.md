@@ -253,13 +253,29 @@ Every D item requires owner direction before code application: choose upstream-n
 
 ## R-item post-rk/live boundary
 
-R-items are post-rk/live activation/local-state checks, not product-code D-item carries and not part of the `rk/v0.18.2` candidate branch creation step. Run them after the candidate is applied as `rk/live`, unless 주군 explicitly scopes a specific pre-live blocker.
+R-items were intentionally deferred until after `rk/live` activation. 주군 approved v0.18.2 activation on 2026-08-01, and the post-live checks are now classified as follows.
 
-- R1: config/profile migration and doctor/check gate — pending post-rk/live.
-- R2: skill provenance and resolver compatibility — pending post-rk/live.
-- R3: dashboard/desktop gate — pending post-rk/live; Desktop remains unused unless 주군 changes scope.
-- R4: cron/script/watcher/local automation gate — pending post-rk/live.
-- R5: profile-owned local asset optimization — post-rk/live/non-blocking unless 주군 scopes it as blocker.
+- R1 — completed and focused re-audited: all 49 configs are schema version 33 and mode 0600; 49 fresh config checks and ten fresh running-profile doctor checks returned zero; the 49-entry non-secret rollback backup has zero missing/hash/mode failures; all ten running gateways use the v0.18.2 live venv and the default gateway remains connected to Telegram and Discord. Shared build-tool advisories and optional disabled-tool warnings remain visible but are outside the R1 config/profile activation gate.
+- R2 — completed through the approved closed-allowlist reset: all 49 profile homes contain 72 re-seeded bundled skills with byte-identical non-cache upstream content; `.no-bundled-skills` markers, the universal `ops/skills` dependency, retired plugin-skill enablement, and profile-local shadow copies are gone. At R2 acceptance, the retained root contained eleven compact iRootKernel/ATN/KSCQ contracts and six exact official optional skills. After R5, 주군 approved one managed root: fleet 5 (KSCQ 1, ATN 3, ATN council 1) plus Munang admin 10. The six Hermes-provided official optional skills were explicitly retired and remain available from upstream `optional-skills/` for future explicit installation. D2 workflow tests and KSCQ query smoke passed. ATN tools load and fail closed while their separately managed daemon socket remains absent.
+- R3 — accepted: dashboard launchd is running from the v0.18.2 live venv on localhost, `/api/status` and `/` return 200, installed/source plists are byte-identical, and Hermes Desktop has no build, packaged app, launchd service, or process.
+- R4 — accepted: the retired `jingun` participant and retired Kkachi runtime queue name are cleared; governance now covers hidden runtime files, transitive dependencies, and dormant schedulers; Mibang cleanup and the D2 watcher compatibility wrapper are restored from exact rollback hashes; Mibang and SongEon run supervised profile gateways with verified distinct Discord bot identities and active schedulers; 51 approved runtime residuals are backed up and removed; SongEon cron and LaunchAgent checks pass; Mibang dry-run, live-model, and summary-gate integration pass; Wolyeong live smoke and its next scheduled orphan-link run finish with status `ok`; and the final governance audit returns exit 0 with zero violations and zero dormant enabled jobs. Fourteen focused tests and 53 syntax checks pass. 주군 explicitly accepted R4 and authorized R5 on 2026-08-01.
+- R5 — accepted: all 49 Hermes homes retain 72 exact bundled skills with zero archives, markers, nested skill homes, missing roots, or bundled hash mismatches. The later approved managed-root consolidation now has 15 source-map entries and 15 owner sidecars: fleet 5 and Munang admin 10; official optional retention is zero. Non-default profiles resolve 5 managed local skills and default resolves 15. Two stale watcher markers were backed up and removed; every remaining runtime file has direct or inferred consumer authority. Fresh resolvers passed 49 of 49, managed and integrated script governance returned zero violations, doctor returned zero, and the final focused host-cleanup suite passed 24 tests. Independent ops review passed after stale retired-script consumers and fail-open smoke/audit behavior were repaired. Accepted R2 plugin exceptions remain unchanged; identity, routing, tokens, registry, aliases, and non-profile `.omx` auxiliary state remain outside scope. 주군 explicitly accepted R5 at `2026-08-01T16:55:55+09:00` and later approved the managed-root follow-up and official optional retirement.
+
+Sequential R1-R5 review is closed. 주군 explicitly authorized release closeout, commit, push, `rk/live` advancement, and annotated tag `rk/tag/v0.18.2` publication on 2026-08-01. Because the exact-tag v0.18.2 candidate and v0.17 live histories diverge, 주군 explicitly selected an exact force-with-lease repoint for remote `rk/live`, with expected old value `79780a587ecb260788a23767d9996d5f7042a311`; `origin/rk/v0.17.0`, `rk/tag/v0.17.0`, and the rollback ref remain preserved. ATN live daemon activation and retired persona/channel prompt cleanup remain separate operations and are not release blockers.
+
+Activation evidence: `/Users/draccoon/Workspace/Hermes/17thHermes/50_health/team/heuktaeja/2026-08-01-root-kernel-v0.18.2-activation.md`.
+
+Detailed R2/R4/R5 audit: `/Users/draccoon/Workspace/Hermes/17thHermes/50_health/team/heuktaeja/2026-08-01-root-kernel-v0.18.2-r2-r4-r5-detailed-audit.md`.
+
+R2/R4/R5 reset closeout: `/Users/draccoon/Workspace/Hermes/17thHermes/50_health/team/heuktaeja/2026-08-01-hermes-initial-state-skill-script-reset-closeout.md`.
+
+R4 repair evidence: `/Users/draccoon/Workspace/Hermes/17thHermes/50_health/team/heuktaeja/2026-08-01-root-kernel-v0.18.2-r4-repair-execution.md`.
+
+R4 gateway activation closeout: `/Users/draccoon/Workspace/Hermes/17thHermes/50_health/team/heuktaeja/2026-08-01-root-kernel-v0.18.2-r4-gateway-activation-closeout.md`.
+
+Managed root migration closeout: `/Users/draccoon/Workspace/Hermes/17thHermes/50_health/managed-skills-fleet-migration-2026-08-01.md`.
+
+Official optional retirement closeout: `/Users/draccoon/Workspace/Hermes/17thHermes/50_health/managed-official-optional-retirement-2026-08-01.md`.
 
 ## Docker smoke rule
 
@@ -272,4 +288,4 @@ Before moving `rk/live`, reinstalling runtime, or migrating `/Users/draccoon/.he
 
 ## Activation boundary
 
-This scaffold does not authorize moving `rk/live`, replacing or repointing `/Users/draccoon/.hermes/hermes-agent/`, editable runtime reinstall, profile config migration, gateway restart, dashboard/desktop persistent launchd changes, live platform sends, push, or tag creation.
+Historical boundary: this scaffold did not authorize activation by itself. 주군 later approved the v0.18.2 update on 2026-08-01. Local `rk/live`, the editable runtime, 49 profile configs, the running gateway fleet, and the dashboard were activated and verified from the v0.18.2 live checkout at `217d28ddd5aed9e7f82764d8b8e049e9f9dcc9a3`. 주군 subsequently authorized the final release closeout. The closeout commit containing this ledger is the intended common target for remote `rk/v0.18.2`, remote `rk/live`, and annotated tag `rk/tag/v0.18.2`; remote `rk/live` is repointed only with an exact force-with-lease against the recorded v0.17 value.
