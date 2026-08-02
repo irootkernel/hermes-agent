@@ -2,7 +2,7 @@ schema_version: 1
 ledger_kind: root-kernel-release-carry
 release:
   version: v0.19.1
-  status: task3-evidence-captured-awaiting-task4
+  status: task5-d1-verification-pass-awaiting-owner-acceptance
   tag_blocker: true
   scaffolded_at: '2026-08-02T17:24:26+09:00'
   candidate_branch: rk/v0.19.1
@@ -50,12 +50,26 @@ release:
         peeled_commit: 75a1faf0eb49b6bd465d80c02775b024afa521e8
   publication:
     commit_authorized: true
-    commit_authorized_at: '2026-08-02T18:13:17+09:00'
-    commit_scope:
-      - for-root-kernel.md
-      - root-kernel/carry.yaml
-    commit_subject: '[INT] record Task 3 findings and smart approval policy'
+    authorized_commit:
+      task: D1 / Task 5
+      subject: '[D1] CJK-aware offline session recovery'
+      authorized_at: '2026-08-02T22:53:25+09:00'
+      scope:
+        - hermes_cli/session_recovery.py
+        - tests/hermes_cli/test_session_recovery.py
+        - for-root-kernel.md
+        - root-kernel/carry.yaml
+    latest_commit:
+      task: D1 / Task 5
+      commit_ref: self
+      subject: '[D1] CJK-aware offline session recovery'
+      authorized_at: '2026-08-02T22:53:25+09:00'
     previous_commit:
+      task: Task 3
+      commit: 53e6060682a8dc98df6a30ef671b2ecb53c2384e
+      subject: '[INT] record Task 3 findings and smart approval policy'
+      authorized_at: '2026-08-02T18:13:17+09:00'
+    scaffold_commit:
       task: Task 2
       commit: 509ae0f6d1c5ea9f7dfb9a77a965614dd91b16ff
       subject: '[INT] scaffold v0.19.1 release ledgers'
@@ -79,11 +93,35 @@ candidate_boundary:
       - root-kernel/evidence/upstream-delta-v2026.7.7.2-to-v2026.7.30.json
       - root-kernel/evidence/v0.19.1-config-state-skill-signals.md
     evidence_git_policy: excluded-local-only-unless-owner-approves-publication
-  carry_code_changed: false
-  tests_changed: false
+  task4_changes:
+    ledger_updates:
+      - for-root-kernel.md
+      - root-kernel/carry.yaml
+    local_progress_evidence:
+      - root-kernel/evidence/v0.19.1-config-impact.md
+      - root-kernel/evidence/v0.19.1-config-impact.json
+      - root-kernel/evidence/v0.19.1-config-application.md
+      - root-kernel/evidence/v0.19.1-config-application.json
+    evidence_git_policy: excluded-local-only-unless-owner-approves-publication
+  task5_changes:
+    ledger_updates:
+      - for-root-kernel.md
+      - root-kernel/carry.yaml
+    local_progress_evidence:
+      - root-kernel/evidence/v0.19.1-state-schema-canary.json
+      - root-kernel/evidence/v0.19.1-d1-cjk-recovery.json
+    evidence_git_policy: excluded-local-only-unless-owner-approves-publication
+    synthetic_only: true
+    new_carry_registered: D1
+    active_carry_count: 6
+    d1_implementation_authorized: true
+    d1_verification_status: passed-awaiting-owner-acceptance
+    candidate_code_changed: true
+  carry_code_changed: true
+  tests_changed: true
   live_checkout_changed: false
-  profiles_changed: false
-  configs_changed: false
+  profiles_changed: true
+  configs_changed: true
   state_databases_changed: false
   skills_changed: false
   plugins_changed: false
@@ -94,10 +132,16 @@ candidate_boundary:
   rollback:
     scaffold: discard the two files before commit or revert the ledger-only Task 2 commit afterward
     candidate_code: switch the reused worktree to rk/v0.18.2
+    d1_candidate: /Users/draccoon/Workspace/Hermes/update-backups/20260802T224453-rk-v0191-d1-cjk-recovery
     live_runtime: preserve the separate live clone and observed v0.18.2 release refs
+    task4_config: /Users/draccoon/Workspace/Hermes/update-backups/20260802T185328-rk-v0191-task4-smart-stt
 evidence:
-  status: captured-verified-task3
+  status: captured-task5-d1-verification-pass-awaiting-owner-acceptance
   captured_at: '2026-08-02T17:51:25+09:00'
+  config_impact_captured_at: '2026-08-02T18:35:17+09:00'
+  config_application_captured_at: '2026-08-02T19:11:33+09:00'
+  state_schema_canary_captured_at: '2026-08-02T19:50:59+09:00'
+  d1_cjk_recovery_captured_at: '2026-08-02T22:53:25+09:00'
   commit_policy: local-progress-only-git-excluded
   release_notes:
     v0.19.0: root-kernel/evidence/release-note-v2026.7.20.md
@@ -106,12 +150,25 @@ evidence:
     markdown: root-kernel/evidence/upstream-delta-v2026.7.7.2-to-v2026.7.30.md
     json: root-kernel/evidence/upstream-delta-v2026.7.7.2-to-v2026.7.30.json
   signals: root-kernel/evidence/v0.19.1-config-state-skill-signals.md
+  config_impact:
+    markdown: root-kernel/evidence/v0.19.1-config-impact.md
+    json: root-kernel/evidence/v0.19.1-config-impact.json
+  config_application:
+    markdown: root-kernel/evidence/v0.19.1-config-application.md
+    json: root-kernel/evidence/v0.19.1-config-application.json
+  state_schema_canary: root-kernel/evidence/v0.19.1-state-schema-canary.json
+  d1_cjk_recovery: root-kernel/evidence/v0.19.1-d1-cjk-recovery.json
   sha256:
     release-note-v2026.7.20.md: 3918977363dfb7ce5dca016e62da2f19a3fac446b1392e1bae849079b8251124
     release-note-v2026.7.30.md: da40bfa71f1f5536d00c29422508e0e389daf1fdaa2a0dbcbd75cd26816a0fa8
     upstream-delta-v2026.7.7.2-to-v2026.7.30.json: aacea34ade1c2ac9076c374e4bffb2bea4447ac076e957f1761a3253748eb789
     upstream-delta-v2026.7.7.2-to-v2026.7.30.md: b383f1fa7d129aea45b6769a16c5ca2ee73f4bc6f94c68e7524892081a5705c8
     v0.19.1-config-state-skill-signals.md: e86a9a7ae826519eafe09f2e696f2cb93af28040913551c103b6862c2889034c
+    v0.19.1-config-impact.json: a11686b36292f21a136613bf05a69750394ce7917a8e2a3d965bd2174708f6c5
+    v0.19.1-config-impact.md: 4658b6eb10ab3730705bf738fcbc05a63186e6906403e31830bda563b1ccc937
+    v0.19.1-config-application.json: 049be4ef603ac1f0453b5def4b2187da1fb93ecde09d5b00652993a66dd9b155
+    v0.19.1-config-application.md: 1c6b95a07fa5f5960f43d6db147e6af400da422601cb02de7aaf7dcf614cfacd
+    v0.19.1-state-schema-canary.json: a01f8f4cab82702e1adaa318f443302ceca7cabf080094b695f8249735a0dcb2
 signals:
   provenance: completed planning baseline; refresh in dedicated read-only tasks
   config:
@@ -122,14 +179,27 @@ signals:
     target_source_config_version: 33
     unchanged_version_does_not_imply_unchanged_semantics: true
     approvals_mode:
-      observed: manual
-      observed_count: 49
-      target: smart
-      owner_decision: approved
-      approved_at: '2026-08-02T18:06:14+09:00'
-      config_write_status: pending-task4-audit-and-typed-rollback
-      cron_mode_target: deny
+      previous: manual
+      previous_count: 49
+      current: smart
+      current_count: 49
+      owner_decision: approved-applied
+      smart_approved_at: '2026-08-02T18:06:14+09:00'
+      timeout_and_stt_approval_recorded_before: '2026-08-02T18:53:28+09:00'
+      config_write_status: applied-verified-awaiting-owner-acceptance
+      cron_mode_current: deny
       custom_smart_policy: not-approved
+      auxiliary_route_configured_count: 49
+      paid_live_probe_count: 0
+      auxiliary_failure_behavior: escalate-to-owner
+      cron_deny_probe: passed-before-smart-verdict
+    approvals_timeout:
+      previous: 60
+      previous_count: 49
+      target_default: 300
+      current: 300
+      current_count: 49
+      owner_policy_status: approved-applied
     max_turns:
       explicit_count: 49
       observed_min: 80
@@ -140,10 +210,15 @@ signals:
       '0.85': 46
       '0.7': 3
       preservation_required: true
+      threshold_tokens_effective: null
+      idle_compact_after_seconds_effective: 0
     stt_language:
-      observed_explicit_count: 0
+      previous_explicit_count: 0
       target_default: en
-      owner_policy_status: pending
+      current: ''
+      current_explicit_count: 49
+      owner_policy_status: approved-applied
+      audited_multilingual_cohort_count: 49
       allowed_cohort_outcomes:
         korean_only: ko
         multilingual_auto_detect: ''
@@ -151,6 +226,41 @@ signals:
     multiplex_profiles_active: false
     profile_routes_active: false
     root_default_messaging_tokenless_required: true
+    root_default_messaging_tokenless_observed: false
+    root_default_nonempty_platform_token_variable_names:
+      - TELEGRAM_BOT_TOKEN
+      - DISCORD_BOT_TOKEN
+    token_values_read: false
+    root_messaging_activation_authorized: false
+    task4_integrity:
+      config_count: 49
+      readonly_audit_hash_size_mtime_unchanged_count: 49
+      readonly_audit_config_write_count: 0
+      application_config_write_count: 49
+      target_type_value_pass_count: 49
+      target_config_check_passed: 49
+      target_config_check_failed: 0
+      non_target_semantics_unchanged_count: 49
+      mode_owner_unchanged_count: 49
+      env_hash_unchanged_count: 49
+      auth_hash_unchanged_count: 49
+      typed_semantic_rollback_verified_count: 49
+      exact_pre_hash_rollback_reconstruction_count: 2
+      rollback_package: /Users/draccoon/Workspace/Hermes/update-backups/20260802T185328-rk-v0191-task4-smart-stt
+      rollback_archive_sha256: 7edd8c4b96c9ea7e38959860891aba82611db0d61ee24052dd157f38387ee088
+      rollback_secret_files_included: 0
+      yaml_format_normalized_profile_count: 47
+      canary_initial_format_failure_recovered_exactly: true
+      gateway_pid_before: 68805
+      gateway_pid_after: 68805
+      gateway_restart: false
+      planned_tests_passed: 22
+      planned_tests_failed: 0
+      additional_approval_tests_passed: 115
+      additional_approval_tests_failed: 1
+      nonblocking_failure: macOS /tmp canonicalization false-positive in upstream test introduced by 0c8bcd3399
+      acceptance_status: accepted
+      accepted_at: '2026-08-02T19:33:32+09:00'
   state:
     observed_schema_counts:
       '16': 37
@@ -160,9 +270,77 @@ signals:
     direct_migrations_required:
       - 16-to-23
       - 19-to-23
-    isolated_canary_status: pending
-    korean_search_status: pending
-    rollback_status: pending
+    isolated_canary_status: passed-d1-cjk-enabled-offline-recovery-awaiting-owner-acceptance
+    synthetic_only: true
+    production_database_accessed: false
+    sqlite_connection_guard:
+      enabled: true
+      connection_count: 73
+      all_file_connections_under_disposable_root: true
+    target_tests:
+      files: 8
+      passed: 80
+      failed: 0
+    migration_16_to_23:
+      historical_ref: d62979a6f34f64f2ed840f159aac66e24d7cad78
+      sessions_before: 2
+      sessions_after: 2
+      messages_before: 5
+      messages_after: 5
+      integrity: ok
+      status: passed
+    migration_19_to_23:
+      historical_ref: rk/v0.18.2
+      sessions_before: 2
+      sessions_after: 2
+      messages_before: 5
+      messages_after: 5
+      integrity: ok
+      status: passed
+    korean_search_status: passed-both-paths
+    english_search_status: passed-both-paths
+    fts_external_content_status: passed-both-paths
+    fts_rebuild_status: passed-three-index-rebuild
+    index_only_recovery_status: passed
+    malformed_schema_recovery_status: passed-dedup-schema
+    readonly_preflight_status: passed
+    wal_fallback_status: passed-delete-mode
+    linked_sqlite:
+      version: 3.50.4
+      wal_reset_vulnerable: true
+      fail_safe_mode: delete
+    zeroed_database_quarantine_status: passed
+    rollback_status: passed-exact-backup-only-both-paths
+    offline_recovery:
+      cjk_enabled_default:
+        status: passed
+        paths_passed: 2
+        expected_messages_each: 5
+        copied_messages_each: 5
+        complete: true
+        cjk_integrity: ok
+        korean_search: passed
+        source_unchanged: true
+        output_installed: false
+        config_toggle_required: false
+      cjk_disabled_fallback:
+        status: passed
+        paths_passed: 2
+        sessions_each: 2
+        messages_each: 5
+        cjk_rebuilt_after_recovery: true
+      root_cause: session_recovery reopened the CJK-triggered destination copy and verifier with plain sqlite3 connections that had not loaded the tokenizer
+      runtime_fix: load the existing CJK extension helper on the destination copy and verification connections
+    blocker:
+      active: true
+      id: TASK5-CJK-OFFLINE-RECOVERY
+      carry_id: D1
+      rule: technical verification passed but Task 5 owner acceptance is still required before Task 6
+      owner_direction_recorded: true
+      implementation_authorized: true
+      verification_status: passed
+      owner_acceptance: pending
+      task6_authorized: false
   skills:
     target_bundled_skill_count: 70
     candidate_source_count_verified: true
@@ -170,6 +348,63 @@ signals:
 active_carries:
   D1:
     current_id: D1
+    title: CJK-aware offline session recovery
+    lineage: v0.19.1/discovery-task5-cjk-recovery
+    origin:
+      release: v0.19.1
+      discovery_task: Task 5
+      upstream_target_tag: v2026.7.30
+      upstream_target_commit: a9b81287bd9fe8b5f3a7833a68b4e12ec7571e7d
+      previous_release_entry: null
+    status: verification-pass-awaiting-owner-acceptance
+    owner_direction: retain-minimal-then-retire-on-upstream-replacement
+    implementation_authorized: true
+    requirement: Preserve all canonical session and message rows in separate-output recovery with the CJK extension installed and sessions.cjk_fts true, then report complete true with clean integrity and Korean search.
+    upstream_gap: SessionDB creates CJK triggers on an extension-aware connection, but session recovery copies and verifies through plain sqlite3 connections that do not load cjk_unicode61.
+    likely_files:
+      - hermes_cli/session_recovery.py
+      - tests/hermes_cli/test_session_recovery.py
+    red_evidence:
+      status: captured
+      artifact: root-kernel/evidence/v0.19.1-state-schema-canary.json
+      result: Both schema 16 and 19 recovery paths copied 0 of 5 messages and reported complete false while preserving the source.
+    green_evidence:
+      status: passed
+      artifact: root-kernel/evidence/v0.19.1-d1-cjk-recovery.json
+      focused_regression_passed: 1
+      session_recovery_file_passed: 4
+      task5_tests_passed: 80
+      task5_tests_failed: 0
+      schema_16_messages_copied: 5
+      schema_19_messages_copied: 5
+      cjk_complete_both_paths: true
+      cjk_integrity_both_paths: ok
+      korean_search_both_paths: passed
+      source_unchanged_both_paths: true
+    integrated_smoke:
+      status: passed-task5-scope
+      py_compile: passed
+      ruff: passed
+      diff_check: passed
+      static_security_scan: passed
+      candidate_cli_import: passed
+      independent_review: passed
+      full_candidate_smoke: pending-task12
+    activation_impact: task5-owner-acceptance-and-activation-blocker
+    rollback: Revert only candidate D1 code and tests before activation; no live, profile, gateway, ref, tag, remote, or real-state rollback is involved.
+    retirement:
+      status: active-until-proven-upstream-replacement
+      decision: retire
+      condition: An exact later upstream target preserves canonical counts and reports complete true for CJK-enabled hermes sessions recover, passes an equivalent CJK recovery regression, and leaves no Root Kernel-only behavior gap.
+      insufficient_evidence:
+        - nearby CJK fix
+        - issue closure without target code verification
+        - matching symbol names without behavioral proof
+    live_mutation: false
+    next_action: Commit the owner-authorized D1 candidate scope, capture final local evidence, and request Task 5 owner acceptance without starting Task 6.
+  D2:
+    current_id: D2
+    renumbered_from_provisional_id: D1
     title: OpenAI Codex credential pinning and labelled reauth
     lineage: v0.18.2/D8
     previous_release:
@@ -189,8 +424,9 @@ active_carries:
     integrated_smoke: pending
     live_mutation: false
     next_action: Capture v0.19.1 overlap and missing pin or fail-close behavior, then request one owner direction.
-  D2:
-    current_id: D2
+  D3:
+    current_id: D3
+    renumbered_from_provisional_id: D2
     title: Discord thread ownership and role-mention fail-close
     lineage: v0.18.2/D4
     previous_release:
@@ -208,8 +444,9 @@ active_carries:
     integrated_smoke: pending
     live_mutation: false
     next_action: Probe ownership, free-response, and mention safety against v0.19.1 Discord recovery and media paths.
-  D3:
-    current_id: D3
+  D4:
+    current_id: D4
+    renumbered_from_provisional_id: D3
     title: Kanban same-card review and workflow seams
     lineage: v0.18.2/D2
     previous_release:
@@ -231,8 +468,9 @@ active_carries:
     integrated_smoke: pending
     live_mutation: false
     next_action: Audit native review, repair, model, child-isolation, and worktree behavior before testing remaining seams.
-  D4:
-    current_id: D4
+  D5:
+    current_id: D5
+    renumbered_from_provisional_id: D4
     title: CLI return-code passthrough
     lineage: v0.18.2/D6
     previous_release:
@@ -250,8 +488,9 @@ active_carries:
     integrated_smoke: pending
     live_mutation: false
     next_action: Trace the v0.19.1 process boundary and reproduce exact integer and bool behavior.
-  D5:
-    current_id: D5
+  D6:
+    current_id: D6
+    renumbered_from_provisional_id: D5
     title: Doctor optional tool warning filter
     lineage: v0.18.2/D7
     previous_release:
@@ -315,13 +554,12 @@ post_live_gates:
 activation:
   status: blocked
   blockers:
-    - exact upstream evidence pending
-    - D1 through D5 direction and verification pending
-    - semantic config and STT language policy pending
-    - state schema canary and rollback pending
+    - D1 implementation and technical reverification passed; Task 5 owner acceptance pending
+    - D2 through D6 direction and verification pending
     - skill and plugin reconciliation pending
     - integrated candidate smoke pending
     - typed non-secret activation backup and rollback rehearsal pending
+    - root default messaging token ownership unresolved and activation unauthorized
   root_self_restart_allowed: false
   external_control_required: true
   sensitive_state_backup_requires_separate_approval: true
@@ -343,9 +581,15 @@ ledger_parity:
     - live-mutation state
     - rollback authority
     - next action
-  status: verified-task3
+  status: verified-d1-implementation-precommit
 next_action:
-  task: Task 4
-  description: Run the 49-profile semantic config impact audit read-only.
-  d_item_implementation_authorized: false
+  task: Task 5 owner acceptance
+  description: Commit the owner-authorized D1 candidate scope as '[D1] CJK-aware offline session recovery', capture final Git-excluded evidence, and request Task 5 acceptance before any Task 6 or D2-through-D6 work.
+  d1_classification_approved: true
+  task5_source_fix_authorized: true
+  task5_source_fix_verified: true
+  task5_owner_acceptance: pending
+  task5_operational_fallback_accepted: false
+  task6_authorized: false
+  d_item_implementation_authorized: true
   live_mutation_authorized: false

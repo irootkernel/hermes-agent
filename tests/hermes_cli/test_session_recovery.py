@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import shutil
 import sqlite3
 import subprocess
 import sys
@@ -20,6 +21,46 @@ from hermes_cli.session_recovery import (
     inspect_session_database,
     recover_session_database,
 )
+
+
+REPO = Path(__file__).resolve().parents[2]
+CJK_SOURCE = REPO / "native" / "fts5_cjk" / "fts5_cjk.c"
+CJK_VENDOR = REPO / "native" / "fts5_cjk" / "vendor"
+
+
+@pytest.fixture(scope="session")
+def recovery_cjk_so(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    if shutil.which("gcc") is None or not CJK_SOURCE.exists():
+        pytest.skip("no C toolchain / tokenizer source")
+    output = tmp_path_factory.mktemp("session-recovery-cjk") / "libfts5_cjk.so"
+    try:
+        subprocess.run(
+            [
+                "gcc",
+                "-shared",
+                "-fPIC",
+                "-O2",
+                f"-I{CJK_VENDOR}",
+                str(CJK_SOURCE),
+                "-o",
+                str(output),
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except subprocess.CalledProcessError as exc:
+        pytest.skip(f"cjk tokenizer build failed: {exc.stderr}")
+    probe = sqlite3.connect(":memory:")
+    try:
+        probe.enable_load_extension(True)
+        probe.load_extension(str(output))
+        probe.enable_load_extension(False)
+    except (AttributeError, sqlite3.OperationalError) as exc:
+        pytest.skip(f"extension loading unavailable: {exc}")
+    finally:
+        probe.close()
+    return output
 
 
 def _sha256(path: Path) -> str:
@@ -212,6 +253,55 @@ def _make_many_sessions_source(
         return int(row[0])
     finally:
         conn.close()
+
+
+def test_recovery_preserves_messages_with_cjk_index_enabled(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    recovery_cjk_so: Path,
+) -> None:
+    monkeypatch.setenv("HERMES_FTS5_CJK_SO", str(recovery_cjk_so))
+    monkeypatch.setenv("HERMES_CJK_FTS", "1")
+    source = tmp_path / "cjk-source.db"
+    output = tmp_path / "cjk-recovered.db"
+
+    db = SessionDB(db_path=source)
+    try:
+        assert db._fts_cjk_loaded
+        assert db._fts_cjk_available
+        db.create_session("cjk-recovery-session", "cli")
+        db.append_message(
+            "cjk-recovery-session",
+            "user",
+            "한국어 복구 경로를 확인한다",
+        )
+    finally:
+        db.close()
+    source_hash = _sha256(source)
+
+    report = recover_session_database(
+        source,
+        output,
+        work_dir=tmp_path,
+    )
+
+    assert report["source_unchanged"] is True
+    assert _sha256(source) == source_hash
+    assert report["copy"]["messages"]["status"] == "complete"
+    assert report["copy"]["messages"]["copied_rows"] == 1
+    assert report["verification"]["table_counts"]["messages"] == 1
+    assert report["verification"]["fts_checks"]["messages_fts_cjk"] == "ok"
+    assert report["verification"]["complete"] is True
+    assert report["complete"] is True
+    assert report["installed"] is False
+
+    recovered = SessionDB(db_path=output)
+    try:
+        assert recovered._fts_cjk_available
+        rows = recovered.search_messages("복구", limit=10)
+        assert [row["session_id"] for row in rows] == ["cjk-recovery-session"]
+    finally:
+        recovered.close()
 
 
 def _btree_leaf_pages(path: Path, root_page: int) -> tuple[int, list[int]]:
