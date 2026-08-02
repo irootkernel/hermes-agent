@@ -1411,10 +1411,13 @@ def _apply_skill_write_gate(action, name, **payload_kwargs):
 
     try:
         from tools import write_approval as wa
+        decision = wa.evaluate_gate(wa.SKILLS)
     except Exception:
-        return None  # fail open
+        return tool_error(
+            "Skill write blocked: approval gate is unavailable.",
+            success=False,
+        )
 
-    decision = wa.evaluate_gate(wa.SKILLS)
     if decision.allow:
         return None
     if decision.blocked:

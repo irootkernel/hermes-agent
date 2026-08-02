@@ -2,7 +2,7 @@ schema_version: 1
 ledger_kind: root-kernel-release-carry
 release:
   version: v0.19.1
-  status: task5-d1-verification-pass-awaiting-owner-acceptance
+  status: d2-committed-technical-pass-awaiting-owner-acceptance
   tag_blocker: true
   scaffolded_at: '2026-08-02T17:24:26+09:00'
   candidate_branch: rk/v0.19.1
@@ -113,9 +113,9 @@ candidate_boundary:
     evidence_git_policy: excluded-local-only-unless-owner-approves-publication
     synthetic_only: true
     new_carry_registered: D1
-    active_carry_count: 6
+    active_carry_count: 7
     d1_implementation_authorized: true
-    d1_verification_status: passed-awaiting-owner-acceptance
+    d1_verification_status: passed-owner-accepted
     candidate_code_changed: true
   carry_code_changed: true
   tests_changed: true
@@ -136,12 +136,16 @@ candidate_boundary:
     live_runtime: preserve the separate live clone and observed v0.18.2 release refs
     task4_config: /Users/draccoon/Workspace/Hermes/update-backups/20260802T185328-rk-v0191-task4-smart-stt
 evidence:
-  status: captured-task5-d1-verification-pass-awaiting-owner-acceptance
+  status: captured-d2-technical-pass-awaiting-owner-acceptance
   captured_at: '2026-08-02T17:51:25+09:00'
   config_impact_captured_at: '2026-08-02T18:35:17+09:00'
   config_application_captured_at: '2026-08-02T19:11:33+09:00'
   state_schema_canary_captured_at: '2026-08-02T19:50:59+09:00'
   d1_cjk_recovery_captured_at: '2026-08-02T22:53:25+09:00'
+  task6_skill_reconciliation_captured_at: '2026-08-03T00:28:38+09:00'
+  task6_owner_accepted_at: '2026-08-03T00:41:48+09:00'
+  d2_owner_authorized_at: '2026-08-03T00:41:48+09:00'
+  d2_technical_pass_captured_at: '2026-08-03T01:03:25+09:00'
   commit_policy: local-progress-only-git-excluded
   release_notes:
     v0.19.0: root-kernel/evidence/release-note-v2026.7.20.md
@@ -158,6 +162,9 @@ evidence:
     json: root-kernel/evidence/v0.19.1-config-application.json
   state_schema_canary: root-kernel/evidence/v0.19.1-state-schema-canary.json
   d1_cjk_recovery: root-kernel/evidence/v0.19.1-d1-cjk-recovery.json
+  task6_skill_delta: root-kernel/evidence/v0.19.1-skill-delta.json
+  task6_skill_provenance: root-kernel/evidence/v0.19.1-skill-provenance.md
+  d2_skill_write_approval: root-kernel/evidence/v0.19.1-D2-skill-write-approval.json
   sha256:
     release-note-v2026.7.20.md: 3918977363dfb7ce5dca016e62da2f19a3fac446b1392e1bae849079b8251124
     release-note-v2026.7.30.md: da40bfa71f1f5536d00c29422508e0e389daf1fdaa2a0dbcbd75cd26816a0fa8
@@ -169,6 +176,10 @@ evidence:
     v0.19.1-config-application.json: 049be4ef603ac1f0453b5def4b2187da1fb93ecde09d5b00652993a66dd9b155
     v0.19.1-config-application.md: 1c6b95a07fa5f5960f43d6db147e6af400da422601cb02de7aaf7dcf614cfacd
     v0.19.1-state-schema-canary.json: a01f8f4cab82702e1adaa318f443302ceca7cabf080094b695f8249735a0dcb2
+    v0.19.1-d1-cjk-recovery.json: 45b6ecb282b227fb8bc91c898f4f780d9f9e534dac3c2c093d17bd27db33351a
+    v0.19.1-skill-delta.json: 4791ad338be5f017f42d13ff9ff9240d8a8137fa9e1f6f3a4a5c32e3843d1de3
+    v0.19.1-skill-provenance.md: 2a0c413ef67e129ba79a26fb1ad222b6367989651af3eac49c9e2517e6091bf3
+    v0.19.1-D2-skill-write-approval.json: 0d6b1de44322fc7f37e66149008c0d30bf6359767e2c029a98d7f92c6f6a29d6
 signals:
   provenance: completed planning baseline; refresh in dedicated read-only tasks
   config:
@@ -186,7 +197,7 @@ signals:
       owner_decision: approved-applied
       smart_approved_at: '2026-08-02T18:06:14+09:00'
       timeout_and_stt_approval_recorded_before: '2026-08-02T18:53:28+09:00'
-      config_write_status: applied-verified-awaiting-owner-acceptance
+      config_write_status: applied-verified-owner-accepted
       cron_mode_current: deny
       custom_smart_policy: not-approved
       auxiliary_route_configured_count: 49
@@ -270,7 +281,7 @@ signals:
     direct_migrations_required:
       - 16-to-23
       - 19-to-23
-    isolated_canary_status: passed-d1-cjk-enabled-offline-recovery-awaiting-owner-acceptance
+    isolated_canary_status: passed-d1-cjk-enabled-offline-recovery-owner-accepted
     synthetic_only: true
     production_database_accessed: false
     sqlite_connection_guard:
@@ -332,19 +343,35 @@ signals:
       root_cause: session_recovery reopened the CJK-triggered destination copy and verifier with plain sqlite3 connections that had not loaded the tokenizer
       runtime_fix: load the existing CJK extension helper on the destination copy and verification connections
     blocker:
-      active: true
+      active: false
       id: TASK5-CJK-OFFLINE-RECOVERY
       carry_id: D1
-      rule: technical verification passed but Task 5 owner acceptance is still required before Task 6
+      rule: Task 5 accepted; D1 remains an activation carry but no longer blocks Task 6.
       owner_direction_recorded: true
       implementation_authorized: true
       verification_status: passed
-      owner_acceptance: pending
-      task6_authorized: false
+      owner_acceptance: accepted
+      accepted_at: '2026-08-02T23:25:52+09:00'
+      task6_authorized: true
   skills:
     target_bundled_skill_count: 70
     candidate_source_count_verified: true
-    fleet_provenance_reconciliation_status: pending
+    baseline_bundled_skill_count: 72
+    target_optional_skill_count: 111
+    target_plugin_manifest_count: 95
+    fleet_profile_count: 49
+    fleet_current_exact_baseline_count: 49
+    fleet_current_exact_target_per_profile: 30
+    managed_fleet_count: 5
+    managed_admin_count: 10
+    managed_source_map_count: 15
+    managed_sidecar_count: 15
+    official_optional_retained_target: 0
+    profile_local_custom_target: 0
+    curator_prune_builtins_target: false
+    curator_suppressed_target_count: 0
+    fleet_provenance_reconciliation_status: technical-pass-awaiting-owner-acceptance
+    actual_reseed_gate: post-live-R2
 active_carries:
   D1:
     current_id: D1
@@ -354,9 +381,10 @@ active_carries:
       release: v0.19.1
       discovery_task: Task 5
       upstream_target_tag: v2026.7.30
-      upstream_target_commit: a9b81287bd9fe8b5f3a7833a68b4e12ec7571e7d
+      upstream_target_commit: cc4cab2f592e60a197e796506de9168f74baf3ea
+      upstream_feature_commit: a9b8128bcbd4cfde97b3814aea24bffb21f10967
       previous_release_entry: null
-    status: verification-pass-awaiting-owner-acceptance
+    status: implemented-verified-task5-accepted
     owner_direction: retain-minimal-then-retire-on-upstream-replacement
     implementation_authorized: true
     requirement: Preserve all canonical session and message rows in separate-output recovery with the CJK extension installed and sessions.cjk_fts true, then report complete true with clean integrity and Korean search.
@@ -389,7 +417,7 @@ active_carries:
       static_security_scan: passed
       candidate_cli_import: passed
       independent_review: passed
-      full_candidate_smoke: pending-task12
+      full_candidate_smoke: pending-task13
     activation_impact: task5-owner-acceptance-and-activation-blocker
     rollback: Revert only candidate D1 code and tests before activation; no live, profile, gateway, ref, tag, remote, or real-state rollback is involved.
     retirement:
@@ -401,10 +429,59 @@ active_carries:
         - issue closure without target code verification
         - matching symbol names without behavioral proof
     live_mutation: false
-    next_action: Commit the owner-authorized D1 candidate scope, capture final local evidence, and request Task 5 owner acceptance without starting Task 6.
+    next_action: Keep active until an exact upstream replacement satisfies the retirement rule; no further D1 work is authorized in Task 6.
   D2:
     current_id: D2
+    title: Fail-closed skill write approval import boundary
+    lineage: v0.19.1/discovery-task6-skill-write-approval
+    origin:
+      release: v0.19.1
+      discovery_task: Task 6
+      upstream_target_tag: v2026.7.30
+      upstream_target_commit: cc4cab2f592e60a197e796506de9168f74baf3ea
+      previous_release_entry: null
+    status: committed-technical-pass-awaiting-owner-acceptance
+    owner_direction: retain-minimal-fail-closed
+    implementation_authorized: true
+    tag_blocker: true
+    requirement: When skills.write_approval is true, an import or initialization failure in the approval helper must fail closed and must not apply an unstaged skill mutation.
+    finding: tools/skill_manager_tool.py::_apply_skill_write_gate returns no gate when tools.write_approval cannot import, so the caller can continue to mutation.
+    likely_files:
+      - tools/skill_manager_tool.py
+      - tests/tools/test_skill_manager_tool.py
+    red_evidence:
+      import_failure: existing source returned success true and created the skill; 1 expected failure
+      evaluation_failure: RuntimeError escaped from evaluate_gate; 1 expected failure
+    green_evidence:
+      focused: 2 passed
+      behavior: import and gate-evaluation failures return structured success-false errors before mutation
+    integrated_smoke:
+      related_files: 17
+      passed: 199
+      failed: 0
+      broad_tools_new_failures_vs_detached_pre_d2_baseline: 0
+      fresh_resolver_processes: 49
+      profile_hashes_unchanged: true
+    independent_review:
+      passed: true
+      security_concerns: 0
+      logic_errors: 0
+      suggestions: 0
+    evidence: root-kernel/evidence/v0.19.1-D2-skill-write-approval.json
+    evidence_sha256: 0d6b1de44322fc7f37e66149008c0d30bf6359767e2c029a98d7f92c6f6a29d6
+    rollback:
+      package: /Users/draccoon/Workspace/Hermes/update-backups/20260803T004148-rk-v0191-d2-write-approval
+      archive_sha256: e82b6c8d46f8855dc6e2c97d5f731c946cdb25686eb22f505964172f6d58f852
+      files: 7
+      restore_canary: passed
+      restored_red_tests: 2
+    commit_header: '[D2]'
+    live_mutation: false
+    next_action: Stop for separate D2 acceptance; do not begin D3.
+  D3:
+    current_id: D3
     renumbered_from_provisional_id: D1
+    renumbered_after_task6_finding_from: D2
     title: OpenAI Codex credential pinning and labelled reauth
     lineage: v0.18.2/D8
     previous_release:
@@ -424,9 +501,10 @@ active_carries:
     integrated_smoke: pending
     live_mutation: false
     next_action: Capture v0.19.1 overlap and missing pin or fail-close behavior, then request one owner direction.
-  D3:
-    current_id: D3
+  D4:
+    current_id: D4
     renumbered_from_provisional_id: D2
+    renumbered_after_task6_finding_from: D3
     title: Discord thread ownership and role-mention fail-close
     lineage: v0.18.2/D4
     previous_release:
@@ -444,9 +522,10 @@ active_carries:
     integrated_smoke: pending
     live_mutation: false
     next_action: Probe ownership, free-response, and mention safety against v0.19.1 Discord recovery and media paths.
-  D4:
-    current_id: D4
+  D5:
+    current_id: D5
     renumbered_from_provisional_id: D3
+    renumbered_after_task6_finding_from: D4
     title: Kanban same-card review and workflow seams
     lineage: v0.18.2/D2
     previous_release:
@@ -468,9 +547,10 @@ active_carries:
     integrated_smoke: pending
     live_mutation: false
     next_action: Audit native review, repair, model, child-isolation, and worktree behavior before testing remaining seams.
-  D5:
-    current_id: D5
+  D6:
+    current_id: D6
     renumbered_from_provisional_id: D4
+    renumbered_after_task6_finding_from: D5
     title: CLI return-code passthrough
     lineage: v0.18.2/D6
     previous_release:
@@ -488,9 +568,10 @@ active_carries:
     integrated_smoke: pending
     live_mutation: false
     next_action: Trace the v0.19.1 process boundary and reproduce exact integer and bool behavior.
-  D6:
-    current_id: D6
+  D7:
+    current_id: D7
     renumbered_from_provisional_id: D5
+    renumbered_after_task6_finding_from: D6
     title: Doctor optional tool warning filter
     lineage: v0.18.2/D7
     previous_release:
@@ -536,6 +617,33 @@ post_live_gates:
     status: pending
     tag_blocker: true
     operator_acceptance: pending
+    planning_status: task6-technical-pass-awaiting-owner-acceptance
+    execution_boundary: post-rk-live-only
+    evidence:
+      - root-kernel/evidence/v0.19.1-skill-delta.json
+      - root-kernel/evidence/v0.19.1-skill-provenance.md
+    target:
+      profile_count: 49
+      bundled_per_profile: 70
+      official_optional_retained: 0
+      managed_fleet: 5
+      managed_admin_default_only: 10
+      profile_local_custom: 0
+      profile_archives: 0
+      no_bundled_markers: 0
+      curator_prune_builtins: false
+      curator_suppressed_files: 0
+      retained_plugin_entries: 14
+      retired_plugin_entries: 1
+      active_plugin_skill_roots: 0
+    plugin_decision:
+      retain:
+        - atn-plugin
+        - orca-status
+      retire:
+        - kkachi-agent-network-plugin
+      rule: Plugin-provided skills cannot keep a retired plugin alive.
+    rollback_rule: Secret-excluded typed backups, exact package hashes, first-profile stop, affected-profile restore, and restore canary are mandatory before continuation.
   R3:
     title: Dashboard and Desktop
     status: pending
@@ -554,9 +662,8 @@ post_live_gates:
 activation:
   status: blocked
   blockers:
-    - D1 implementation and technical reverification passed; Task 5 owner acceptance pending
-    - D2 through D6 direction and verification pending
-    - skill and plugin reconciliation pending
+    - D2 owner acceptance pending
+    - D3 through D7 direction and verification pending
     - integrated candidate smoke pending
     - typed non-secret activation backup and rollback rehearsal pending
     - root default messaging token ownership unresolved and activation unauthorized
@@ -581,15 +688,25 @@ ledger_parity:
     - live-mutation state
     - rollback authority
     - next action
-  status: verified-d1-implementation-precommit
+  status: d2-committed-technical-pass-awaiting-owner-acceptance
 next_action:
-  task: Task 5 owner acceptance
-  description: Commit the owner-authorized D1 candidate scope as '[D1] CJK-aware offline session recovery', capture final Git-excluded evidence, and request Task 5 acceptance before any Task 6 or D2-through-D6 work.
+  task: D2 owner acceptance
+  description: The verified D2 code, tests, and paired ledgers are committed in the current [D2] changeset. Stop for separate owner acceptance; do not begin D3.
   d1_classification_approved: true
   task5_source_fix_authorized: true
   task5_source_fix_verified: true
-  task5_owner_acceptance: pending
+  task5_owner_acceptance: accepted
+  task5_accepted_at: '2026-08-02T23:25:52+09:00'
   task5_operational_fallback_accepted: false
-  task6_authorized: false
+  task6_authorized: true
+  task6_status: owner-accepted
+  task6_owner_acceptance: accepted
+  task6_accepted_at: '2026-08-03T00:41:48+09:00'
+  next_d_item: D2
+  next_d_item_owner_direction: retain-minimal-fail-closed
   d_item_implementation_authorized: true
+  authorized_d_item: D2
+  commit_header: '[D2]'
+  d2_technical_status: committed-technical-pass-awaiting-owner-acceptance
+  d2_owner_acceptance: pending
   live_mutation_authorized: false

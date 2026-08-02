@@ -2,7 +2,7 @@
 
 ## Release state
 
-- Status: `task5-d1-verification-pass-awaiting-owner-acceptance`
+- Status: `d2-committed-technical-pass-awaiting-owner-acceptance`
 - Candidate branch: `rk/v0.19.1`
 - Candidate worktree: `/Users/draccoon/Workspace/Hermes/17th-hermes-agent-worktree`
 - Tag blocker: `true`
@@ -12,6 +12,8 @@
 - Current D1 commit: this ledger commit; exact SHA is recorded in Git and the excluded D1 evidence
 - Task 4 evidence: local progress-only and Git-excluded; accumulated ledger updates are included in the authorized D1 commit scope
 - Task 4 accepted by owner at `2026-08-02T19:33:32+09:00`, including the recorded 47-profile YAML formatting caveat
+- Task 5 and D1 accepted by owner at `2026-08-02T23:25:52+09:00`; Task 6 read-only reconciliation authorized
+- Task 6 accepted and D2 minimal fail-closed implementation/commit authorized by owner at `2026-08-03T00:41:48+09:00`; commit header must be `[D2]`
 - Tag, push, and remote-ref movement: not authorized
 - Scaffolded at: `2026-08-02T17:24:26+09:00`
 
@@ -115,27 +117,30 @@ These values are the completed planning baseline. Fleet values must be refreshed
 - D1 implementation: load the existing CJK extension helper on the destination copy and verification connections; no config default or profile config changed.
 - GREEN result: schema 16→23 and 19→23 each preserve 2 sessions and 5 of 5 messages under the default CJK-enabled recovery path, report `complete: true`, pass CJK integrity and Korean search, and leave the source unchanged.
 - Current linked SQLite is 3.50.4 and falls in the WAL-reset vulnerability range; v0.19.1 correctly fails safe to `journal_mode=DELETE`.
-- Task 5 technical verification now passes and awaits owner acceptance. No inactive real-profile canary was authorized or required because the synthetic paths and strict SQLite path guard provide sufficient D1 evidence.
-- Owner direction: retain this minimal candidate runtime fix as current v0.19.1 D1, commit it as `[D1] CJK-aware offline session recovery`, and retire it after an exact upstream replacement is proven. Because no inherited D item had started, the provisional D1–D5 mapping shifted to D2–D6 to preserve actual execution order.
+- Task 5 technical verification passed and the owner accepted it at `2026-08-02T23:25:52+09:00`. No inactive real-profile canary was authorized or required because the synthetic paths and strict SQLite path guard provide sufficient D1 evidence.
+- Owner direction: retain this minimal candidate runtime fix as current v0.19.1 D1, commit it as `[D1] CJK-aware offline session recovery`, and retire it after an exact upstream replacement is proven.
 
 ### Skills
 
-- v0.19.1 bundled source contains exactly 70 `SKILL.md` files; this count was rechecked on the candidate.
-- Final fleet allowlist and provenance reconciliation remain pending the dedicated skill/plugin task.
-- No skill tree was installed, reseeded, removed, or changed in Task 2.
+- v0.19.1 bundled source contains exactly 70 `SKILL.md` files; the exact path, frontmatter, SKILL.md, and package hashes are recorded in `root-kernel/evidence/v0.19.1-skill-delta.json` (`4791ad338be5f017f42d13ff9ff9240d8a8137fa9e1f6f3a4a5c32e3843d1de3`) and summarized in `root-kernel/evidence/v0.19.1-skill-provenance.md` (`2a0c413ef67e129ba79a26fb1ad222b6367989651af3eac49c9e2517e6091bf3`).
+- Task 6 reconciled 72→70 bundled, 102→111 official optional, and 88→95 plugin manifests. The accepted optional retention baseline remains zero.
+- All 49 homes still contain 72 byte-exact v0.18.2 bundled skills with zero extra roots, archives, or no-bundled markers. No skill tree was installed, reseeded, removed, or changed in Task 6.
+- The closed allowlist target is 70 exact bundled per profile, managed fleet 5, default-only admin 10, optional 0, local custom 0, and no retired plugin skills. Actual re-seeding remains post-live R2 work.
+- Curator protection must set `curator.prune_builtins: false` and require zero `.curator_suppressed` files during R2. `skills.write_approval: true` alone does not intercept deterministic curator pruning and can also fail open if its approval helper cannot import; the latter is current D2.
 
 ## v0.19.1 active D items
 
-Inherited carry lineages remain `pending-re-audit`. The new D1 is implemented and technically verified on the candidate, but Task 5 owner acceptance remains pending. A familiar v0.18.2 patch is not authority to replay it.
+Inherited carry lineages remain `pending-re-audit`. D1 is implemented, committed, verified, and Task 5-accepted. Task 6 independently found a fail-open skill-write approval import boundary before any inherited D item started, so it becomes current D2 and the previous pending mapping shifts by one. A familiar v0.18.2 patch is not authority to replay it.
 
 | Current ID | Work item | Previous release | Current status | Next action |
 |---|---|---|---|---|
-| D1 | CJK-aware offline session recovery | New v0.19.1 defect discovered in Task 5 | `verification-pass-awaiting-owner-acceptance` | Commit the authorized candidate change, capture final local evidence, and request Task 5 acceptance. |
-| D2 | OpenAI Codex credential pinning and labelled reauth | `v0.18.2/D8` | `pending-re-audit` | Capture v0.19.1 overlap and missing pin/fail-close behavior, then request one owner direction. |
-| D3 | Discord thread ownership and role-mention fail-close | `v0.18.2/D4` | `pending-re-audit` | Probe ownership/free-response/mention safety against new Discord recovery and media paths. |
-| D4 | Kanban same-card review and workflow seams | `v0.18.2/D2` | `pending-re-audit` | Audit native review/repair/model/worktree behavior before testing remaining Root Kernel seams. |
-| D5 | CLI return-code passthrough | `v0.18.2/D6` | `pending-re-audit` | Trace the v0.19.1 process boundary and reproduce exact integer/bool behavior. |
-| D6 | Doctor optional tool warning filter | `v0.18.2/D7` | `pending-re-audit` | Probe enabled versus disabled/default-off tool diagnostics without hiding new doctor checks. |
+| D1 | CJK-aware offline session recovery | New v0.19.1 defect discovered in Task 5 | `implemented-verified-task5-accepted` | Keep active until an exact upstream replacement satisfies the recorded retirement rule. |
+| D2 | Fail-closed skill write approval import boundary | New v0.19.1 defect discovered in Task 6 | `committed-technical-pass-awaiting-owner-acceptance` | Stop for separate owner acceptance; do not begin D3. |
+| D3 | OpenAI Codex credential pinning and labelled reauth | `v0.18.2/D8` | `pending-re-audit` | Capture v0.19.1 overlap and missing pin/fail-close behavior, then request one owner direction. |
+| D4 | Discord thread ownership and role-mention fail-close | `v0.18.2/D4` | `pending-re-audit` | Probe ownership/free-response/mention safety against new Discord recovery and media paths. |
+| D5 | Kanban same-card review and workflow seams | `v0.18.2/D2` | `pending-re-audit` | Audit native review/repair/model/worktree behavior before testing remaining Root Kernel seams. |
+| D6 | CLI return-code passthrough | `v0.18.2/D6` | `pending-re-audit` | Trace the v0.19.1 process boundary and reproduce exact integer/bool behavior. |
+| D7 | Doctor optional tool warning filter | `v0.18.2/D7` | `pending-re-audit` | Probe enabled versus disabled/default-off tool diagnostics without hiding new doctor checks. |
 
 D1 retirement requires an exact later upstream target where CJK-enabled `hermes sessions recover` preserves canonical counts, reports `complete: true`, passes an equivalent CJK recovery regression, and leaves no Root Kernel-only behavior gap. A nearby CJK change, issue closure, or symbol match alone does not retire it.
 
@@ -158,7 +163,7 @@ These entries remain historical and are not active v0.19.1 D items:
 - `v0.18.2/D3` — Kanban assignee alias dispatch seam — retired; do not replay without a new independent regression.
 - `v0.18.2/D5` — Support-only plugin strategy — retired; do not replay without a new current consumer and independent decision.
 
-The v0.19.1 numbers D1, D3, and D5 identify different active work items from the identically numbered v0.18.2 history. Historical and current numbering must never be conflated.
+Current v0.19.1 IDs identify execution order and may differ from identically numbered v0.18.2 history. Historical and current numbering must never be conflated.
 
 ## Post-live R gates
 
@@ -178,7 +183,7 @@ Only one R gate may be active at a time. Technical success is not acceptance.
 
 Activation remains blocked until all of the following pass:
 
-- D1–D6 each have an explicit owner direction and current evidence.
+- D1–D7 each have an explicit owner direction and current evidence.
 - Candidate-focused, state, skill, automation, gateway, and rollback smokes pass.
 - The 49-profile semantic config outcome is approved, including STT language.
 - A typed, non-secret rollback package is created and restored in a disposable path.
@@ -213,4 +218,26 @@ Task 5 and D1 technical result:
 - focused regression 1/1, full recovery file 4/4, `py_compile`, `ruff`, diff, static security, candidate CLI import, and independent read-only review all pass;
 - actual profile databases were not opened or copied; 73 SQLite connections stayed under the disposable root or in memory; live code and gateway remain unchanged.
 
-Task 5 is technically `verification-pass-awaiting-owner-acceptance`; technical success is not acceptance. The owner authorized the minimum D1 implementation and selected commit subject `[D1] CJK-aware offline session recovery`. Task 6, D2–D6 work, inactive-profile state canary, live mutation, tag, push, and remote-ref movement remain unauthorized.
+Task 6 technical result:
+
+- exact upstream inventory: 72→70 bundled, 102→111 official optional, and 88→95 plugin manifests with complete path and content hashes;
+- current fleet: 49/49 exact 72-skill v0.18.2 roots, extras 0, archives 0, markers 0, managed 5+10 with 15/15 source-map/sidecar parity;
+- fresh resolver: 49 distinct processes, default 87, other profiles 77, duplicate names 0, and all audited hashes unchanged;
+- disposable official-sync canary: exact 72→70 re-seed and exact 72 rollback passed;
+- tests: skill/provenance/curator/cron slice 187 passed; separate overlapping plugin slice 95 passed;
+- plugin decision: retain ATN and Orca, retire Kkachi network and its three KAN skills during post-live R2, and do not auto-enable new upstream plugins;
+- corrected R2 protection: `curator.prune_builtins: false`, zero `.curator_suppressed`, secret-excluded typed KAN backup, exact installed-plugin hashes, and first-profile stop/restore;
+- independent review exposed a v0.19.1 fail-open `skills.write_approval` import boundary. It was registered as new current D2, owner-authorized for a minimum fail-closed fix, and remains a tag blocker until separate D2 acceptance.
+
+D2 technical result:
+
+- import-failure RED reproduced a real unauthorized create (`success: true`); evaluation-failure RED reproduced an escaped `RuntimeError`;
+- GREEN: both paths now return a structured `success: false` error before mutation; focused result 2 passed;
+- related manager/approval/provenance/usage/guard/curator/ghost/cron slice: 199 passed, 0 failed;
+- broad `tests/tools/` failures were reproduced on detached pre-D2 head with no new D2 failure; `py_compile`, `ruff`, diff check, and static added-line scan pass;
+- fresh resolver: 49 processes, counts 87/77, duplicates 0, and all profile config/skill/managed hashes unchanged;
+- independent read-only review passed with no security concern, logic error, suggestion, or scope creep;
+- evidence: `root-kernel/evidence/v0.19.1-D2-skill-write-approval.json`, SHA-256 `0d6b1de44322fc7f37e66149008c0d30bf6359767e2c029a98d7f92c6f6a29d6`;
+- pre-change rollback: `/Users/draccoon/Workspace/Hermes/update-backups/20260803T004148-rk-v0191-d2-write-approval/`, archive SHA-256 `e82b6c8d46f8855dc6e2c97d5f731c946cdb25686eb22f505964172f6d58f852`; typed restore passed and restored source reproduced both RED tests.
+
+Task 5/D1 and Task 6 are owner-accepted. D2 is technically verified and committed in this owner-authorized `[D2]` changeset, and remains the sole active gate awaiting separate acceptance. D3–D7, fleet re-seed, live mutation, tag, push, and remote-ref movement remain unauthorized.
