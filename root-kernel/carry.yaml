@@ -2,7 +2,7 @@ schema_version: 1
 ledger_kind: root-kernel-release-carry
 release:
   version: v0.19.1
-  status: scaffolded-pending-upstream-evidence
+  status: task3-evidence-captured-awaiting-task4
   tag_blocker: true
   scaffolded_at: '2026-08-02T17:24:26+09:00'
   candidate_branch: rk/v0.19.1
@@ -50,10 +50,16 @@ release:
         peeled_commit: 75a1faf0eb49b6bd465d80c02775b024afa521e8
   publication:
     commit_authorized: true
-    commit_authorized_at: '2026-08-02T17:34:44+09:00'
+    commit_authorized_at: '2026-08-02T18:13:17+09:00'
     commit_scope:
       - for-root-kernel.md
       - root-kernel/carry.yaml
+    commit_subject: '[INT] record Task 3 findings and smart approval policy'
+    previous_commit:
+      task: Task 2
+      commit: 509ae0f6d1c5ea9f7dfb9a77a965614dd91b16ff
+      subject: '[INT] scaffold v0.19.1 release ledgers'
+      authorized_at: '2026-08-02T17:34:44+09:00'
     tag_authorized: false
     push_authorized: false
     remote_ref_move_authorized: false
@@ -62,6 +68,17 @@ candidate_boundary:
   expected_task2_changes:
     - for-root-kernel.md
     - root-kernel/carry.yaml
+  task3_changes:
+    ledger_updates:
+      - for-root-kernel.md
+      - root-kernel/carry.yaml
+    local_progress_evidence:
+      - root-kernel/evidence/release-note-v2026.7.20.md
+      - root-kernel/evidence/release-note-v2026.7.30.md
+      - root-kernel/evidence/upstream-delta-v2026.7.7.2-to-v2026.7.30.md
+      - root-kernel/evidence/upstream-delta-v2026.7.7.2-to-v2026.7.30.json
+      - root-kernel/evidence/v0.19.1-config-state-skill-signals.md
+    evidence_git_policy: excluded-local-only-unless-owner-approves-publication
   carry_code_changed: false
   tests_changed: false
   live_checkout_changed: false
@@ -79,7 +96,9 @@ candidate_boundary:
     candidate_code: switch the reused worktree to rk/v0.18.2
     live_runtime: preserve the separate live clone and observed v0.18.2 release refs
 evidence:
-  status: pending-task3
+  status: captured-verified-task3
+  captured_at: '2026-08-02T17:51:25+09:00'
+  commit_policy: local-progress-only-git-excluded
   release_notes:
     v0.19.0: root-kernel/evidence/release-note-v2026.7.20.md
     v0.19.1: root-kernel/evidence/release-note-v2026.7.30.md
@@ -87,7 +106,12 @@ evidence:
     markdown: root-kernel/evidence/upstream-delta-v2026.7.7.2-to-v2026.7.30.md
     json: root-kernel/evidence/upstream-delta-v2026.7.7.2-to-v2026.7.30.json
   signals: root-kernel/evidence/v0.19.1-config-state-skill-signals.md
-  warning: These paths are planned evidence and are not yet captured.
+  sha256:
+    release-note-v2026.7.20.md: 3918977363dfb7ce5dca016e62da2f19a3fac446b1392e1bae849079b8251124
+    release-note-v2026.7.30.md: da40bfa71f1f5536d00c29422508e0e389daf1fdaa2a0dbcbd75cd26816a0fa8
+    upstream-delta-v2026.7.7.2-to-v2026.7.30.json: aacea34ade1c2ac9076c374e4bffb2bea4447ac076e957f1761a3253748eb789
+    upstream-delta-v2026.7.7.2-to-v2026.7.30.md: b383f1fa7d129aea45b6769a16c5ca2ee73f4bc6f94c68e7524892081a5705c8
+    v0.19.1-config-state-skill-signals.md: e86a9a7ae826519eafe09f2e696f2cb93af28040913551c103b6862c2889034c
 signals:
   provenance: completed planning baseline; refresh in dedicated read-only tasks
   config:
@@ -98,8 +122,14 @@ signals:
     target_source_config_version: 33
     unchanged_version_does_not_imply_unchanged_semantics: true
     approvals_mode:
-      expected: manual
-      count: 49
+      observed: manual
+      observed_count: 49
+      target: smart
+      owner_decision: approved
+      approved_at: '2026-08-02T18:06:14+09:00'
+      config_write_status: pending-task4-audit-and-typed-rollback
+      cron_mode_target: deny
+      custom_smart_policy: not-approved
     max_turns:
       explicit_count: 49
       observed_min: 80
@@ -313,9 +343,9 @@ ledger_parity:
     - live-mutation state
     - rollback authority
     - next action
-  status: verified-task2
+  status: verified-task3
 next_action:
-  task: Task 3
-  description: Capture exact upstream release-note, delta, and config/state/skill evidence.
+  task: Task 4
+  description: Run the 49-profile semantic config impact audit read-only.
   d_item_implementation_authorized: false
   live_mutation_authorized: false

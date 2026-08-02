@@ -2,12 +2,13 @@
 
 ## Release state
 
-- Status: `scaffolded-pending-upstream-evidence`
+- Status: `task3-evidence-captured-awaiting-task4`
 - Candidate branch: `rk/v0.19.1`
 - Candidate worktree: `/Users/draccoon/Workspace/Hermes/17th-hermes-agent-worktree`
 - Tag blocker: `true`
 - Live activation: not started
-- Commit: authorized for this Task 2 ledger-only first commit at `2026-08-02T17:34:44+09:00`
+- Previous Task 2 commit: `509ae0f6d1c5ea9f7dfb9a77a965614dd91b16ff`
+- Task 3 evidence: local progress-only and Git-excluded; ledger-only commit authorized at `2026-08-02T18:13:17+09:00`
 - Tag, push, and remote-ref movement: not authorized
 - Scaffolded at: `2026-08-02T17:24:26+09:00`
 
@@ -47,24 +48,24 @@ Remote state is recorded as observed, not inferred. No remote ref was changed.
 
 - v0.19.0 / `v2026.7.20` is analysis-only. It is not a merge, runtime, migration, or activation step.
 - v0.19.1 / `v2026.7.30` is the only candidate and activation target.
-- Planned release-note evidence:
+- Captured local progress release-note evidence:
   - `root-kernel/evidence/release-note-v2026.7.20.md`
   - `root-kernel/evidence/release-note-v2026.7.30.md`
-- Planned exact-delta evidence:
+- Captured local progress exact-delta evidence:
   - `root-kernel/evidence/upstream-delta-v2026.7.7.2-to-v2026.7.30.md`
   - `root-kernel/evidence/upstream-delta-v2026.7.7.2-to-v2026.7.30.json`
   - `root-kernel/evidence/v0.19.1-config-state-skill-signals.md`
 
-These evidence files are pending Task 3 and must not be represented as already captured.
+Task 3 captured all five files and verified their source tags, GitHub release bodies, exact Git delta, semantic source signals, hashes, and no-live-mutation boundary.
 
 ## Candidate and live-mutation boundary
 
-The candidate currently equals the clean peeled upstream tag before Root Kernel scaffold changes. Task 2 adds only:
+The candidate started from the clean peeled upstream tag. Task 2 added and committed only:
 
 - `for-root-kernel.md`
 - `root-kernel/carry.yaml`
 
-No carry code, test port, profile, config, state database, skill installation, plugin, cron job, gateway, credential, live checkout, remote ref, or tag was changed by this scaffold task. The owner separately authorized one ledger-only first commit after Task 2 verification.
+Task 3 created five local progress files under Git-excluded `root-kernel/evidence/` and updated both ledgers. Evidence files are not repository commit material unless separately approved. No carry code, test port, profile, config, state database, skill installation, plugin, cron job, gateway, credential, live checkout, remote ref, or tag was changed.
 
 Rollback for the scaffold is to discard these two files before commit or revert the ledger-only Task 2 commit afterward. Rollback for later code work remains branch switch to `rk/v0.18.2`. Live rollback remains anchored by the separate live clone and preserved release refs.
 
@@ -76,6 +77,7 @@ These values are the completed planning baseline. Fleet values must be refreshed
 
 - Profiles in planning baseline: 49.
 - All 49 observed configs: `_config_version: 33` and `approvals.mode: manual`.
+- Owner decision at `2026-08-02T18:06:14+09:00`: adopt `approvals.mode: smart` for the 49-profile fleet. Task 4 must verify the typed target, auxiliary-review availability, exact-command review scope, and fail-closed behavior before any config write. Keep `cron_mode: deny` unless separately approved.
 - v0.19.1 source default config version: 33. An unchanged schema number does not imply unchanged behavior.
 - All 49 observed `agent.max_turns` values are explicit, between 80 and 220; v0.19.1 source default is 500 and must not replace them.
 - Observed compression thresholds are explicit: 46 profiles at 0.85 and 3 at 0.7.
@@ -172,6 +174,15 @@ Before every commit-ready report, compare this document and `root-kernel/carry.y
 
 ## Next action
 
-Task 2 verification passed: YAML parsing, baseline parity, D-item lineage/status parity, R1–R5 pending status, evidence-path parity, and trailing-whitespace checks all succeeded.
+Task 3 evidence result:
 
-The next allowed task is Task 3: capture exact upstream release-note, delta, and config/state/skill evidence. No D-item implementation or live mutation is authorized by this scaffold.
+- exact direct delta: 4,774 commits; 5,436 files changed; 607,071 insertions; 372,082 deletions;
+- exact source defaults: config version 33→33, `agent.max_turns` 90→500, `approvals.mode` `manual`→`smart`, and global `stt.language: "en"` added;
+- state schema 19→23 with CJK/FTS/recovery/WAL source evidence;
+- bundled skills 72→70, optional skills 102→111, plugin manifests 88→95;
+- pip/PyPI wheel/Homebrew distribution support removal linked to exact commits;
+- D1–D5 prior-symbol presence probes and selected target-test presence captured;
+- `approvals.mode: smart` is now the owner-approved fleet target; no profile write has occurred;
+- no live or profile mutation.
+
+The next allowed task is Task 4: run the 49-profile semantic config impact audit read-only. Task 5, Task 6, D1 implementation, and live mutation remain not authorized.
