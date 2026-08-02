@@ -1,0 +1,321 @@
+schema_version: 1
+ledger_kind: root-kernel-release-carry
+release:
+  version: v0.19.1
+  status: scaffolded-pending-upstream-evidence
+  tag_blocker: true
+  scaffolded_at: '2026-08-02T17:24:26+09:00'
+  candidate_branch: rk/v0.19.1
+  candidate_worktree: /Users/draccoon/Workspace/Hermes/17th-hermes-agent-worktree
+  direct_update:
+    from: v0.18.2
+    to: v0.19.1
+    intermediate_activation: false
+  upstream_target:
+    tag: v2026.7.30
+    tag_object: d25e2dbdbc40b49808c0a0e9cfed21cc90cffab3
+    commit: cc4cab2f592e60a197e796506de9168f74baf3ea
+    package_version: 0.19.1
+    signature:
+      verified: true
+      kind: ssh-ed25519
+      fingerprint: SHA256:x9xNOpeJhoEAY2gWhmWHZROC3QF3VjOEbmNo9vQ8y2A
+  analysis_boundary:
+    version: v0.19.0
+    tag: v2026.7.20
+    activation_step: false
+    merge_step: false
+    migration_step: false
+    purpose: release-delta evidence only
+  previous_release:
+    version: v0.18.2
+    upstream_tag: v2026.7.7.2
+    upstream_commit: 9de9c25f620ff7f1ce0fd5457d596052d5159596
+    downstream_branch: rk/v0.18.2
+    downstream_head: 75a1faf0eb49b6bd465d80c02775b024afa521e8
+    local_live_clone: /Users/draccoon/.hermes/hermes-agent
+    local_live_branch_before_activation: rk/live
+    local_live_head_before_activation: 75a1faf0eb49b6bd465d80c02775b024afa521e8
+    preserved_rollback_branch: rk/rollback/pre-v0.18.2-20260801T014431
+    preserved_rollback_head: 79780a587ecb260788a23767d9996d5f7042a311
+  remote_refs:
+    observed_at: '2026-08-02T17:24:26+09:00'
+    source: git-ls-remote-origin
+    refs:
+      origin/rk/live: 75a1faf0eb49b6bd465d80c02775b024afa521e8
+      origin/rk/v0.18.2: 75a1faf0eb49b6bd465d80c02775b024afa521e8
+      origin/rk/v0.19.1: null
+      origin/rk/tag/v0.18.2:
+        tag_object: bfa6743ec69e28ce73c9634e5d792fc5422c7ca1
+        peeled_commit: 75a1faf0eb49b6bd465d80c02775b024afa521e8
+  publication:
+    commit_authorized: true
+    commit_authorized_at: '2026-08-02T17:34:44+09:00'
+    commit_scope:
+      - for-root-kernel.md
+      - root-kernel/carry.yaml
+    tag_authorized: false
+    push_authorized: false
+    remote_ref_move_authorized: false
+candidate_boundary:
+  clean_exact_tag_before_scaffold: true
+  expected_task2_changes:
+    - for-root-kernel.md
+    - root-kernel/carry.yaml
+  carry_code_changed: false
+  tests_changed: false
+  live_checkout_changed: false
+  profiles_changed: false
+  configs_changed: false
+  state_databases_changed: false
+  skills_changed: false
+  plugins_changed: false
+  cron_changed: false
+  gateways_changed: false
+  credentials_changed: false
+  remote_refs_changed: false
+  rollback:
+    scaffold: discard the two files before commit or revert the ledger-only Task 2 commit afterward
+    candidate_code: switch the reused worktree to rk/v0.18.2
+    live_runtime: preserve the separate live clone and observed v0.18.2 release refs
+evidence:
+  status: pending-task3
+  release_notes:
+    v0.19.0: root-kernel/evidence/release-note-v2026.7.20.md
+    v0.19.1: root-kernel/evidence/release-note-v2026.7.30.md
+  upstream_delta:
+    markdown: root-kernel/evidence/upstream-delta-v2026.7.7.2-to-v2026.7.30.md
+    json: root-kernel/evidence/upstream-delta-v2026.7.7.2-to-v2026.7.30.json
+  signals: root-kernel/evidence/v0.19.1-config-state-skill-signals.md
+  warning: These paths are planned evidence and are not yet captured.
+signals:
+  provenance: completed planning baseline; refresh in dedicated read-only tasks
+  config:
+    observed_profile_count: 49
+    observed_config_version:
+      version: 33
+      count: 49
+    target_source_config_version: 33
+    unchanged_version_does_not_imply_unchanged_semantics: true
+    approvals_mode:
+      expected: manual
+      count: 49
+    max_turns:
+      explicit_count: 49
+      observed_min: 80
+      observed_max: 220
+      target_default: 500
+      preservation_required: true
+    compression_thresholds:
+      '0.85': 46
+      '0.7': 3
+      preservation_required: true
+    stt_language:
+      observed_explicit_count: 0
+      target_default: en
+      owner_policy_status: pending
+      allowed_cohort_outcomes:
+        korean_only: ko
+        multilingual_auto_detect: ''
+        english_only: en
+    multiplex_profiles_active: false
+    profile_routes_active: false
+    root_default_messaging_tokenless_required: true
+  state:
+    observed_schema_counts:
+      '16': 37
+      '19': 12
+    target_schema: 23
+    target_symbol: hermes_state_common.py::SCHEMA_VERSION
+    direct_migrations_required:
+      - 16-to-23
+      - 19-to-23
+    isolated_canary_status: pending
+    korean_search_status: pending
+    rollback_status: pending
+  skills:
+    target_bundled_skill_count: 70
+    candidate_source_count_verified: true
+    fleet_provenance_reconciliation_status: pending
+active_carries:
+  D1:
+    current_id: D1
+    title: OpenAI Codex credential pinning and labelled reauth
+    lineage: v0.18.2/D8
+    previous_release:
+      version: v0.18.2
+      entry_id: D8
+      status: local_minimize_applied
+    status: pending-re-audit
+    owner_direction: pending
+    requirement: Preserve profile-local credential ID or label selection and fail closed without cross-profile or singleton fallback.
+    likely_files:
+      - agent/credential_pool.py
+      - agent/auxiliary_client.py
+      - hermes_cli/runtime_provider.py
+      - hermes_cli/auth_commands.py
+    red_evidence: pending
+    green_evidence: pending
+    integrated_smoke: pending
+    live_mutation: false
+    next_action: Capture v0.19.1 overlap and missing pin or fail-close behavior, then request one owner direction.
+  D2:
+    current_id: D2
+    title: Discord thread ownership and role-mention fail-close
+    lineage: v0.18.2/D4
+    previous_release:
+      version: v0.18.2
+      entry_id: D4
+      status: local_minimize_applied
+    status: pending-re-audit
+    owner_direction: pending
+    requirement: Preserve owned-thread response and ownership boundaries while failing closed on unsafe role mentions.
+    likely_files:
+      - gateway/platforms/helpers.py
+      - plugins/platforms/discord/adapter.py
+    red_evidence: pending
+    green_evidence: pending
+    integrated_smoke: pending
+    live_mutation: false
+    next_action: Probe ownership, free-response, and mention safety against v0.19.1 Discord recovery and media paths.
+  D3:
+    current_id: D3
+    title: Kanban same-card review and workflow seams
+    lineage: v0.18.2/D2
+    previous_release:
+      version: v0.18.2
+      entry_id: D2
+      status: local_minimize_applied
+    status: pending-re-audit
+    owner_direction: pending
+    requirement: Preserve only still-missing same-card review, result, mutex, watcher, and closed workflow semantics.
+    likely_files:
+      - hermes_cli/kanban_db.py
+      - tools/kanban_tools.py
+      - toolsets.py
+      - hermes_cli/kanban.py
+      - gateway/kanban_watchers.py
+      - agent/prompt_builder.py
+    red_evidence: pending
+    green_evidence: pending
+    integrated_smoke: pending
+    live_mutation: false
+    next_action: Audit native review, repair, model, child-isolation, and worktree behavior before testing remaining seams.
+  D4:
+    current_id: D4
+    title: CLI return-code passthrough
+    lineage: v0.18.2/D6
+    previous_release:
+      version: v0.18.2
+      entry_id: D6
+      status: local_keep_applied
+    status: pending-re-audit
+    owner_direction: pending
+    requirement: Preserve shell-visible exact integer return codes while keeping bool and success behavior safe.
+    likely_files:
+      - hermes_cli/main.py
+      - hermes_cli/commands.py
+    red_evidence: pending
+    green_evidence: pending
+    integrated_smoke: pending
+    live_mutation: false
+    next_action: Trace the v0.19.1 process boundary and reproduce exact integer and bool behavior.
+  D5:
+    current_id: D5
+    title: Doctor optional tool warning filter
+    lineage: v0.18.2/D7
+    previous_release:
+      version: v0.18.2
+      entry_id: D7
+      status: local_keep_applied
+    status: pending-re-audit
+    owner_direction: pending
+    requirement: Suppress only disabled or default-off optional tool warnings without hiding enabled-tool or new core diagnostics.
+    likely_files:
+      - hermes_cli/doctor.py
+    red_evidence: pending
+    green_evidence: pending
+    integrated_smoke: pending
+    live_mutation: false
+    next_action: Probe enabled versus disabled and default-off diagnostics before requesting one owner direction.
+historical_retired:
+  v0.18.2/D1:
+    title: Tool Search pair
+    status: historical-retired
+    replay_allowed: false
+    rule: Only a new independent regression may receive a new current D ID.
+  v0.18.2/D3:
+    title: Kanban assignee alias dispatch seam
+    status: historical-retired
+    replay_allowed: false
+    rule: Only a new independent regression may receive a new current D ID.
+  v0.18.2/D5:
+    title: Support-only plugin strategy
+    status: historical-retired
+    replay_allowed: false
+    rule: A new current consumer and independent owner decision are required.
+post_live_gates:
+  execution_boundary: Run only after rk/live activation, one gate at a time.
+  technical_pass_is_acceptance: false
+  R1:
+    title: Config/profile activation policy
+    status: pending
+    tag_blocker: true
+    operator_acceptance: pending
+  R2:
+    title: Skill provenance, overrides, and compatibility
+    status: pending
+    tag_blocker: true
+    operator_acceptance: pending
+  R3:
+    title: Dashboard and Desktop
+    status: pending
+    tag_blocker: true
+    operator_acceptance: pending
+  R4:
+    title: Cron, local scripts, watchers, and automation
+    status: pending
+    tag_blocker: true
+    operator_acceptance: pending
+  R5:
+    title: Profile-owned local asset optimization
+    status: pending
+    tag_blocker: true
+    operator_acceptance: pending
+activation:
+  status: blocked
+  blockers:
+    - exact upstream evidence pending
+    - D1 through D5 direction and verification pending
+    - semantic config and STT language policy pending
+    - state schema canary and rollback pending
+    - skill and plugin reconciliation pending
+    - integrated candidate smoke pending
+    - typed non-secret activation backup and rollback rehearsal pending
+  root_self_restart_allowed: false
+  external_control_required: true
+  sensitive_state_backup_requires_separate_approval: true
+  secret_exclusions:
+    - .env
+    - auth.json
+    - tokens
+    - credential pools
+    - private keys
+ledger_parity:
+  paired_human_ledger: for-root-kernel.md
+  required_fields:
+    - target and previous baselines
+    - local and remote ref observations
+    - current D ID and previous-release lineage
+    - D and R status
+    - tag and activation blockers
+    - evidence paths
+    - live-mutation state
+    - rollback authority
+    - next action
+  status: verified-task2
+next_action:
+  task: Task 3
+  description: Capture exact upstream release-note, delta, and config/state/skill evidence.
+  d_item_implementation_authorized: false
+  live_mutation_authorized: false
