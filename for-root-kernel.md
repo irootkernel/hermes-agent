@@ -2,7 +2,7 @@
 
 ## Release state
 
-- Status: `d2-committed-technical-pass-awaiting-owner-acceptance`
+- Status: `d2-owner-accepted-d3-pending-start-authorization`
 - Candidate branch: `rk/v0.19.1`
 - Candidate worktree: `/Users/draccoon/Workspace/Hermes/17th-hermes-agent-worktree`
 - Tag blocker: `true`
@@ -14,6 +14,7 @@
 - Task 4 accepted by owner at `2026-08-02T19:33:32+09:00`, including the recorded 47-profile YAML formatting caveat
 - Task 5 and D1 accepted by owner at `2026-08-02T23:25:52+09:00`; Task 6 read-only reconciliation authorized
 - Task 6 accepted and D2 minimal fail-closed implementation/commit authorized by owner at `2026-08-03T00:41:48+09:00`; commit header must be `[D2]`
+- D2 accepted by owner at `2026-08-03T01:14:44+09:00`; D3 remains pending and not authorized to start
 - Tag, push, and remote-ref movement: not authorized
 - Scaffolded at: `2026-08-02T17:24:26+09:00`
 
@@ -135,7 +136,7 @@ Inherited carry lineages remain `pending-re-audit`. D1 is implemented, committed
 | Current ID | Work item | Previous release | Current status | Next action |
 |---|---|---|---|---|
 | D1 | CJK-aware offline session recovery | New v0.19.1 defect discovered in Task 5 | `implemented-verified-task5-accepted` | Keep active until an exact upstream replacement satisfies the recorded retirement rule. |
-| D2 | Fail-closed skill write approval import boundary | New v0.19.1 defect discovered in Task 6 | `committed-technical-pass-awaiting-owner-acceptance` | Stop for separate owner acceptance; do not begin D3. |
+| D2 | Fail-closed skill write approval import boundary | New v0.19.1 defect discovered in Task 6 | `implemented-verified-owner-accepted` | Keep active until an exact upstream fail-closed replacement is behaviorally verified. |
 | D3 | OpenAI Codex credential pinning and labelled reauth | `v0.18.2/D8` | `pending-re-audit` | Capture v0.19.1 overlap and missing pin/fail-close behavior, then request one owner direction. |
 | D4 | Discord thread ownership and role-mention fail-close | `v0.18.2/D4` | `pending-re-audit` | Probe ownership/free-response/mention safety against new Discord recovery and media paths. |
 | D5 | Kanban same-card review and workflow seams | `v0.18.2/D2` | `pending-re-audit` | Audit native review/repair/model/worktree behavior before testing remaining Root Kernel seams. |
@@ -240,4 +241,4 @@ D2 technical result:
 - evidence: `root-kernel/evidence/v0.19.1-D2-skill-write-approval.json`, SHA-256 `0d6b1de44322fc7f37e66149008c0d30bf6359767e2c029a98d7f92c6f6a29d6`;
 - pre-change rollback: `/Users/draccoon/Workspace/Hermes/update-backups/20260803T004148-rk-v0191-d2-write-approval/`, archive SHA-256 `e82b6c8d46f8855dc6e2c97d5f731c946cdb25686eb22f505964172f6d58f852`; typed restore passed and restored source reproduced both RED tests.
 
-Task 5/D1 and Task 6 are owner-accepted. D2 is technically verified and committed in this owner-authorized `[D2]` changeset, and remains the sole active gate awaiting separate acceptance. D3–D7, fleet re-seed, live mutation, tag, push, and remote-ref movement remain unauthorized.
+Task 5/D1, Task 6, and D2 are owner-accepted. The next single gate is D3 credential-pinning re-audit, but it remains pending explicit start authorization. D4–D7, fleet re-seed, live mutation, tag, push, and remote-ref movement remain unauthorized.

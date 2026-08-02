@@ -2,7 +2,7 @@ schema_version: 1
 ledger_kind: root-kernel-release-carry
 release:
   version: v0.19.1
-  status: d2-committed-technical-pass-awaiting-owner-acceptance
+  status: d2-owner-accepted-d3-pending-start-authorization
   tag_blocker: true
   scaffolded_at: '2026-08-02T17:24:26+09:00'
   candidate_branch: rk/v0.19.1
@@ -136,7 +136,7 @@ candidate_boundary:
     live_runtime: preserve the separate live clone and observed v0.18.2 release refs
     task4_config: /Users/draccoon/Workspace/Hermes/update-backups/20260802T185328-rk-v0191-task4-smart-stt
 evidence:
-  status: captured-d2-technical-pass-awaiting-owner-acceptance
+  status: captured-d2-owner-acceptance
   captured_at: '2026-08-02T17:51:25+09:00'
   config_impact_captured_at: '2026-08-02T18:35:17+09:00'
   config_application_captured_at: '2026-08-02T19:11:33+09:00'
@@ -146,6 +146,7 @@ evidence:
   task6_owner_accepted_at: '2026-08-03T00:41:48+09:00'
   d2_owner_authorized_at: '2026-08-03T00:41:48+09:00'
   d2_technical_pass_captured_at: '2026-08-03T01:03:25+09:00'
+  d2_owner_accepted_at: '2026-08-03T01:14:44+09:00'
   commit_policy: local-progress-only-git-excluded
   release_notes:
     v0.19.0: root-kernel/evidence/release-note-v2026.7.20.md
@@ -440,10 +441,12 @@ active_carries:
       upstream_target_tag: v2026.7.30
       upstream_target_commit: cc4cab2f592e60a197e796506de9168f74baf3ea
       previous_release_entry: null
-    status: committed-technical-pass-awaiting-owner-acceptance
+    status: implemented-verified-owner-accepted
     owner_direction: retain-minimal-fail-closed
     implementation_authorized: true
-    tag_blocker: true
+    tag_blocker: false
+    owner_acceptance: accepted
+    accepted_at: '2026-08-03T01:14:44+09:00'
     requirement: When skills.write_approval is true, an import or initialization failure in the approval helper must fail closed and must not apply an unstaged skill mutation.
     finding: tools/skill_manager_tool.py::_apply_skill_write_gate returns no gate when tools.write_approval cannot import, so the caller can continue to mutation.
     likely_files:
@@ -477,7 +480,8 @@ active_carries:
       restored_red_tests: 2
     commit_header: '[D2]'
     live_mutation: false
-    next_action: Stop for separate D2 acceptance; do not begin D3.
+    retirement_rule: Retire only when an exact later upstream target blocks skill mutations on approval-helper import and evaluation failures, returns a structured error, preserves approved replay, and passes equivalent regression tests.
+    next_action: Keep active until an exact upstream replacement satisfies the retirement rule.
   D3:
     current_id: D3
     renumbered_from_provisional_id: D1
@@ -662,7 +666,6 @@ post_live_gates:
 activation:
   status: blocked
   blockers:
-    - D2 owner acceptance pending
     - D3 through D7 direction and verification pending
     - integrated candidate smoke pending
     - typed non-secret activation backup and rollback rehearsal pending
@@ -688,10 +691,10 @@ ledger_parity:
     - live-mutation state
     - rollback authority
     - next action
-  status: d2-committed-technical-pass-awaiting-owner-acceptance
+  status: d2-owner-accepted-d3-pending-start-authorization
 next_action:
-  task: D2 owner acceptance
-  description: The verified D2 code, tests, and paired ledgers are committed in the current [D2] changeset. Stop for separate owner acceptance; do not begin D3.
+  task: D3 credential pinning re-audit start authorization
+  description: Present D3 scope and wait for explicit start authorization. Do not inspect credentials, write RED, implement code, or begin D4.
   d1_classification_approved: true
   task5_source_fix_authorized: true
   task5_source_fix_verified: true
@@ -702,11 +705,12 @@ next_action:
   task6_status: owner-accepted
   task6_owner_acceptance: accepted
   task6_accepted_at: '2026-08-03T00:41:48+09:00'
-  next_d_item: D2
-  next_d_item_owner_direction: retain-minimal-fail-closed
-  d_item_implementation_authorized: true
-  authorized_d_item: D2
-  commit_header: '[D2]'
-  d2_technical_status: committed-technical-pass-awaiting-owner-acceptance
-  d2_owner_acceptance: pending
+  next_d_item: D3
+  next_d_item_owner_direction: pending
+  d_item_implementation_authorized: false
+  authorized_d_item: null
+  commit_header: null
+  d2_technical_status: implemented-verified-owner-accepted
+  d2_owner_acceptance: accepted
+  d2_accepted_at: '2026-08-03T01:14:44+09:00'
   live_mutation_authorized: false
