@@ -86,6 +86,71 @@ def test_resolve_runtime_provider_uses_credential_pool(monkeypatch):
     assert resolved["source"] == "manual"
 
 
+# Root Kernel v0.19.1 D3: a configured pin blocks Codex singleton fallback.
+def _write_d3_runtime_pin(tmp_path, monkeypatch) -> None:
+    hermes_home = tmp_path / "hermes"
+    hermes_home.mkdir(parents=True, exist_ok=True)
+    (hermes_home / ".env").write_text(
+        "HERMES_CREDENTIAL_PIN_OPENAI_CODEX_LABEL=HSY\n"
+    )
+    monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+
+
+def test_d3_runtime_empty_pinned_pool_fails_before_singleton(tmp_path, monkeypatch):
+    _write_d3_runtime_pin(tmp_path, monkeypatch)
+    monkeypatch.setattr(rp, "resolve_provider", lambda *a, **k: "openai-codex")
+    monkeypatch.setattr(
+        rp,
+        "load_pool",
+        lambda _provider: SimpleNamespace(has_credentials=lambda: False),
+    )
+    monkeypatch.setattr(
+        rp,
+        "resolve_codex_runtime_credentials",
+        lambda: (_ for _ in ()).throw(AssertionError("singleton fallback called")),
+    )
+
+    with pytest.raises(rp.AuthError) as excinfo:
+        rp.resolve_runtime_provider(requested="openai-codex")
+
+    assert excinfo.value.code == "credential_pin_unavailable"
+
+
+def test_d3_runtime_unavailable_pinned_selection_fails_before_singleton(tmp_path, monkeypatch):
+    _write_d3_runtime_pin(tmp_path, monkeypatch)
+    pool = SimpleNamespace(has_credentials=lambda: True, select=lambda: None)
+    monkeypatch.setattr(rp, "resolve_provider", lambda *a, **k: "openai-codex")
+    monkeypatch.setattr(rp, "load_pool", lambda _provider: pool)
+    monkeypatch.setattr(
+        rp,
+        "resolve_codex_runtime_credentials",
+        lambda: (_ for _ in ()).throw(AssertionError("singleton fallback called")),
+    )
+
+    with pytest.raises(rp.AuthError) as excinfo:
+        rp.resolve_runtime_provider(requested="openai-codex")
+
+    assert excinfo.value.code == "credential_pin_unavailable"
+
+
+def test_d3_runtime_explicit_api_key_is_not_overridden_by_pin(tmp_path, monkeypatch):
+    _write_d3_runtime_pin(tmp_path, monkeypatch)
+    monkeypatch.setattr(rp, "resolve_provider", lambda *a, **k: "openai-codex")
+    monkeypatch.setattr(
+        rp,
+        "load_pool",
+        lambda _provider: (_ for _ in ()).throw(AssertionError("pool consulted")),
+    )
+
+    resolved = rp.resolve_runtime_provider(
+        requested="openai-codex",
+        explicit_api_key="explicit-token",
+    )
+
+    assert resolved["api_key"] == "explicit-token"
+    assert resolved["source"] == "explicit"
+
+
 def test_qwen_oauth_auto_fallthrough_on_auth_failure(monkeypatch):
     """When requested_provider is 'auto' and Qwen creds fail, fall through."""
     from hermes_cli.auth import AuthError

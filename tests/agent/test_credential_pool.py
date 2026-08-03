@@ -1896,3 +1896,193 @@ class TestCredentialPoolQueryLocking:
             inner.release()
 
         assert done.wait(timeout=2.0), f"{method}() did not complete after lock release"
+
+
+# Root Kernel v0.19.1 D3: profile-local OpenAI Codex account affinity.
+def _d3_codex_entry(
+    entry_id: str,
+    label: str,
+    priority: int,
+    *,
+    status: str | None = None,
+    access_token: str | None = None,
+) -> dict:
+    entry = {
+        "id": entry_id,
+        "label": label,
+        "auth_type": "oauth",
+        "priority": priority,
+        "source": "manual:device_code",
+        "access_token": access_token if access_token is not None else f"token-{entry_id}",
+        "refresh_token": f"refresh-{entry_id}",
+        "base_url": "https://chatgpt.com/backend-api/codex",
+    }
+    if status:
+        entry.update(
+            {
+                "last_status": status,
+                "last_status_at": time.time(),
+                "last_error_code": 429,
+            }
+        )
+    return entry
+
+
+def _load_d3_codex_pool(tmp_path, monkeypatch, entries: list[dict], pin_lines: str = ""):
+    hermes_home = tmp_path / "hermes"
+    monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+    monkeypatch.setattr("hermes_cli.auth._import_codex_cli_tokens", lambda: None)
+    _write_auth_store(
+        tmp_path,
+        {
+            "version": 1,
+            "credential_pool": {"openai-codex": entries},
+        },
+    )
+    if pin_lines:
+        (hermes_home / ".env").write_text(pin_lines)
+    from agent.credential_pool import load_pool
+
+    return load_pool("openai-codex")
+
+
+def test_d3_codex_label_pin_controls_select_peek_and_lease(tmp_path, monkeypatch):
+    entries = [
+        _d3_codex_entry("jyh", "JYH", 0),
+        _d3_codex_entry("hsy", "HSY", 1),
+    ]
+    pin = "HERMES_CREDENTIAL_PIN_OPENAI_CODEX_LABEL=HSY\n"
+
+    selected = _load_d3_codex_pool(tmp_path, monkeypatch, entries, pin).select()
+    peeked = _load_d3_codex_pool(tmp_path, monkeypatch, entries, pin).peek()
+    leased = _load_d3_codex_pool(tmp_path, monkeypatch, entries, pin).acquire_lease()
+
+    assert selected is not None and selected.id == "hsy"
+    assert peeked is not None and peeked.id == "hsy"
+    assert leased == "hsy"
+
+
+def test_d3_codex_id_pin_wins_over_label_and_explicit_sibling_lease(tmp_path, monkeypatch):
+    pool = _load_d3_codex_pool(
+        tmp_path,
+        monkeypatch,
+        [
+            _d3_codex_entry("jyh", "JYH", 0),
+            _d3_codex_entry("hsy", "HSY", 1),
+        ],
+        "HERMES_CREDENTIAL_PIN_OPENAI_CODEX_ID=hsy\n"
+        "HERMES_CREDENTIAL_PIN_OPENAI_CODEX_LABEL=JYH\n",
+    )
+
+    assert pool.select().id == "hsy"
+    assert pool.acquire_lease("jyh") is None
+
+
+@pytest.mark.parametrize(
+    "entries,pin",
+    [
+        (
+            [
+                _d3_codex_entry("hsy-a", "HSY", 0),
+                _d3_codex_entry("hsy-b", "HSY", 1),
+            ],
+            "HERMES_CREDENTIAL_PIN_OPENAI_CODEX_LABEL=HSY\n",
+        ),
+        (
+            [
+                _d3_codex_entry("same", "HSY", 0),
+                _d3_codex_entry("same", "JYH", 1),
+            ],
+            "HERMES_CREDENTIAL_PIN_OPENAI_CODEX_ID=same\n",
+        ),
+    ],
+)
+def test_d3_codex_duplicate_pin_fails_closed(tmp_path, monkeypatch, entries, pin):
+    pool = _load_d3_codex_pool(tmp_path, monkeypatch, entries, pin)
+
+    assert pool.select() is None
+    assert pool.peek() is None
+    assert pool.acquire_lease() is None
+
+
+@pytest.mark.parametrize("status", ["exhausted", "dead"])
+def test_d3_codex_unavailable_pin_never_selects_sibling(tmp_path, monkeypatch, status):
+    pool = _load_d3_codex_pool(
+        tmp_path,
+        monkeypatch,
+        [
+            _d3_codex_entry("hsy", "HSY", 0, status=status),
+            _d3_codex_entry("jyh", "JYH", 1),
+        ],
+        "HERMES_CREDENTIAL_PIN_OPENAI_CODEX_LABEL=HSY\n",
+    )
+
+    assert pool.select() is None
+    assert pool.peek() is None
+    assert pool.acquire_lease() is None
+
+
+def test_d3_codex_label_pin_does_not_alias_healthy_duplicate_id(tmp_path, monkeypatch):
+    pool = _load_d3_codex_pool(
+        tmp_path,
+        monkeypatch,
+        [
+            _d3_codex_entry("shared", "HSY", 0, status="exhausted"),
+            _d3_codex_entry("shared", "JYH", 1),
+        ],
+        "HERMES_CREDENTIAL_PIN_OPENAI_CODEX_LABEL=HSY\n",
+    )
+
+    assert pool.select() is None
+    assert pool.peek() is None
+    assert pool.acquire_lease() is None
+
+
+@pytest.mark.parametrize(
+    "entries",
+    [
+        [_d3_codex_entry("jyh", "JYH", 0)],
+        [
+            _d3_codex_entry("hsy", "HSY", 0, access_token=""),
+            _d3_codex_entry("jyh", "JYH", 1),
+        ],
+    ],
+)
+def test_d3_codex_missing_or_empty_pin_fails_closed(tmp_path, monkeypatch, entries):
+    pool = _load_d3_codex_pool(
+        tmp_path,
+        monkeypatch,
+        entries,
+        "HERMES_CREDENTIAL_PIN_OPENAI_CODEX_LABEL=HSY\n",
+    )
+
+    assert pool.select() is None
+    assert pool.peek() is None
+    assert pool.acquire_lease() is None
+
+
+def test_d3_codex_pin_ignores_ambient_process_environment(tmp_path, monkeypatch):
+    monkeypatch.setenv("HERMES_CREDENTIAL_PIN_OPENAI_CODEX_LABEL", "HSY")
+    pool = _load_d3_codex_pool(
+        tmp_path,
+        monkeypatch,
+        [
+            _d3_codex_entry("jyh", "JYH", 0),
+            _d3_codex_entry("hsy", "HSY", 1),
+        ],
+    )
+
+    assert pool.select().id == "jyh"
+
+
+def test_d3_codex_no_pin_preserves_explicit_lease_id(tmp_path, monkeypatch):
+    pool = _load_d3_codex_pool(
+        tmp_path,
+        monkeypatch,
+        [
+            _d3_codex_entry("jyh", "JYH", 0),
+            _d3_codex_entry("hsy", "HSY", 1),
+        ],
+    )
+
+    assert pool.acquire_lease("hsy") == "hsy"

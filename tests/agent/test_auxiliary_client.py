@@ -521,6 +521,25 @@ class TestReadCodexAccessToken:
         result = _read_codex_access_token()
         assert result == "tok-123"
 
+    def test_d3_pinned_missing_pool_entry_does_not_read_singleton(self, tmp_path, monkeypatch):
+        hermes_home = tmp_path / "hermes"
+        hermes_home.mkdir(parents=True, exist_ok=True)
+        (hermes_home / ".env").write_text(
+            "HERMES_CREDENTIAL_PIN_OPENAI_CODEX_LABEL=HSY\n"
+        )
+        monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+
+        with (
+            patch("agent.auxiliary_client._select_pool_entry", return_value=(True, None)),
+            patch(
+                "hermes_cli.auth._read_codex_tokens",
+                return_value={"tokens": {"access_token": "singleton-token"}},
+            ) as read_singleton,
+        ):
+            assert _read_codex_access_token() is None
+
+        read_singleton.assert_not_called()
+
 
 
 
@@ -721,6 +740,25 @@ class TestBuildCodexClient:
         assert model == "gpt-5.4"
         assert mock_openai.call_args.kwargs["api_key"] == "codex-auth-token"
         assert mock_openai.call_args.kwargs["base_url"] == "https://chatgpt.com/backend-api/codex"
+
+    def test_d3_pinned_missing_pool_entry_does_not_build_from_singleton(self, tmp_path, monkeypatch):
+        hermes_home = tmp_path / "hermes"
+        hermes_home.mkdir(parents=True, exist_ok=True)
+        (hermes_home / ".env").write_text(
+            "HERMES_CREDENTIAL_PIN_OPENAI_CODEX_LABEL=HSY\n"
+        )
+        monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+
+        with (
+            patch("agent.auxiliary_client._select_pool_entry", return_value=(True, None)),
+            patch(
+                "agent.auxiliary_client._read_codex_access_token",
+                side_effect=AssertionError("singleton fallback called"),
+            ),
+        ):
+            from agent.auxiliary_client import _build_codex_client
+
+            assert _build_codex_client("gpt-5.4") == (None, None)
 
     def test_rejects_missing_model(self):
         """Callers must pass an explicit model; no hardcoded default."""

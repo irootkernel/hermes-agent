@@ -16,6 +16,7 @@ from agent.credential_pool import (
     PooledCredential,
     credential_pool_matches_provider,
     get_custom_provider_pool_key,
+    has_configured_credential_pin,
     load_pool,
 )
 from agent.secret_scope import get_secret as _get_secret
@@ -1829,6 +1830,7 @@ def resolve_runtime_provider(
         pool = load_pool(provider) if should_use_pool else None
     except Exception:
         pool = None
+    pin_configured = should_use_pool and has_configured_credential_pin(provider)
     if pool and pool.has_credentials():
         entry = pool.select()
         pool_api_key = ""
@@ -1892,6 +1894,13 @@ def resolve_runtime_provider(
                 pool=pool,
                 target_model=target_model,
             )
+
+    if pin_configured:
+        raise AuthError(
+            f"Pinned credential for {provider} is unavailable.",
+            provider=provider,
+            code="credential_pin_unavailable",
+        )
 
     if provider == "nous":
         try:

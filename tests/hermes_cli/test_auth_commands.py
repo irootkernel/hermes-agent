@@ -300,6 +300,186 @@ def test_auth_add_codex_oauth_keeps_distinct_pool_accounts(tmp_path, monkeypatch
     assert payload["active_provider"] == "openai-codex"
 
 
+# Root Kernel v0.19.1 D3: an explicit Codex label is exact reauth authority.
+def test_d3_auth_add_codex_label_updates_only_matching_entry(tmp_path, monkeypatch):
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes"))
+    _write_auth_store(
+        tmp_path,
+        {
+            "version": 1,
+            "providers": {
+                "openai-codex": {
+                    "tokens": {
+                        "access_token": "singleton-at",
+                        "refresh_token": "singleton-rt",
+                    }
+                }
+            },
+            "credential_pool": {
+                "openai-codex": [
+                    {
+                        "id": "hsy",
+                        "label": "HSY",
+                        "auth_type": "oauth",
+                        "priority": 0,
+                        "source": "manual:device_code",
+                        "access_token": "hsy-old-at",
+                        "refresh_token": "hsy-old-rt",
+                        "last_status": "exhausted",
+                        "last_status_at": 1.0,
+                        "last_error_code": 429,
+                        "last_error_reason": "usage_limit_reached",
+                        "last_error_message": "old",
+                        "last_error_reset_at": 999.0,
+                    },
+                    {
+                        "id": "hsy",
+                        "label": "JYH",
+                        "auth_type": "oauth",
+                        "priority": 1,
+                        "source": "manual:device_code",
+                        "access_token": "jyh-at",
+                        "refresh_token": "jyh-rt",
+                    },
+                ]
+            },
+        },
+    )
+    monkeypatch.setattr(
+        "hermes_cli.auth._codex_device_code_login",
+        lambda: {
+            "tokens": {
+                "access_token": "hsy-new-at",
+                "refresh_token": "hsy-new-rt",
+            },
+            "base_url": "https://chatgpt.com/backend-api/codex",
+            "last_refresh": "2026-08-03T01:00:00Z",
+        },
+    )
+    from agent.credential_pool import load_pool
+    from hermes_cli.auth_commands import auth_add_command
+
+    baseline_ids = [entry.id for entry in load_pool("openai-codex").entries()]
+    args = type("Args", (), {"provider": "openai-codex", "auth_type": "oauth", "api_key": None, "label": "HSY"})()
+    auth_add_command(args)
+
+    payload = json.loads((tmp_path / "hermes" / "auth.json").read_text())
+    entries = payload["credential_pool"]["openai-codex"]
+    assert [entry["id"] for entry in entries] == baseline_ids
+    hsy = next(entry for entry in entries if entry["label"] == "HSY")
+    jyh = next(entry for entry in entries if entry["label"] == "JYH")
+    assert hsy["access_token"] == "hsy-new-at"
+    assert hsy["refresh_token"] == "hsy-new-rt"
+    assert hsy["last_refresh"] == "2026-08-03T01:00:00Z"
+    assert hsy["last_status"] is None
+    assert hsy["last_status_at"] is None
+    assert hsy["last_error_code"] is None
+    assert hsy["last_error_reason"] is None
+    assert hsy["last_error_message"] is None
+    assert hsy["last_error_reset_at"] is None
+    assert jyh["access_token"] == "jyh-at"
+    assert jyh["refresh_token"] == "jyh-rt"
+    assert payload["providers"]["openai-codex"]["tokens"]["access_token"] == "singleton-at"
+
+
+def test_d3_auth_add_codex_device_code_label_persists_through_reload(tmp_path, monkeypatch):
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes"))
+    _write_auth_store(
+        tmp_path,
+        {
+            "version": 1,
+            "providers": {
+                "openai-codex": {
+                    "tokens": {
+                        "access_token": "canonical-old-at",
+                        "refresh_token": "canonical-old-rt",
+                    },
+                    "label": "HSY",
+                }
+            },
+            "credential_pool": {
+                "openai-codex": [
+                    {
+                        "id": "canonical",
+                        "label": "HSY",
+                        "auth_type": "oauth",
+                        "priority": 0,
+                        "source": "device_code",
+                        "access_token": "canonical-old-at",
+                        "refresh_token": "canonical-old-rt",
+                    },
+                    {
+                        "id": "jyh",
+                        "label": "JYH",
+                        "auth_type": "oauth",
+                        "priority": 1,
+                        "source": "manual:device_code",
+                        "access_token": "jyh-at",
+                        "refresh_token": "jyh-rt",
+                    },
+                ]
+            },
+        },
+    )
+    monkeypatch.setattr(
+        "hermes_cli.auth._codex_device_code_login",
+        lambda: {
+            "tokens": {
+                "access_token": "canonical-new-at",
+                "refresh_token": "canonical-new-rt",
+            },
+            "base_url": "https://chatgpt.com/backend-api/codex",
+            "last_refresh": "2026-08-03T01:10:00Z",
+        },
+    )
+    from agent.credential_pool import load_pool
+    from hermes_cli.auth_commands import auth_add_command
+
+    args = type("Args", (), {"provider": "openai-codex", "auth_type": "oauth", "api_key": None, "label": "HSY"})()
+    auth_add_command(args)
+
+    reloaded = load_pool("openai-codex").entries()
+    canonical = next(entry for entry in reloaded if entry.source == "device_code")
+    jyh = next(entry for entry in reloaded if entry.label == "JYH")
+    payload = json.loads((tmp_path / "hermes" / "auth.json").read_text())
+
+    assert canonical.access_token == "canonical-new-at"
+    assert canonical.refresh_token == "canonical-new-rt"
+    assert jyh.access_token == "jyh-at"
+    assert payload["providers"]["openai-codex"]["tokens"]["access_token"] == "canonical-new-at"
+
+
+def test_d3_auth_add_codex_duplicate_label_fails_before_login(tmp_path, monkeypatch):
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes"))
+    duplicate = {
+        "label": "HSY",
+        "auth_type": "oauth",
+        "source": "manual:device_code",
+        "access_token": "old-at",
+    }
+    _write_auth_store(
+        tmp_path,
+        {
+            "version": 1,
+            "credential_pool": {
+                "openai-codex": [
+                    {**duplicate, "id": "hsy-a", "priority": 0},
+                    {**duplicate, "id": "hsy-b", "priority": 1},
+                ]
+            },
+        },
+    )
+    monkeypatch.setattr(
+        "hermes_cli.auth._codex_device_code_login",
+        lambda: (_ for _ in ()).throw(AssertionError("device login started")),
+    )
+    from hermes_cli.auth_commands import auth_add_command
+
+    args = type("Args", (), {"provider": "openai-codex", "auth_type": "oauth", "api_key": None, "label": "HSY"})()
+    with pytest.raises(SystemExit, match='Multiple openai-codex credentials already use label "HSY"'):
+        auth_add_command(args)
+
+
 def test_codex_auth_status_reports_pool_only_credential(tmp_path, monkeypatch):
     monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes"))
     _write_auth_store(tmp_path, _codex_pool_only_store())

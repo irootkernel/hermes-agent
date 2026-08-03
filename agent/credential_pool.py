@@ -483,6 +483,38 @@ def get_pool_strategy(provider: str) -> str:
     return STRATEGY_FILL_FIRST
 
 
+def _credential_pin_env_prefix(provider: str) -> str:
+    """Return the profile-local environment prefix for a provider pin."""
+    normalized = re.sub(r"[^A-Za-z0-9]+", "_", str(provider or "").strip()).strip("_")
+    return f"HERMES_CREDENTIAL_PIN_{normalized.upper()}" if normalized else "HERMES_CREDENTIAL_PIN"
+
+
+def get_credential_pin(provider: str) -> Dict[str, str]:
+    """Read a credential ID/label pin from the active profile's .env only."""
+    try:
+        profile_env = load_env()
+    except Exception:
+        return {}
+
+    prefix = _credential_pin_env_prefix(provider)
+    pinned_id = str(profile_env.get(f"{prefix}_ID", "") or "").strip()
+    pinned_label = str(
+        profile_env.get(f"{prefix}_LABEL", "")
+        or profile_env.get(prefix, "")
+        or ""
+    ).strip()
+    if pinned_id:
+        return {"id": pinned_id}
+    if pinned_label:
+        return {"label": pinned_label}
+    return {}
+
+
+def has_configured_credential_pin(provider: str) -> bool:
+    """Return whether the active profile pins this provider's credential."""
+    return bool(get_credential_pin(provider))
+
+
 def credential_pool_matches_provider(
     pool_or_provider: Any,
     provider: Optional[str],
@@ -629,6 +661,42 @@ class CredentialPool:
     def current(self) -> Optional[PooledCredential]:
         with self._lock:
             return self._current_unlocked()
+
+    def has_configured_pin(self) -> bool:
+        return has_configured_credential_pin(self.provider)
+
+    def _resolve_configured_pin_unlocked(
+        self,
+        available: List[PooledCredential],
+    ) -> Tuple[Optional[PooledCredential], bool, Optional[str]]:
+        """Resolve the profile pin against all entries and current availability."""
+        pin = get_credential_pin(self.provider)
+        if not pin:
+            return None, False, None
+
+        if "id" in pin:
+            value = pin["id"]
+            matches = [entry for entry in self._entries if entry.id == value]
+            kind = "id"
+        else:
+            value = pin.get("label", "")
+            matches = [entry for entry in self._entries if entry.label == value]
+            kind = "label"
+
+        if len(matches) != 1:
+            reason = "not found" if not matches else "not unique"
+            return None, True, f'pinned credential {kind} "{value}" is {reason}'
+
+        pinned = matches[0]
+        if not pinned.runtime_api_key:
+            return None, True, f'pinned credential {kind} "{value}" has no runtime credential'
+        pinned_identity = (pinned.id, pinned.label, pinned.source, pinned.priority)
+        if not any(
+            (entry.id, entry.label, entry.source, entry.priority) == pinned_identity
+            for entry in available
+        ):
+            return None, True, f'pinned credential {kind} "{value}" is unavailable'
+        return pinned, True, None
 
     def entry_id_for_api_key(self, api_key_hint: Any = None) -> Optional[str]:
         """Return the stable id for the runtime credential in use.
@@ -1747,6 +1815,15 @@ class CredentialPool:
 
     def _select_unlocked(self, *, refresh: bool = True) -> Optional[PooledCredential]:
         available = self._available_entries(clear_expired=True, refresh=refresh)
+        pinned, pin_configured, pin_error = self._resolve_configured_pin_unlocked(available)
+        if pin_configured:
+            if pinned is None:
+                self._current_id = None
+                logger.warning("credential pool: %s", pin_error)
+                return None
+            self._last_no_entries_log_at = None
+            self._current_id = pinned.id
+            return pinned
         if not available:
             self._current_id = None
             self._log_no_available_entries()
@@ -1787,6 +1864,10 @@ class CredentialPool:
         # Single lock acquisition for the whole read; call the unlocked
         # helpers so we don't re-enter the non-reentrant ``self._lock``.
         with self._lock:
+            if self.has_configured_pin():
+                available = self._available_entries()
+                pinned, _pin_configured, _pin_error = self._resolve_configured_pin_unlocked(available)
+                return pinned
             current = self._current_unlocked()
             if current is not None:
                 return current
@@ -1932,6 +2013,20 @@ class CredentialPool:
         still return the least-leased one instead of blocking.
         """
         with self._lock:
+            if self.has_configured_pin():
+                available = self._available_entries(clear_expired=True, refresh=True)
+                pinned, _pin_configured, pin_error = self._resolve_configured_pin_unlocked(available)
+                if pinned is None or (credential_id and credential_id != pinned.id):
+                    logger.warning(
+                        "credential pool: %s",
+                        pin_error or "requested lease conflicts with configured pin",
+                    )
+                    self._current_id = None
+                    return None
+                self._active_leases[pinned.id] = self._active_leases.get(pinned.id, 0) + 1
+                self._current_id = pinned.id
+                return pinned.id
+
             if credential_id:
                 self._active_leases[credential_id] = self._active_leases.get(credential_id, 0) + 1
                 self._current_id = credential_id

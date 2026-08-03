@@ -2,7 +2,7 @@ schema_version: 1
 ledger_kind: root-kernel-release-carry
 release:
   version: v0.19.1
-  status: d2-owner-accepted-d3-pending-start-authorization
+  status: d3-implemented-verified-committed-owner-acceptance-pending
   tag_blocker: true
   scaffolded_at: '2026-08-02T17:24:26+09:00'
   candidate_branch: rk/v0.19.1
@@ -492,19 +492,45 @@ active_carries:
       version: v0.18.2
       entry_id: D8
       status: local_minimize_applied
-    status: pending-re-audit
-    owner_direction: pending
-    requirement: Preserve profile-local credential ID or label selection and fail closed without cross-profile or singleton fallback.
-    likely_files:
+    status: implemented-verified-committed-owner-acceptance-pending
+    owner_direction: retain-minimal-approved
+    requirement: Preserve profile-local credential ID or label selection and fail closed without sibling or singleton Codex credential substitution.
+    files:
       - agent/credential_pool.py
       - agent/auxiliary_client.py
       - hermes_cli/runtime_provider.py
       - hermes_cli/auth_commands.py
-    red_evidence: pending
-    green_evidence: pending
-    integrated_smoke: pending
+      - tests/agent/test_credential_pool.py
+      - tests/agent/test_auxiliary_client.py
+      - tests/hermes_cli/test_runtime_provider_resolution.py
+      - tests/hermes_cli/test_auth_commands.py
+    red_evidence:
+      focused: 6 pool failures, 2 runtime failures, 2 auxiliary failures, 2 labelled-reauth failures, 1 empty-token failure, and 3 independent-review regression failures
+      clean_base: 516f0b74d070ceb7ec1020e6ce521c5d96fd8f3a
+    green_evidence:
+      d3_focused: 19 passed
+      related_without_unchanged_timing_test: 299 passed, 1 deselected
+      unchanged_timing_test_isolated: 1 passed
+      static_checks: py_compile, ruff, git diff --check, and added-line secret scan passed
+    independent_review:
+      initial_findings: 3
+      correction_tests: 3 passed
+      verdict_only_followup: passed
+      remaining_findings: 0
+    evidence:
+      path: root-kernel/evidence/v0.19.1-D3-codex-credential-pinning.json
+      sha256: cb4835753b0c63dfd6b47fa8684848d8e05ef21e35aaba40d899f500402c5316
+      publication: git-excluded-progress-state
+    rollback:
+      package: /Users/draccoon/Workspace/Hermes/update-backups/20260803T013102Z-rk-v0191-d3-clean.tar.gz
+      archive_sha256: 2abe783db89ab7bf0a0c694a26e0d43a481147980e58fcfb1cfd8ea48d6deeaf
+      restore_canary: passed
+      green_before_restore: 19 passed
+      red_after_restore: 16 failed, 3 passed
+    commit_header: '[D3]'
     live_mutation: false
-    next_action: Capture v0.19.1 overlap and missing pin or fail-close behavior, then request one owner direction.
+    retirement_rule: Retire only when an exact later upstream target supplies profile-local exact ID and label affinity, fail-closed unavailable-pin behavior without sibling or singleton substitution, and durable exact labelled reauth with equivalent regression coverage.
+    next_action: Request owner acceptance of the scoped '[D3]' commit; D4 remains blocked.
   D4:
     current_id: D4
     renumbered_from_provisional_id: D2

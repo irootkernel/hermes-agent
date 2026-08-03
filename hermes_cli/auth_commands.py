@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 import sys
 import time
+from dataclasses import replace
 from types import SimpleNamespace
 import uuid
 
@@ -308,11 +309,59 @@ def auth_add_command(args) -> None:
         return
 
     if provider == "openai-codex":
+        requested_label = (getattr(args, "label", None) or "").strip()
+        pool_entries = pool.entries()
+        label_matches = []
+        if requested_label:
+            label_matches = [
+                (index, entry)
+                for index, entry in enumerate(pool_entries)
+                if entry.label == requested_label
+                and entry.auth_type == AUTH_TYPE_OAUTH
+                and entry.source in {"device_code", SOURCE_MANUAL_DEVICE_CODE}
+            ]
+            if len(label_matches) > 1:
+                raise SystemExit(
+                    f'Multiple openai-codex credentials already use label "{requested_label}"; '
+                    "remove duplicates before re-auth."
+                )
+
         creds = auth_mod._codex_device_code_login()
-        label = (getattr(args, "label", None) or "").strip() or label_from_token(
+        label = requested_label or label_from_token(
             creds["tokens"]["access_token"],
             _oauth_default_label(provider, len(pool.entries()) + 1),
         )
+        if len(label_matches) == 1:
+            match_index, existing = label_matches[0]
+            updated = replace(
+                existing,
+                access_token=creds["tokens"]["access_token"],
+                refresh_token=creds["tokens"].get("refresh_token"),
+                base_url=creds.get("base_url"),
+                last_refresh=creds.get("last_refresh"),
+                last_status=None,
+                last_status_at=None,
+                last_error_code=None,
+                last_error_reason=None,
+                last_error_message=None,
+                last_error_reset_at=None,
+            )
+            if existing.source == "device_code":
+                auth_mod._save_codex_tokens(
+                    creds["tokens"],
+                    last_refresh=creds.get("last_refresh"),
+                    label=updated.label,
+                )
+            else:
+                updated_entries = list(pool_entries)
+                updated_entries[match_index] = updated
+                auth_mod.write_credential_pool(
+                    provider,
+                    [entry.to_dict() for entry in updated_entries],
+                )
+            print(f'Updated {provider} OAuth credential "{updated.label}"')
+            return
+
         # Add a distinct, self-contained pool entry per account (matching the
         # qwen-oauth / minimax-oauth multi-account patterns, and the
         # xai-oauth path below) instead of routing through the singleton
