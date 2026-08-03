@@ -10008,29 +10008,48 @@ def add_notify_sub(
     user_id: Optional[str] = None,
     notifier_profile: Optional[str] = None,
     delivery_metadata: Optional[Mapping[str, Any]] = None,
+    after_event_id: Optional[int] = None,
 ) -> None:
     """Register a gateway source that wants terminal-state notifications
     for ``task_id``. Idempotent on (task, platform, chat, thread).
 
-    New subscriptions start "caught up": ``last_event_id`` snaps to the
-    task's current ``MAX(task_events.id)`` at creation instead of the
+    New subscriptions normally start "caught up": ``last_event_id`` snaps to
+    the task's current ``MAX(task_events.id)`` at creation instead of the
     schema default 0. A cursor of 0 on an already-active task made the
     gateway notifier replay every historical terminal event on its next
     tick — and with many stale subs, a single boot-time burst of 100+
     messages (issue #29905). Subscribers only want events that occur
     AFTER they subscribe; the gateway/tool auto-subscribe paths run at
-    task creation, where the snapshot is 0 anyway.
+    task creation, where the snapshot is 0 anyway. ``after_event_id`` is an
+    explicit logical-start anchor for a review watch that is physically added
+    after its ``submitted_review`` event.
     """
     now = int(time.time())
     metadata_json = _encode_notify_delivery_metadata(delivery_metadata)
     with write_txn(conn):
+        if after_event_id is not None:
+            if isinstance(after_event_id, bool):
+                raise ValueError("after_event_id must identify an event on this task")
+            try:
+                after_event_id = int(after_event_id)
+            except (TypeError, ValueError) as exc:
+                raise ValueError(
+                    "after_event_id must identify an event on this task"
+                ) from exc
+            if after_event_id <= 0 or conn.execute(
+                "SELECT 1 FROM task_events WHERE task_id = ? AND id = ?",
+                (task_id, after_event_id),
+            ).fetchone() is None:
+                raise ValueError("after_event_id must identify an event on this task")
         conn.execute(
             """
             INSERT OR IGNORE INTO kanban_notify_subs
                 (task_id, platform, chat_id, chat_type, thread_id, user_id,
                  notifier_profile, delivery_metadata, created_at, last_event_id)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?,
-                    COALESCE((SELECT MAX(id) FROM task_events WHERE task_id = ?), 0))
+                    CASE WHEN ? IS NOT NULL THEN ?
+                         ELSE COALESCE((SELECT MAX(id) FROM task_events WHERE task_id = ?), 0)
+                    END)
             """,
             (
                 task_id,
@@ -10042,9 +10061,30 @@ def add_notify_sub(
                 notifier_profile,
                 metadata_json,
                 now,
+                after_event_id,
+                after_event_id,
                 task_id,
             ),
         )
+        if after_event_id is not None:
+            # An anchored review-watch insert may lose a same-destination race
+            # to a plain subscribe that snapped its cursor past a fast review
+            # outcome. Apply the logical start atomically on conflict. Default
+            # duplicate subscriptions (after_event_id=None) remain unchanged.
+            conn.execute(
+                """
+                UPDATE kanban_notify_subs
+                   SET last_event_id = MIN(last_event_id, ?)
+                 WHERE task_id = ? AND platform = ? AND chat_id = ? AND thread_id = ?
+                """,
+                (
+                    after_event_id,
+                    task_id,
+                    platform,
+                    chat_id,
+                    thread_id or "",
+                ),
+            )
         if chat_type:
             # Self-heal rows created before chat_type was persisted.
             conn.execute(

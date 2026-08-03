@@ -74,6 +74,119 @@ def _unseen_terminal_events(tid):
         conn.close()
 
 
+def test_notifier_delivers_requested_changes_and_keeps_review_watch(
+    tmp_path, monkeypatch
+):
+    from hermes_cli import profiles
+
+    db_path = tmp_path / "requested-changes.db"
+    monkeypatch.setenv("HERMES_KANBAN_DB", str(db_path))
+    monkeypatch.setattr(profiles, "profile_exists", lambda _name: True)
+    kb.init_db()
+
+    with kb.connect() as conn:
+        tid = kb.create_task(
+            conn,
+            title="review rework",
+            assignee="worker",
+            created_by="creator",
+            session_id="origin-session",
+        )
+        kb.add_notify_sub(
+            conn, task_id=tid, platform="telegram", chat_id="chat-1"
+        )
+        impl = kb.claim_task(conn, tid)
+        assert impl is not None
+        assert kb.submit_task_for_review(
+            conn,
+            tid,
+            reviewer="reviewer",
+            final_assignee="creator",
+            summary="ready",
+            expected_run_id=impl.current_run_id,
+        )
+        review = kb.claim_review_task(conn, tid)
+        assert review is not None
+        assert kb.request_changes_task(
+            conn,
+            tid,
+            reason="tighten tests",
+            summary="please rework",
+            expected_run_id=review.current_run_id,
+        )
+
+    adapter = RecordingAdapter()
+    asyncio.run(_run_one_notifier_tick(monkeypatch, _make_runner(adapter)))
+
+    assert len(adapter.sent) == 1
+    text = adapter.sent[0]["text"]
+    assert tid in text
+    assert "requested changes" in text.lower()
+    assert "worker" in text
+    assert "tighten tests" in text
+    assert len(adapter.handled) == 1
+    with kb.connect() as conn:
+        assert len(kb.list_notify_subs(conn, tid)) == 1
+
+
+def test_notifier_delivers_review_accepted_and_keeps_final_gate_watch(
+    tmp_path, monkeypatch
+):
+    from hermes_cli import profiles
+
+    db_path = tmp_path / "review-accepted.db"
+    monkeypatch.setenv("HERMES_KANBAN_DB", str(db_path))
+    monkeypatch.setattr(profiles, "profile_exists", lambda _name: True)
+    kb.init_db()
+
+    with kb.connect() as conn:
+        tid = kb.create_task(
+            conn,
+            title="creator final gate",
+            assignee="worker",
+            created_by="creator",
+            session_id="origin-session",
+        )
+        kb.add_notify_sub(
+            conn, task_id=tid, platform="telegram", chat_id="chat-1"
+        )
+        impl = kb.claim_task(conn, tid)
+        assert impl is not None
+        assert kb.submit_task_for_review(
+            conn,
+            tid,
+            reviewer="reviewer",
+            final_assignee="creator",
+            summary="ready",
+            expected_run_id=impl.current_run_id,
+        )
+        review = kb.claim_review_task(conn, tid)
+        assert review is not None
+        assert kb.complete_task(
+            conn,
+            tid,
+            summary="review approved",
+            expected_run_id=review.current_run_id,
+        )
+        task = kb.get_task(conn, tid)
+        assert task is not None
+        assert task.status == "ready"
+        assert task.assignee == "creator"
+
+    adapter = RecordingAdapter()
+    asyncio.run(_run_one_notifier_tick(monkeypatch, _make_runner(adapter)))
+
+    assert len(adapter.sent) == 1
+    text = adapter.sent[0]["text"]
+    assert tid in text
+    assert "review accepted" in text.lower()
+    assert "creator" in text
+    assert "final gate" in text.lower()
+    assert len(adapter.handled) == 1
+    with kb.connect() as conn:
+        assert len(kb.list_notify_subs(conn, tid)) == 1
+
+
 def test_kanban_notifier_replays_telegram_dm_topic_delivery_metadata(tmp_path, monkeypatch):
     db_path = tmp_path / "dm-topic-metadata.db"
     monkeypatch.setenv("HERMES_KANBAN_DB", str(db_path))

@@ -134,7 +134,7 @@ These values are the completed planning baseline. Fleet values must be refreshed
 
 ## v0.19.1 active D items
 
-Inherited carry lineages remain `pending-re-audit` until their own gate starts. D1–D4 are owner-accepted. D5-a and D5-b are committed; D6–D7 remain blocked. A familiar v0.18.2 patch is not authority to replay it.
+Inherited carry lineages remain `pending-re-audit` until their own gate starts. D1–D4 are owner-accepted. D5-a through D5-c are committed; D5-d through D5-f and D6–D7 remain blocked. A familiar v0.18.2 patch is not authority to replay it.
 
 | Current ID | Work item | Previous release | Current status | Next action |
 |---|---|---|---|---|
@@ -142,7 +142,7 @@ Inherited carry lineages remain `pending-re-audit` until their own gate starts. 
 | D2 | Fail-closed skill write approval import boundary | New v0.19.1 defect discovered in Task 6 | `implemented-verified-owner-accepted` | Keep active until an exact upstream fail-closed replacement is behaviorally verified. |
 | D3 | OpenAI Codex credential pinning and labelled reauth | `v0.18.2/D8` | `implemented-verified-owner-accepted` | Keep active until an exact upstream replacement satisfies the retirement rule. |
 | D4 | Discord thread ownership and role-mention fail-close | `v0.18.2/D4` | `implemented-verified-owner-accepted` | Closed; preserve until an exact upstream replacement is verified. |
-| D5 | Kanban same-card review and workflow seams | `v0.18.2/D2` | `d5-b-implemented-verified-review-passed-committed` | Await owner acceptance; do not start D5-c. |
+| D5 | Kanban same-card review and workflow seams | `v0.18.2/D2` | `d5-c-implemented-verified-review-passed-committed` | Await owner acceptance; do not start D5-d. |
 | D6 | CLI return-code passthrough | `v0.18.2/D6` | `pending-re-audit` | Trace the v0.19.1 process boundary and reproduce exact integer/bool behavior. |
 | D7 | Doctor optional tool warning filter | `v0.18.2/D7` | `pending-re-audit` | Probe enabled versus disabled/default-off tool diagnostics without hiding new doctor checks. |
 
@@ -158,7 +158,19 @@ Inherited carry lineages remain `pending-re-audit` until their own gate starts. 
 - Rollback: pre-implementation archive SHA-256 `28c0785c9c589eaac13628fc2757260eb835e86a43bca9ed066c6fa313523f46`; disposable restore matched ten targets byte-for-byte and passed 61 restored tests. Restored D5-a code also opened and mutated a disposable D5-b-migrated DB successfully, proving nullable-column rollback compatibility.
 - First independent implementation review found six concrete issues; all were reproduced and remediated. A final read-only Claude Code review returned `PASS` with zero blocking findings; its metadata-redaction nit was also changed to fail closed and regression-tested.
 - Evidence: `root-kernel/evidence/v0.19.1-D5-b-core-same-card-loop-investigation.json`, SHA-256 `c9a53df199b46cfe1a4636fe1e4ee3cd63a694d05ed8ab8449fd1b0e1a3dbb26`.
-- Boundary: no production board, dispatcher, gateway, profile, token, or live runtime was mutated. D5-b is committed in this self-recording commit; D5-c remains separately approval-gated.
+- Boundary: no production board, dispatcher, gateway, profile, token, or live runtime was mutated. D5-b is committed in this self-recording commit; that commit did not authorize D5-c, whose later implementation authorization and result are recorded below.
+
+### D5-c implementation result
+
+- Restored the review outcome watcher without replaying the historical patch directly. `kanban_submit_review` first reports an existing durable task subscription, then uses only a complete trusted gateway source or a TUI session key for a best-effort fallback. `HERMES_SESSION_ID` remains telemetry-only, partial gateway identity fails closed, and the historical `review_watch` receipt shape is preserved.
+- Added a same-task `submitted_review` cursor anchor to `add_notify_sub` without a schema change. Foreign-task and malformed anchors fail closed. A same destination race atomically applies `MIN(existing_cursor, anchor)` so a fast review outcome cannot be skipped, while ordinary duplicate subscriptions keep their existing cursor.
+- Added `requested_changes` and `review_accepted` delivery and wake behavior to the profile-aware multi-board gateway notifier and the TUI poller. Both outcomes retain the subscription until the task reaches `done` or `archived`; push failure rewind and non-push wake-before-cursor foundations remain unchanged.
+- Review-watch lookup, anchor, attach, and receipt work is isolated behind a best-effort boundary after the D5-b transition. A watcher failure cannot report a successful review transition as failed or attach a different fallback destination after an indeterminate existing-subscription lookup.
+- Verification: focused `89 passed, 1 skipped`; canonical file-isolated Kanban broad gate across 49 files `298 passed, 1 skipped`, with zero failed files; i18n catalog parity `36 passed`; `py_compile`, Ruff, `git diff --check`, and added-line security scan passed.
+- Rollback: pre-implementation archive SHA-256 `adf3e52e24768f270fc0a5f662a967466ff4c55b79d479db2f9fbbc31dded049`; disposable restore was clean and passed 89 baseline tests. Pre-D5-c code reopened a disposable D5-c-written DB, observed the anchored review outcome, then created and claimed another task successfully.
+- Independent review: first pass found two concrete races; both were reproduced and remediated. The read-only follow-up returned `PASS` with zero blockers and reran the two remediation tests successfully.
+- Evidence: `root-kernel/evidence/v0.19.1-D5-c-review-outcome-watcher.json`, SHA-256 `13e330a75729527ac14118670407a36de2902015fff1382e68f06c2afe5aa110` (local, Git-excluded evidence; publication is not authorized).
+- Boundary: no production board, dispatcher, gateway runtime, profile, registry, alias, token, skill, cron, or live ref was mutated. D5-c is committed in this self-recording commit; D5-d is separately approval-gated and has not started.
 
 D1 retirement requires an exact later upstream target where CJK-enabled `hermes sessions recover` preserves canonical counts, reports `complete: true`, passes an equivalent CJK recovery regression, and leaves no Root Kernel-only behavior gap. A nearby CJK change, issue closure, or symbol match alone does not retire it.
 

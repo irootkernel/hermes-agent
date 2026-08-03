@@ -66,6 +66,95 @@ class TestCollectKanbanNotifications:
         # Task is at a final status -> subscription removed.
         assert _sub_rows(tid) == []
 
+    def test_delivers_requested_changes_and_keeps_subscription(self, monkeypatch):
+        from hermes_cli import profiles
+
+        monkeypatch.setattr(profiles, "profile_exists", lambda _name: True)
+        conn = kb.connect()
+        try:
+            tid = kb.create_task(
+                conn,
+                title="TUI review rework",
+                assignee="worker",
+                created_by="creator",
+            )
+            kb.add_notify_sub(
+                conn, task_id=tid, platform="tui", chat_id=SESSION_KEY
+            )
+            impl = kb.claim_task(conn, tid)
+            assert impl is not None
+            assert kb.submit_task_for_review(
+                conn,
+                tid,
+                reviewer="reviewer",
+                final_assignee="creator",
+                summary="ready",
+                expected_run_id=impl.current_run_id,
+            )
+            review = kb.claim_review_task(conn, tid)
+            assert review is not None
+            assert kb.request_changes_task(
+                conn,
+                tid,
+                reason="tighten tests",
+                expected_run_id=review.current_run_id,
+            )
+        finally:
+            conn.close()
+
+        texts = _collect_kanban_notifications(_session())
+
+        assert len(texts) == 1
+        assert tid in texts[0]
+        assert "requested changes" in texts[0].lower()
+        assert "tighten tests" in texts[0]
+        assert len(_sub_rows(tid)) == 1
+
+    def test_delivers_review_accepted_and_keeps_subscription(self, monkeypatch):
+        from hermes_cli import profiles
+
+        monkeypatch.setattr(profiles, "profile_exists", lambda _name: True)
+        conn = kb.connect()
+        try:
+            tid = kb.create_task(
+                conn,
+                title="TUI creator gate",
+                assignee="worker",
+                created_by="creator",
+            )
+            kb.add_notify_sub(
+                conn, task_id=tid, platform="tui", chat_id=SESSION_KEY
+            )
+            impl = kb.claim_task(conn, tid)
+            assert impl is not None
+            assert kb.submit_task_for_review(
+                conn,
+                tid,
+                reviewer="reviewer",
+                final_assignee="creator",
+                summary="ready",
+                expected_run_id=impl.current_run_id,
+            )
+            review = kb.claim_review_task(conn, tid)
+            assert review is not None
+            assert kb.complete_task(
+                conn,
+                tid,
+                summary="review approved",
+                expected_run_id=review.current_run_id,
+            )
+        finally:
+            conn.close()
+
+        texts = _collect_kanban_notifications(_session())
+
+        assert len(texts) == 1
+        assert tid in texts[0]
+        assert "review accepted" in texts[0].lower()
+        assert "final gate" in texts[0].lower()
+        assert "creator" in texts[0]
+        assert len(_sub_rows(tid)) == 1
+
     def test_claim_advances_cursor_so_second_poll_is_empty(self):
         tid = _create_subscribed_task()
         conn = kb.connect()

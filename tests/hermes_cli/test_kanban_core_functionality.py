@@ -1408,6 +1408,183 @@ def test_notify_sub_starts_caught_up_on_active_task(kanban_home):
         conn.close()
 
 
+def test_notify_sub_can_anchor_at_review_submission_before_fast_outcome(
+    kanban_home, monkeypatch
+):
+    """A review watch attached late must still see outcomes after submission."""
+    from hermes_cli import profiles
+
+    monkeypatch.setattr(profiles, "profile_exists", lambda _name: True)
+    conn = kb.connect()
+    try:
+        tid = kb.create_task(
+            conn,
+            title="fast review outcome",
+            assignee="worker",
+            created_by="creator",
+        )
+        impl = kb.claim_task(conn, tid)
+        assert impl is not None
+        assert kb.submit_task_for_review(
+            conn,
+            tid,
+            reviewer="reviewer",
+            final_assignee="creator",
+            summary="ready",
+            expected_run_id=impl.current_run_id,
+        )
+        submitted_task = kb.get_task(conn, tid)
+        assert submitted_task is not None
+        submitted_event_id = submitted_task.review_submission_event_id
+        assert submitted_event_id is not None
+
+        review = kb.claim_review_task(conn, tid)
+        assert review is not None
+        assert kb.request_changes_task(
+            conn,
+            tid,
+            reason="tighten tests",
+            expected_run_id=review.current_run_id,
+        )
+
+        # The physical subscription is late, but the logical review watch began
+        # at submitted_review. Default MAX-event priming would skip this outcome.
+        kb.add_notify_sub(
+            conn,
+            task_id=tid,
+            platform="telegram",
+            chat_id="review-source",
+            after_event_id=submitted_event_id,
+        )
+        _cursor, events = kb.unseen_events_for_sub(
+            conn,
+            task_id=tid,
+            platform="telegram",
+            chat_id="review-source",
+            kinds=["requested_changes"],
+        )
+        assert [event.kind for event in events] == ["requested_changes"]
+    finally:
+        conn.close()
+
+
+def test_notify_sub_rejects_cursor_anchor_from_another_task(
+    kanban_home,
+):
+    conn = kb.connect()
+    try:
+        source = kb.create_task(conn, title="source")
+        target = kb.create_task(conn, title="target")
+        source_event_id = kb.list_events(conn, source)[-1].id
+
+        with pytest.raises(ValueError, match="after_event_id"):
+            kb.add_notify_sub(
+                conn,
+                task_id=target,
+                platform="telegram",
+                chat_id="review-source",
+                after_event_id=source_event_id,
+            )
+        assert kb.list_notify_subs(conn, target) == []
+    finally:
+        conn.close()
+
+
+def test_notify_sub_review_anchor_rewinds_same_destination_conflict(
+    kanban_home, monkeypatch
+):
+    """A same-target insert race must not skip a fast review outcome."""
+    from hermes_cli import profiles
+
+    monkeypatch.setattr(profiles, "profile_exists", lambda _name: True)
+    conn = kb.connect()
+    try:
+        tid = kb.create_task(
+            conn,
+            title="same-target race",
+            assignee="worker",
+            created_by="creator",
+        )
+        impl = kb.claim_task(conn, tid)
+        assert impl is not None
+        assert kb.submit_task_for_review(
+            conn,
+            tid,
+            reviewer="reviewer",
+            final_assignee="creator",
+            expected_run_id=impl.current_run_id,
+        )
+        task = kb.get_task(conn, tid)
+        assert task is not None
+        anchor = task.review_submission_event_id
+        assert anchor is not None
+        review = kb.claim_review_task(conn, tid)
+        assert review is not None
+        assert kb.request_changes_task(
+            conn,
+            tid,
+            reason="fast outcome",
+            expected_run_id=review.current_run_id,
+        )
+
+        # Simulate a concurrent plain subscribe that snaps past the outcome.
+        kb.add_notify_sub(
+            conn,
+            task_id=tid,
+            platform="telegram",
+            chat_id="same-chat",
+        )
+        before = kb.list_notify_subs(conn, tid)[0]["last_event_id"]
+        assert before > anchor
+
+        # The review-watch insert loses the PK race to the same destination.
+        kb.add_notify_sub(
+            conn,
+            task_id=tid,
+            platform="telegram",
+            chat_id="same-chat",
+            after_event_id=anchor,
+        )
+        stored = kb.list_notify_subs(conn, tid)[0]["last_event_id"]
+        new_cursor, events = kb.unseen_events_for_sub(
+            conn,
+            task_id=tid,
+            platform="telegram",
+            chat_id="same-chat",
+            kinds=["requested_changes"],
+        )
+        assert stored == anchor
+        assert new_cursor > anchor
+        assert [event.kind for event in events] == ["requested_changes"]
+
+        kb.advance_notify_cursor(
+            conn,
+            task_id=tid,
+            platform="telegram",
+            chat_id="same-chat",
+            new_cursor=new_cursor,
+        )
+        assert kb.block_task(conn, tid, reason="later event")
+        kb.add_notify_sub(
+            conn,
+            task_id=tid,
+            platform="telegram",
+            chat_id="same-chat",
+        )
+        preserved = kb.list_notify_subs(conn, tid)[0]["last_event_id"]
+        assert preserved == new_cursor
+        _, later_events = kb.unseen_events_for_sub(
+            conn,
+            task_id=tid,
+            platform="telegram",
+            chat_id="same-chat",
+            kinds=["blocked"],
+        )
+        assert [event.kind for event in later_events] == ["blocked"]
+    finally:
+        conn.close()
+
+
 def test_kanban_guidance_documents_same_card_transition_tools():
     from agent.prompt_builder import KANBAN_GUIDANCE
 

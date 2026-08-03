@@ -164,7 +164,7 @@ class GatewayKanbanWatchersMixin:
 
         # "status" covers dashboard drag-drop and `_set_status_direct()`
         # writes — surface those transitions to subscribers too.
-        TERMINAL_KINDS = ("completed", "blocked", "gave_up", "crashed", "timed_out", "status", "archived", "unblocked", "block_loop_detected")
+        TERMINAL_KINDS = ("completed", "blocked", "gave_up", "crashed", "timed_out", "status", "archived", "unblocked", "block_loop_detected", "requested_changes", "review_accepted")
         # Subscriptions are removed only when the task reaches a truly final
         # status (done / archived). We used to also unsub on any terminal
         # event kind (gave_up / crashed / timed_out / blocked), but that
@@ -431,6 +431,24 @@ class GatewayKanbanWatchersMixin:
                             if ev.payload and ev.payload.get("reason"):
                                 reason = f": {str(ev.payload['reason'])[:160]}"
                             msg = f"⏸ {board_tag}{tag}Kanban {sub['task_id']} blocked{reason}"
+                        elif kind == "requested_changes":
+                            payload = ev.payload or {}
+                            target = str(payload.get("assignee") or "")[:80]
+                            reason = str(payload.get("reason") or "")[:160]
+                            target_text = f"@{target}" if target else "the implementer"
+                            reason_text = f": {reason}" if reason else ""
+                            msg = (
+                                f"🛠 {board_tag}{tag}Kanban {sub['task_id']} requested changes"
+                                f"\n→ {target_text}{reason_text}"
+                            )
+                        elif kind == "review_accepted":
+                            payload = ev.payload or {}
+                            target = str(payload.get("final_assignee") or "")[:80]
+                            target_text = f"@{target}" if target else "the creator"
+                            msg = (
+                                f"✅ {board_tag}{tag}Kanban {sub['task_id']} review accepted"
+                                f"\n— final gate required {target_text}"
+                            )
                         elif kind == "gave_up":
                             err = ""
                             if ev.payload and ev.payload.get("error"):
@@ -612,7 +630,7 @@ class GatewayKanbanWatchersMixin:
                         #   claim exactly like a failed send() above, so the
                         #   next tick retries.
                         task_terminal = task and task.status in {"done", "archived"}
-                        _WAKE_KINDS = ("completed", "gave_up", "crashed", "timed_out", "blocked")
+                        _WAKE_KINDS = ("completed", "gave_up", "crashed", "timed_out", "blocked", "requested_changes", "review_accepted")
                         _wake_kinds = {ev.kind for ev in d["events"] if ev.kind in _WAKE_KINDS}
                         from gateway.wake import adapter_supports_push as _adapter_push_ok
 
@@ -630,6 +648,8 @@ class GatewayKanbanWatchersMixin:
                             if "crashed" in _wake_kinds: _parts.append(t("gateway.kanban.wake.crashed"))
                             if "timed_out" in _wake_kinds: _parts.append(t("gateway.kanban.wake.timed_out"))
                             if "blocked" in _wake_kinds: _parts.append(t("gateway.kanban.wake.blocked"))
+                            if "requested_changes" in _wake_kinds: _parts.append("requested changes")
+                            if "review_accepted" in _wake_kinds: _parts.append("review accepted; final gate required")
                             _status = t("gateway.kanban.wake.status_joiner").join(_parts) or t("gateway.kanban.wake.status_default")
                             _synth = t(
                                 "gateway.kanban.wake.message",

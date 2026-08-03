@@ -837,11 +837,165 @@ def _handle_reassign(args: dict, **kw) -> str:
         return tool_error(f"kanban_reassign: {e}")
 
 
+def _review_watch_receipt(subs: list[dict[str, Any]]) -> dict[str, Any]:
+    """Project durable task subscriptions into a worker-facing watch receipt."""
+    if not subs:
+        return {"attached": False}
+    sub = sorted(
+        subs,
+        key=lambda item: (
+            str(item.get("platform") or ""),
+            str(item.get("chat_id") or ""),
+            str(item.get("thread_id") or ""),
+        ),
+    )[0]
+    receipt: dict[str, Any] = {
+        "attached": True,
+        "platform": sub.get("platform"),
+        "chat_id": sub.get("chat_id"),
+    }
+    for source_key, receipt_key in (
+        ("thread_id", "thread_id"),
+        ("user_id", "user_id"),
+        ("notifier_profile", "profile"),
+    ):
+        value = sub.get(source_key)
+        if value:
+            receipt[receipt_key] = value
+    return receipt
+
+
+def _submitted_review_event_id(
+    kb: Any, conn: Any, task_id: str, run_id: int
+) -> Optional[int]:
+    matches = [
+        event.id
+        for event in kb.list_events(conn, task_id)
+        if event.kind == "submitted_review" and event.run_id == run_id
+    ]
+    return max(matches) if matches else None
+
+
+def _maybe_attach_review_watch(
+    kb: Any,
+    conn: Any,
+    task_id: str,
+    *,
+    after_event_id: Optional[int],
+) -> dict[str, Any]:
+    """Best-effort review watcher for a trusted gateway or TUI source."""
+    platform = ""
+    chat_id = ""
+    if after_event_id is None:
+        logger.warning(
+            "_maybe_attach_review_watch refused missing submitted_review anchor "
+            "for task %s",
+            task_id,
+        )
+        return {"attached": False}
+    try:
+        from gateway.session_context import get_session_env
+
+        platform = get_session_env("HERMES_SESSION_PLATFORM", "")
+        chat_id = get_session_env("HERMES_SESSION_CHAT_ID", "")
+        tui_fallback = False
+        if bool(platform) != bool(chat_id):
+            logger.warning(
+                "_maybe_attach_review_watch refused partial gateway source "
+                "(platform_set=%r chat_id_set=%r)",
+                bool(platform),
+                bool(chat_id),
+            )
+            return {"attached": False}
+        if not platform and not chat_id:
+            session_key = (
+                get_session_env("HERMES_SESSION_KEY", "")
+                or os.environ.get("HERMES_SESSION_KEY", "")
+            )
+            if not session_key:
+                return {"attached": False}
+            platform = "tui"
+            chat_id = session_key
+            tui_fallback = True
+
+        if tui_fallback:
+            thread_id = None
+            user_id = None
+            chat_type = None
+            message_id = ""
+        else:
+            thread_id = get_session_env("HERMES_SESSION_THREAD_ID", "") or None
+            user_id = get_session_env("HERMES_SESSION_USER_ID", "") or None
+            chat_type = get_session_env("HERMES_SESSION_CHAT_TYPE", "") or None
+            message_id = get_session_env("HERMES_SESSION_MESSAGE_ID", "") or ""
+        notifier_profile = (
+            get_session_env("HERMES_SESSION_PROFILE", "")
+            or os.environ.get("HERMES_PROFILE")
+        )
+        if not notifier_profile:
+            try:
+                from hermes_cli.profiles import get_active_profile_name
+
+                notifier_profile = get_active_profile_name() or "default"
+            except Exception:
+                notifier_profile = "default"
+
+        delivery_metadata: dict[str, Any] = {}
+        if thread_id:
+            delivery_metadata["thread_id"] = thread_id
+        if chat_type:
+            delivery_metadata["chat_type"] = chat_type
+        if (
+            platform.lower() == "telegram"
+            and thread_id
+            and (chat_type or "").lower() in {"dm", "direct", "private"}
+        ):
+            delivery_metadata["telegram_dm_topic_reply_fallback"] = True
+            if str(thread_id) not in {"", "1"}:
+                delivery_metadata["direct_messages_topic_id"] = str(thread_id)
+            if message_id:
+                delivery_metadata["telegram_reply_to_message_id"] = str(message_id)
+
+        kb.add_notify_sub(
+            conn,
+            task_id=task_id,
+            platform=platform,
+            chat_id=chat_id,
+            chat_type=chat_type,
+            thread_id=thread_id,
+            user_id=user_id,
+            notifier_profile=notifier_profile,
+            delivery_metadata=delivery_metadata or None,
+            after_event_id=after_event_id,
+        )
+        receipt: dict[str, Any] = {
+            "attached": True,
+            "platform": platform,
+            "chat_id": chat_id,
+        }
+        if thread_id:
+            receipt["thread_id"] = thread_id
+        if user_id:
+            receipt["user_id"] = user_id
+        if notifier_profile:
+            receipt["profile"] = notifier_profile
+        return receipt
+    except Exception as exc:
+        logger.warning(
+            "_maybe_attach_review_watch failed: %r (platform=%r key_set=%r)",
+            exc,
+            platform,
+            bool(chat_id),
+        )
+        return {"attached": False}
+
+
 def _handle_submit_review(args: dict, **kw) -> str:
     """Submit the current active run into native review on the same task."""
     tid, run_id, guard = _transition_worker_context(args, "kanban_submit_review")
     if guard:
         return guard
+    assert tid is not None and run_id is not None
     summary = args.get("summary")
     if summary:
         summary = redact_sensitive_text(str(summary), force=True)
@@ -868,6 +1022,26 @@ def _handle_submit_review(args: dict, **kw) -> str:
                 )
             task = kb.get_task(conn, tid)
             run = kb.latest_run(conn, tid)
+            review_watch = {"attached": False}
+            try:
+                subs = kb.list_notify_subs(conn, tid)
+                if subs:
+                    review_watch = _review_watch_receipt(subs)
+                else:
+                    review_watch = _maybe_attach_review_watch(
+                        kb,
+                        conn,
+                        tid,
+                        after_event_id=_submitted_review_event_id(
+                            kb, conn, tid, run_id
+                        ),
+                    )
+            except Exception as exc:
+                logger.warning(
+                    "kanban_submit_review watch setup failed for task %s: %r",
+                    tid,
+                    exc,
+                )
             return _ok(
                 task_id=tid,
                 run_id=run.id if run else None,
@@ -875,6 +1049,7 @@ def _handle_submit_review(args: dict, **kw) -> str:
                 assignee=task.assignee if task else None,
                 outcome=run.outcome if run else None,
                 transition="submitted_review",
+                review_watch=review_watch,
             )
         finally:
             conn.close()

@@ -1064,6 +1064,308 @@ def test_kanban_reassign_worker_tool_handoffs_own_active_run(worker_env, monkeyp
     assert data["transition"] == "same_card_handoff"
 
 
+def test_submit_review_reports_existing_durable_review_watch(
+    worker_env, monkeypatch
+):
+    from hermes_cli import kanban_db as kb
+    from hermes_cli import profiles
+    from tools import kanban_tools as kt
+
+    monkeypatch.setattr(profiles, "profile_exists", lambda _name: True)
+    with kb.connect() as conn:
+        kb.add_notify_sub(
+            conn,
+            task_id=worker_env,
+            platform="discord",
+            chat_id="channel-17",
+            chat_type="group",
+            thread_id="thread-5",
+            user_id="user-3",
+            notifier_profile="creator-profile",
+            delivery_metadata={"thread_id": "thread-5"},
+        )
+
+    submitted = json.loads(
+        kt._handle_submit_review(
+            {
+                "reviewer": "reviewer",
+                "final_assignee": "creator",
+                "summary": "ready for review",
+            }
+        )
+    )
+
+    assert submitted["ok"] is True
+    assert submitted["review_watch"] == {
+        "attached": True,
+        "platform": "discord",
+        "chat_id": "channel-17",
+        "thread_id": "thread-5",
+        "user_id": "user-3",
+        "profile": "creator-profile",
+    }
+
+
+def test_submit_review_attaches_trusted_gateway_watch_at_submission_event(
+    worker_env, monkeypatch
+):
+    from hermes_cli import kanban_db as kb
+    from hermes_cli import profiles
+    from tools import kanban_tools as kt
+
+    monkeypatch.setattr(profiles, "profile_exists", lambda _name: True)
+    monkeypatch.setenv("HERMES_SESSION_PLATFORM", "telegram")
+    monkeypatch.setenv("HERMES_SESSION_CHAT_ID", "chat-42")
+    monkeypatch.setenv("HERMES_SESSION_CHAT_TYPE", "dm")
+    monkeypatch.setenv("HERMES_SESSION_THREAD_ID", "17")
+    monkeypatch.setenv("HERMES_SESSION_USER_ID", "user-7")
+    monkeypatch.setenv("HERMES_SESSION_MESSAGE_ID", "message-9")
+    monkeypatch.setenv("HERMES_SESSION_PROFILE", "creator-profile")
+
+    submitted = json.loads(
+        kt._handle_submit_review(
+            {
+                "reviewer": "reviewer",
+                "final_assignee": "creator",
+                "summary": "ready for review",
+            }
+        )
+    )
+
+    assert submitted["ok"] is True
+    assert submitted["review_watch"] == {
+        "attached": True,
+        "platform": "telegram",
+        "chat_id": "chat-42",
+        "thread_id": "17",
+        "user_id": "user-7",
+        "profile": "creator-profile",
+    }
+    with kb.connect() as conn:
+        task = kb.get_task(conn, worker_env)
+        assert task is not None
+        subs = kb.list_notify_subs(conn, worker_env)
+    assert len(subs) == 1
+    assert subs[0]["last_event_id"] == task.review_submission_event_id
+    assert subs[0]["chat_type"] == "dm"
+    assert subs[0]["delivery_metadata"] == {
+        "thread_id": "17",
+        "chat_type": "dm",
+        "telegram_dm_topic_reply_fallback": True,
+        "direct_messages_topic_id": "17",
+        "telegram_reply_to_message_id": "message-9",
+    }
+
+
+def test_submit_review_watch_failure_is_non_blocking(worker_env, monkeypatch):
+    from hermes_cli import kanban_db as kb
+    from hermes_cli import profiles
+    from tools import kanban_tools as kt
+
+    monkeypatch.setattr(profiles, "profile_exists", lambda _name: True)
+    monkeypatch.setenv("HERMES_SESSION_PLATFORM", "discord")
+    monkeypatch.setenv("HERMES_SESSION_CHAT_ID", "channel-17")
+    monkeypatch.setattr(
+        kb,
+        "add_notify_sub",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            RuntimeError("simulated review watch failure")
+        ),
+    )
+
+    submitted = json.loads(
+        kt._handle_submit_review(
+            {"reviewer": "reviewer", "summary": "ready for review"}
+        )
+    )
+
+    assert submitted["ok"] is True
+    assert submitted["status"] == "review"
+    assert submitted["review_watch"] == {"attached": False}
+
+
+def test_submit_review_attaches_tui_review_watch(worker_env, monkeypatch):
+    from hermes_cli import kanban_db as kb
+    from hermes_cli import profiles
+    from tools import kanban_tools as kt
+
+    monkeypatch.setattr(profiles, "profile_exists", lambda _name: True)
+    monkeypatch.delenv("HERMES_SESSION_PLATFORM", raising=False)
+    monkeypatch.delenv("HERMES_SESSION_CHAT_ID", raising=False)
+    monkeypatch.setenv("HERMES_SESSION_KEY", "tui-session-17")
+
+    submitted = json.loads(
+        kt._handle_submit_review(
+            {"reviewer": "reviewer", "summary": "ready for TUI review"}
+        )
+    )
+
+    assert submitted["ok"] is True
+    assert submitted["review_watch"] == {
+        "attached": True,
+        "platform": "tui",
+        "chat_id": "tui-session-17",
+        "profile": "test-worker",
+    }
+    with kb.connect() as conn:
+        subs = kb.list_notify_subs(conn, worker_env)
+    assert len(subs) == 1
+    assert subs[0]["platform"] == "tui"
+
+
+def test_submit_review_watch_refuses_missing_submission_anchor(
+    worker_env, monkeypatch
+):
+    from hermes_cli import kanban_db as kb
+    from hermes_cli import profiles
+    from tools import kanban_tools as kt
+
+    monkeypatch.setattr(profiles, "profile_exists", lambda _name: True)
+    monkeypatch.setenv("HERMES_SESSION_PLATFORM", "discord")
+    monkeypatch.setenv("HERMES_SESSION_CHAT_ID", "channel-17")
+    monkeypatch.setattr(kt, "_submitted_review_event_id", lambda *args: None)
+
+    submitted = json.loads(
+        kt._handle_submit_review(
+            {"reviewer": "reviewer", "summary": "ready for review"}
+        )
+    )
+
+    assert submitted["ok"] is True
+    assert submitted["review_watch"] == {"attached": False}
+    with kb.connect() as conn:
+        assert kb.list_notify_subs(conn, worker_env) == []
+
+
+def test_submit_review_does_not_treat_session_id_as_delivery_target(
+    worker_env, monkeypatch
+):
+    from hermes_cli import kanban_db as kb
+    from hermes_cli import profiles
+    from tools import kanban_tools as kt
+
+    monkeypatch.setattr(profiles, "profile_exists", lambda _name: True)
+    for key in (
+        "HERMES_SESSION_PLATFORM",
+        "HERMES_SESSION_CHAT_ID",
+        "HERMES_SESSION_KEY",
+    ):
+        monkeypatch.delenv(key, raising=False)
+    monkeypatch.setenv("HERMES_SESSION_ID", "telemetry-only-session")
+
+    submitted = json.loads(
+        kt._handle_submit_review(
+            {"reviewer": "reviewer", "summary": "ready for review"}
+        )
+    )
+
+    assert submitted["ok"] is True
+    assert submitted["review_watch"] == {"attached": False}
+    with kb.connect() as conn:
+        assert kb.list_notify_subs(conn, worker_env) == []
+
+
+def test_submit_review_current_session_receipt_survives_concurrent_subscription(
+    worker_env, monkeypatch
+):
+    from hermes_cli import kanban_db as kb
+    from hermes_cli import profiles
+    from tools import kanban_tools as kt
+
+    monkeypatch.setattr(profiles, "profile_exists", lambda _name: True)
+    monkeypatch.setenv("HERMES_SESSION_PLATFORM", "telegram")
+    monkeypatch.setenv("HERMES_SESSION_CHAT_ID", "current-chat")
+    original_add = kb.add_notify_sub
+
+    def add_with_concurrent_subscription(conn, **kwargs):
+        original_add(
+            conn,
+            task_id=kwargs["task_id"],
+            platform="discord",
+            chat_id="concurrent-chat",
+        )
+        return original_add(conn, **kwargs)
+
+    monkeypatch.setattr(kb, "add_notify_sub", add_with_concurrent_subscription)
+
+    submitted = json.loads(
+        kt._handle_submit_review(
+            {"reviewer": "reviewer", "summary": "ready for review"}
+        )
+    )
+
+    assert submitted["ok"] is True
+    assert submitted["review_watch"]["platform"] == "telegram"
+    assert submitted["review_watch"]["chat_id"] == "current-chat"
+
+
+def test_submit_review_subscription_lookup_failure_is_non_blocking(
+    worker_env, monkeypatch
+):
+    from hermes_cli import kanban_db as kb
+    from hermes_cli import profiles
+    from tools import kanban_tools as kt
+
+    monkeypatch.setattr(profiles, "profile_exists", lambda _name: True)
+    with kb.connect() as conn:
+        kb.add_notify_sub(
+            conn,
+            task_id=worker_env,
+            platform="telegram",
+            chat_id="durable-origin",
+        )
+    monkeypatch.setenv("HERMES_SESSION_PLATFORM", "discord")
+    monkeypatch.setenv("HERMES_SESSION_CHAT_ID", "different-current-source")
+    monkeypatch.delenv("HERMES_SESSION_KEY", raising=False)
+    monkeypatch.setattr(
+        kb,
+        "list_notify_subs",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            RuntimeError("simulated subscription lookup failure")
+        ),
+    )
+
+    submitted = json.loads(
+        kt._handle_submit_review(
+            {"reviewer": "reviewer", "summary": "ready for review"}
+        )
+    )
+
+    assert submitted["ok"] is True
+    assert submitted["status"] == "review"
+    assert submitted["review_watch"] == {"attached": False}
+    with kb.connect() as conn:
+        count = conn.execute(
+            "SELECT COUNT(*) FROM kanban_notify_subs WHERE task_id = ?",
+            (worker_env,),
+        ).fetchone()[0]
+    assert count == 1
+
+
+def test_submit_review_watch_rejects_ambiguous_partial_gateway_source(
+    worker_env, monkeypatch
+):
+    from hermes_cli import kanban_db as kb
+    from hermes_cli import profiles
+    from tools import kanban_tools as kt
+
+    monkeypatch.setattr(profiles, "profile_exists", lambda _name: True)
+    monkeypatch.setenv("HERMES_SESSION_PLATFORM", "discord")
+    monkeypatch.delenv("HERMES_SESSION_CHAT_ID", raising=False)
+    monkeypatch.setenv("HERMES_SESSION_KEY", "tui-session-ambiguous")
+
+    submitted = json.loads(
+        kt._handle_submit_review(
+            {"reviewer": "reviewer", "summary": "ready for review"}
+        )
+    )
+
+    assert submitted["ok"] is True
+    assert submitted["review_watch"] == {"attached": False}
+    with kb.connect() as conn:
+        assert kb.list_notify_subs(conn, worker_env) == []
+
+
 def test_worker_tools_run_same_card_review_loop_and_bypass_judge_only_for_review(
     worker_env, monkeypatch
 ):

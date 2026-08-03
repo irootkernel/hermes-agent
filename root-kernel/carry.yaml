@@ -2,7 +2,7 @@ schema_version: 1
 ledger_kind: root-kernel-release-carry
 release:
   version: v0.19.1
-  status: d5-b-investigation-complete-implementation-authorized
+  status: d5-c-implemented-verified-review-passed-committed
   tag_blocker: true
   scaffolded_at: '2026-08-02T17:24:26+09:00'
   candidate_branch: rk/v0.19.1
@@ -51,33 +51,30 @@ release:
   publication:
     commit_authorized: true
     authorized_commit:
-      task: D5-b
-      subject: '[D5-b] Implement Kanban same-card core loop'
-      authorized_at: '2026-08-03T21:27:46+09:00'
+      task: D5-c
+      subject: '[D5-c] Implement Kanban review outcome watcher'
+      authorized_at: '2026-08-04T03:51:47+09:00'
       scope:
-        - agent/prompt_builder.py
-        - cli.py
         - for-root-kernel.md
-        - hermes_cli/goals.py
-        - hermes_cli/kanban.py
+        - gateway/kanban_watchers.py
         - hermes_cli/kanban_db.py
         - root-kernel/carry.yaml
+        - tests/gateway/test_kanban_notifier.py
         - tests/hermes_cli/test_kanban_core_functionality.py
-        - tests/hermes_cli/test_kanban_db.py
-        - tests/hermes_cli/test_kanban_goal_mode.py
         - tests/tools/test_kanban_tools.py
+        - tests/tui_gateway/test_kanban_notify_poller.py
         - tools/kanban_tools.py
-        - toolsets.py
+        - tui_gateway/server.py
     latest_commit:
-      task: D5-b
+      task: D5-c
       commit_ref: self
+      subject: '[D5-c] Implement Kanban review outcome watcher'
+      authorized_at: '2026-08-04T03:51:47+09:00'
+    previous_commit:
+      task: D5-b
+      commit: 68a85dc8ef33ca9496b2bd617ce4b8caa32a4093
       subject: '[D5-b] Implement Kanban same-card core loop'
       authorized_at: '2026-08-03T21:27:46+09:00'
-    previous_commit:
-      task: D5-a
-      commit: b11b70c117fc4969ad3104ab625450faa2182995
-      subject: '[D5-a] Re-audit Kanban native overlap and renumber carry'
-      authorized_at: '2026-08-03T17:19:03+09:00'
     scaffold_commit:
       task: Task 2
       commit: 509ae0f6d1c5ea9f7dfb9a77a965614dd91b16ff
@@ -610,11 +607,15 @@ active_carries:
       version: v0.18.2
       entry_id: D2
       status: local_minimize_applied
-    status: d5-b-implemented-verified-review-passed-committed
+    status: d5-c-implemented-verified-review-passed-committed
     owner_direction: committed-awaiting-owner-acceptance
     d5_b_investigation_started_at: '2026-08-03T16:39:16+09:00'
     d5_b_investigation_completed_at: '2026-08-03T17:07:28+09:00'
     d5_b_implementation_verified_at: '2026-08-03T18:38:22+09:00'
+    d5_c_implementation_started_at: '2026-08-03T23:21:56+09:00'
+    d5_c_implementation_verified_at: '2026-08-04T00:15:44+09:00'
+    d5_c_independent_review_passed_at: '2026-08-04T00:19:20+09:00'
+    d5_c_commit_authorized_at: '2026-08-04T03:51:47+09:00'
     audit_started_at: '2026-08-03T13:55:06+09:00'
     audit_completed_at: '2026-08-03T13:59:37+09:00'
     requirement: Preserve only still-missing same-card review, result, mutex, watcher, and closed workflow semantics.
@@ -651,9 +652,13 @@ active_carries:
       - Creator final-gate routing before final completion side effects.
       - Worker-only same-card tools and explicit-run CLI parity.
       - Goal-loop release and post-judge ownership safety.
+    resolved_in_d5_c:
+      - Existing durable review-watch receipt plus trusted gateway/TUI fallback with historical response shape.
+      - Same-task review cursor anchoring, same-destination conflict safety, and ordinary duplicate cursor preservation.
+      - Gateway and TUI requested_changes/review_accepted delivery, wake, and nonfinal subscription retention.
+      - Best-effort watcher setup that cannot reverse or misreport a successful D5-b review transition.
     local_gaps:
       - Creator/acceptor result submission is absent.
-      - Review-specific requested_changes and review_accepted notifier outcomes are absent.
       - mutex_key serialization is absent.
       - Closed workflow_type banners are absent.
     red_evidence:
@@ -661,6 +666,9 @@ active_carries:
     green_evidence:
       - 'D5-b focused implementation suite: 109 passed, 1 skipped.'
       - 'D5-b canonical file-isolated broad gate: 34 files, 206 passed, 1 skipped, 0 failed files.'
+      - 'D5-c focused implementation suite: 89 passed, 1 skipped.'
+      - 'D5-c canonical file-isolated broad gate: 49 files, 298 passed, 1 skipped, 0 failed files.'
+      - 'D5-c i18n catalog parity: 36 passed.'
       - 'Static gates: py_compile, Ruff, and git diff --check passed.'
     integrated_smoke: passed-disposable-db-no-live-runtime
     evidence:
@@ -708,6 +716,40 @@ active_carries:
         redaction_nit: remediated-fail-closed-and-regression-tested
       implementation_authorized: true
       commit_authorized: true
+    d5_c_analysis:
+      evidence:
+        path: root-kernel/evidence/v0.19.1-D5-c-review-outcome-watcher.json
+        sha256: 13e330a75729527ac14118670407a36de2902015fff1382e68f06c2afe5aa110
+        publication_authorized: false
+      implementation_status: implemented-verified-independent-review-passed-committed
+      implementation_design: retain-minimal-v0191-aware-review-watcher-with-exact-anchor-and-tui-parity
+      schema_change: none
+      preserved_boundaries:
+        - Default dispatcher workers still strip all HERMES_SESSION routing metadata.
+        - HERMES_SESSION_ID is never promoted to a delivery destination.
+        - Existing profile-aware multi-board routing, cursor claim/rewind, and non-push wake-before-advance behavior remain intact.
+        - Subscriptions remain until done or archived; D5-d result acceptance is absent and separately gated.
+      verification:
+        focused: '89 passed, 1 skipped'
+        broad_file_isolated: '49 files; 298 passed, 1 skipped, 0 failed files'
+        i18n_catalog_parity: '36 passed'
+        static: pycompile-ruff-diff-check-security-scan-passed
+      rollback:
+        archive_sha256: adf3e52e24768f270fc0a5f662a967466ff4c55b79d479db2f9fbbc31dded049
+        restored_suite: '89 passed'
+        pre_d5_c_db_backward_compatibility: passed
+      expected_product_files:
+        - hermes_cli/kanban_db.py
+        - tools/kanban_tools.py
+        - gateway/kanban_watchers.py
+        - tui_gateway/server.py
+      independent_review:
+        first_pass: changes-required-2-findings-all-remediated
+        follow_up: passed-zero-blocking-findings
+        specified_tests: '2 passed'
+        reviewer: Hermes-delegated-read-only-follow-up
+      implementation_authorized: true
+      commit_authorized: true
     direction_scenario:
       A: Retain current D5-b through D5-f while preserving all verified new upstream behavior. Current D5-b bundles legacy D2-b through D2-e; current D5-c/d/e/f map to legacy D2-f/g/h/i. Recommended.
     independent_review:
@@ -716,7 +758,7 @@ active_carries:
       logic_errors: 0
       reviewer: Claude Code read-only audit follow-up
     live_mutation: false
-    next_action: Await owner acceptance of committed D5-b; do not start D5-c.
+    next_action: Await owner acceptance of committed D5-c; do not start D5-d.
   D6:
     current_id: D6
     renumbered_from_provisional_id: D4

@@ -8460,7 +8460,7 @@ def _notification_event_dedup_key(evt: dict) -> tuple:
 # event behind an unclaimed row.
 _KANBAN_NOTIFY_KINDS = (
     "completed", "blocked", "gave_up", "crashed", "timed_out",
-    "status", "archived", "unblocked",
+    "status", "archived", "unblocked", "requested_changes", "review_accepted",
 )
 _KANBAN_SILENT_KINDS = frozenset({"archived", "unblocked"})
 _KANBAN_POLL_SECONDS = 5.0
@@ -8495,6 +8495,22 @@ def _format_kanban_event_text(sub: dict, task, ev, board_slug: str) -> Optional[
     if kind == "blocked":
         reason = f": {str(payload.get('reason'))[:160]}" if payload.get("reason") else ""
         return f"⏸ {board_tag}{tag}Kanban {task_id} blocked{reason}"
+    if kind == "requested_changes":
+        target = str(payload.get("assignee") or "")[:80]
+        reason = str(payload.get("reason") or "")[:160]
+        target_text = f"@{target}" if target else "the implementer"
+        reason_text = f": {reason}" if reason else ""
+        return (
+            f"🛠 {board_tag}{tag}Kanban {task_id} requested changes"
+            f"\n→ {target_text}{reason_text}"
+        )
+    if kind == "review_accepted":
+        target = str(payload.get("final_assignee") or "")[:80]
+        target_text = f"@{target}" if target else "the creator"
+        return (
+            f"✅ {board_tag}{tag}Kanban {task_id} review accepted"
+            f"\n— final gate required {target_text}"
+        )
     if kind == "gave_up":
         err = f"\n{str(payload.get('error'))[:200]}" if payload.get("error") else ""
         return f"✖ {board_tag}{tag}Kanban {task_id} gave up after repeated spawn failures{err}"
