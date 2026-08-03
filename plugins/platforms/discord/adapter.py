@@ -121,7 +121,12 @@ except ImportError:
 
 from gateway.config import Platform, PlatformConfig
 
-from gateway.platforms.helpers import MessageDeduplicator, ThreadParticipationTracker, convert_table_to_bullets
+from gateway.platforms.helpers import (
+    MessageDeduplicator,
+    ThreadOwnerTracker,
+    ThreadParticipationTracker,
+    convert_table_to_bullets,
+)
 from utils import atomic_json_write, env_float, env_int
 from gateway.platforms.base import (
     BasePlatformAdapter,
@@ -948,10 +953,10 @@ class DiscordAdapter(BasePlatformAdapter):
         self._voice_mixers: Dict[int, Any] = {}  # guild_id -> VoiceMixer
         self._ambient_pcm_cache: Optional[bytes] = None  # decoded ambient bed
         self._voice_fx_cfg: Dict[str, Any] = self._load_voice_fx_config()
-        # Track threads where the bot has participated so follow-up messages
-        # in those threads don't require @mention.  Persisted to disk so the
-        # set survives gateway restarts.
+        # Participation records context; ownership alone grants mention-free
+        # follow-ups in shared threads. Both survive gateway restarts.
         self._threads = ThreadParticipationTracker("discord")
+        self._thread_owners = ThreadOwnerTracker("discord")
         # Persistent typing indicator loops per channel (DMs don't reliably
         # show the standard typing gateway event for bots)
         self._typing_tasks: Dict[str, asyncio.Task] = {}
@@ -1372,6 +1377,15 @@ class DiscordAdapter(BasePlatformAdapter):
             role_authorized = bool(getattr(self, "_allowed_role_ids", set()))
 
         raw_self_mention = self._self_is_explicitly_mentioned(message)
+        if (
+            not isinstance(message.channel, discord.DMChannel)
+            and (
+                self._discord_message_has_role_mentions(message)
+                or bool(getattr(message, "mention_everyone", False))
+            )
+            and not raw_self_mention
+        ):
+            return False, False
         if not isinstance(message.channel, discord.DMChannel) and (
             message.mentions or raw_self_mention
         ):
@@ -2197,23 +2211,6 @@ class DiscordAdapter(BasePlatformAdapter):
 
     async def _dispatch_recovered_message(self, message: Any) -> bool:
         """Run one recovered message through the live Discord ingress gates."""
-        if not isinstance(message.channel, discord.DMChannel):
-            parent_id = self._get_parent_channel_id(message.channel)
-            channel_keys = self._discord_channel_keys(message, parent_id)
-            free_channels = self._discord_free_response_channels()
-            in_bot_thread = (
-                isinstance(message.channel, discord.Thread)
-                and str(message.channel.id) in self._threads
-                and not self._discord_thread_require_mention()
-            )
-            if (
-                self._discord_require_mention()
-                and "*" not in free_channels
-                and not (channel_keys & free_channels)
-                and not in_bot_thread
-                and not self._self_is_explicitly_mentioned(message)
-            ):
-                return False
         admitted, role_authorized = self._discord_message_admission(
             message, claim=False,
         )
@@ -3065,6 +3062,7 @@ class DiscordAdapter(BasePlatformAdapter):
 
         thread_channel = thread if hasattr(thread, "send") else getattr(thread, "thread", None)
         thread_id = str(getattr(thread_channel, "id", getattr(thread, "id", "")))
+        self._mark_discord_thread_owned(thread_id)
         starter_msg = getattr(thread, "message", None)
         message_id = str(getattr(starter_msg, "id", thread_id)) if starter_msg else thread_id
 
@@ -3142,6 +3140,7 @@ class DiscordAdapter(BasePlatformAdapter):
 
         thread_channel = thread if hasattr(thread, "send") else getattr(thread, "thread", None)
         thread_id = str(getattr(thread_channel, "id", getattr(thread, "id", "")))
+        self._mark_discord_thread_owned(thread_id)
         starter_msg = getattr(thread, "message", None)
         message_id = str(getattr(starter_msg, "id", thread_id)) if starter_msg else thread_id
 
@@ -5902,9 +5901,9 @@ class DiscordAdapter(BasePlatformAdapter):
         if deferred_response:
             await interaction.followup.send(f"Created thread {link}", ephemeral=True)
 
-        # Track thread participation so follow-ups don't require @mention
+        # Record both participation and stable default-responder ownership.
         if thread_id:
-            self._threads.mark(thread_id)
+            self._mark_discord_thread_owned(thread_id)
 
         # If a message was provided, kick off a new Hermes session in the thread
         starter = (message or "").strip()
@@ -6164,16 +6163,11 @@ class DiscordAdapter(BasePlatformAdapter):
         return keys
 
     def _discord_thread_require_mention(self) -> bool:
-        """Return whether thread participation requires @mention to follow up.
+        """Return whether even an owned thread still requires @mention.
 
-        When ``False`` (default), once the bot has participated in a thread it
-        keeps responding to every message in that thread without needing to be
-        mentioned again — useful for one-on-one conversations.
-
-        When ``True``, the @mention requirement is enforced inside threads as
-        well.  Set this when multiple bots share a thread and you want each
-        one to only fire on explicit @mention, avoiding bot-to-bot loops or
-        unwanted cross-replies.
+        When ``False`` (default), this bot may answer mention-free only in
+        threads it owns. When ``True``, ownership is ignored and every shared
+        thread request must explicitly mention this bot.
         """
         configured = self.config.extra.get("thread_require_mention")
         if configured is not None:
@@ -6181,6 +6175,62 @@ class DiscordAdapter(BasePlatformAdapter):
                 return configured.lower() not in {"false", "0", "no", "off"}
             return bool(configured)
         return os.getenv("DISCORD_THREAD_REQUIRE_MENTION", "false").lower() in {"true", "1", "yes", "on"}
+
+    def _discord_auto_thread_free_response(self) -> bool:
+        configured = self.config.extra.get("auto_thread_free_response")
+        if configured is not None:
+            if isinstance(configured, str):
+                return configured.lower() in {"true", "1", "yes", "on"}
+            return bool(configured)
+        return os.getenv("DISCORD_AUTO_THREAD_FREE_RESPONSE", "false").lower() in {
+            "true", "1", "yes", "on",
+        }
+
+    def _discord_default_thread_owner_parent_channels(self) -> set[str]:
+        raw = os.getenv("DISCORD_DEFAULT_THREAD_OWNER_PARENT_CHANNELS", "")
+        return {part.strip() for part in raw.split(",") if part.strip()}
+
+    def _discord_message_has_role_mentions(self, message: Any) -> bool:
+        if getattr(message, "role_mentions", None):
+            return True
+        if getattr(message, "raw_role_mentions", None):
+            return True
+        return bool(re.search(r"<@&\d+>", getattr(message, "content", "") or ""))
+
+    def _discord_thread_owner_key(self) -> Optional[str]:
+        user = getattr(self._client, "user", None) if self._client else None
+        user_id = getattr(user, "id", None)
+        return str(user_id) if user_id is not None else None
+
+    def _mark_discord_thread_owned(self, thread_id: Optional[str]) -> None:
+        if not thread_id:
+            return
+        thread_id = str(thread_id)
+        self._threads.mark(thread_id)
+        owner_key = self._discord_thread_owner_key()
+        if owner_key:
+            self._thread_owners.mark_owner(thread_id, owner_key)
+
+    def _discord_thread_allows_mentionless(
+        self,
+        thread_id: Optional[str],
+        parent_channel_id: Optional[str],
+    ) -> bool:
+        if not thread_id or self._discord_thread_require_mention():
+            return False
+        owner_key = self._discord_thread_owner_key()
+        if not owner_key:
+            return False
+        existing_owner = self._thread_owners.owner_for(thread_id)
+        if existing_owner is not None:
+            return existing_owner == owner_key
+        if (
+            parent_channel_id
+            and parent_channel_id in self._discord_default_thread_owner_parent_channels()
+        ):
+            self._thread_owners.mark_owner(thread_id, owner_key)
+            return self._thread_owners.is_owner(thread_id, owner_key)
+        return False
 
     def _discord_history_backfill(self) -> bool:
         """Return whether history backfill is enabled for shared sessions."""
@@ -6723,7 +6773,9 @@ class DiscordAdapter(BasePlatformAdapter):
                     auto_archive_duration=1440,
                     reason=reason,
                 )
-                return str(thread.id)
+                thread_id = str(thread.id)
+                self._mark_discord_thread_owned(thread_id)
+                return thread_id
         except Exception as direct_error:
             logger.debug(
                 "[%s] Handoff thread: direct create failed (%s); trying seed-message fallback",
@@ -6741,7 +6793,9 @@ class DiscordAdapter(BasePlatformAdapter):
                 auto_archive_duration=1440,
                 reason=reason,
             )
-            return str(thread.id)
+            thread_id = str(thread.id)
+            self._mark_discord_thread_owned(thread_id)
+            return thread_id
         except Exception as fallback_error:
             logger.warning(
                 "[%s] Handoff thread: both create paths failed for parent %s: %s",
@@ -7402,8 +7456,8 @@ class DiscordAdapter(BasePlatformAdapter):
     ) -> bool:
         """Handle one Discord message and report whether it reached dispatch."""
         # In server channels (not DMs), require the bot to be @mentioned
-        # UNLESS the channel is in the free-response list or the message is
-        # in a thread where the bot has already participated.
+        # UNLESS the channel is in the free-response list or this bot owns the
+        # current thread's default-responder slot.
         #
         # Config (all settable via discord.* in config.yaml or DISCORD_* env vars):
         #   discord.require_mention: Require @mention in server channels (default: true)
@@ -7479,18 +7533,14 @@ class DiscordAdapter(BasePlatformAdapter):
                 or is_voice_linked_channel
             )
 
-            # Skip the mention check if the message is in a thread where
-            # the bot has previously participated (auto-created or replied in)
-            # — UNLESS thread_require_mention is enabled, in which case threads
-            # are gated the same as channels.  Useful when multiple bots share
-            # a thread.
-            in_bot_thread = (
-                is_thread
-                and thread_id in self._threads
-                and not self._discord_thread_require_mention()
+            # Participation preserves context but never grants default response.
+            # Mention-free routing requires this bot to own the thread.
+            in_owned_thread = is_thread and self._discord_thread_allows_mentionless(
+                thread_id,
+                parent_channel_id,
             )
 
-            if require_mention and not is_free_channel and not in_bot_thread:
+            if require_mention and not is_free_channel and not in_owned_thread:
                 if not self._self_is_explicitly_mentioned(message) and not mention_prefix:
                     return False
         # Auto-thread: when enabled, automatically create a thread for every
@@ -7501,7 +7551,9 @@ class DiscordAdapter(BasePlatformAdapter):
         if not is_thread and not isinstance(message.channel, discord.DMChannel):
             no_thread_channels_raw = os.getenv("DISCORD_NO_THREAD_CHANNELS", "")
             no_thread_channels = {ch.strip() for ch in no_thread_channels_raw.split(",") if ch.strip()}
-            skip_thread = bool(channel_keys & no_thread_channels) or is_free_channel
+            skip_thread = bool(channel_keys & no_thread_channels) or (
+                is_free_channel and not self._discord_auto_thread_free_response()
+            )
             auto_thread = os.getenv("DISCORD_AUTO_THREAD", "true").lower() in {"true", "1", "yes"}
             is_reply_message = getattr(message, "type", None) == discord.MessageType.reply
             if auto_thread and not skip_thread and not is_voice_linked_channel and not is_reply_message:
@@ -7511,7 +7563,7 @@ class DiscordAdapter(BasePlatformAdapter):
                     is_thread = True
                     thread_id = str(thread.id)
                     auto_threaded_channel = thread
-                    self._threads.mark(thread_id)
+                    self._mark_discord_thread_owned(thread_id)
                     # Pre-seed dedup: when _auto_create_thread creates a thread
                     # via message.create_thread(), Discord fires a second
                     # MESSAGE_CREATE event for the "thread starter message".
@@ -7776,7 +7828,7 @@ class DiscordAdapter(BasePlatformAdapter):
             # Run backfill when there's a real gap to fill:
             #   - mention-gated channels with no free-response override
             #     (messages between bot turns aren't in the transcript)
-            #   - any thread (in_bot_thread bypasses the mention check, but
+            #   - any thread (in_owned_thread bypasses the mention check, but
             #     processing-window gaps and post-restart context still need
             #     recovery)
             #   - any reply (the user pointed at a specific message; hydrate
@@ -7787,7 +7839,7 @@ class DiscordAdapter(BasePlatformAdapter):
             # so the session transcript already has everything.
             # Auto-threaded messages also skip — we just created the thread,
             # there's nothing prior to backfill.
-            _has_mention_gap = require_mention and not is_free_channel and not in_bot_thread
+            _has_mention_gap = require_mention and not is_free_channel and not in_owned_thread
             _is_reply = message.reference is not None
 
             # Resolve the replied-to message into an object exposing ``.id``.
@@ -9692,6 +9744,13 @@ def _apply_yaml_config(yaml_cfg: dict, discord_cfg: dict) -> dict | None:
         os.environ["DISCORD_FREE_RESPONSE_CHANNELS"] = str(frc)
     if "auto_thread" in discord_cfg and not os.getenv("DISCORD_AUTO_THREAD"):
         os.environ["DISCORD_AUTO_THREAD"] = str(discord_cfg["auto_thread"]).lower()
+    if (
+        "auto_thread_free_response" in discord_cfg
+        and not os.getenv("DISCORD_AUTO_THREAD_FREE_RESPONSE")
+    ):
+        os.environ["DISCORD_AUTO_THREAD_FREE_RESPONSE"] = str(
+            discord_cfg["auto_thread_free_response"]
+        ).lower()
     if "reactions" in discord_cfg and not os.getenv("DISCORD_REACTIONS"):
         os.environ["DISCORD_REACTIONS"] = str(discord_cfg["reactions"]).lower()
     seeded_extra = {}

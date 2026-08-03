@@ -11,7 +11,7 @@ import logging
 import re
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING, Dict
+from typing import TYPE_CHECKING, Dict, Optional
 
 from utils import atomic_json_write
 
@@ -276,6 +276,71 @@ class ThreadParticipationTracker:
 
     def clear(self) -> None:
         self._threads.clear()
+
+
+class ThreadOwnerTracker:
+    """Persistent thread-to-default-responder mapping.
+
+    Participation never transfers ownership: the first non-empty owner wins.
+    """
+
+    def __init__(self, platform_name: str, max_tracked: int = 500):
+        self._platform = platform_name
+        self._max_tracked = max_tracked
+        self._owners: dict[str, str] = self._load()
+
+    def _state_path(self) -> Path:
+        from hermes_constants import get_hermes_home
+        return get_hermes_home() / f"{self._platform}_thread_owners.json"
+
+    def _load(self) -> dict[str, str]:
+        path = self._state_path()
+        if path.exists():
+            try:
+                data = json.loads(path.read_text(encoding="utf-8"))
+                if isinstance(data, dict):
+                    return {
+                        str(thread_id): str(owner)
+                        for thread_id, owner in data.items()
+                        if isinstance(thread_id, (str, int))
+                        and isinstance(owner, (str, int))
+                        and str(thread_id).isdigit()
+                        and str(owner).isdigit()
+                    }
+            except Exception:
+                pass
+        return {}
+
+    def _save(self) -> None:
+        owners = dict(self._owners)
+        if len(owners) > self._max_tracked:
+            owners = dict(list(owners.items())[-self._max_tracked:])
+            self._owners = owners
+        atomic_json_write(self._state_path(), owners)
+
+    def mark_owner(self, thread_id: str, owner: str) -> None:
+        thread_id = str(thread_id)
+        owner = str(owner)
+        if (
+            not thread_id.isdigit()
+            or not owner.isdigit()
+            or thread_id in self._owners
+        ):
+            return
+        self._owners[thread_id] = owner
+        self._save()
+
+    def owner_for(self, thread_id: str) -> Optional[str]:
+        return self._owners.get(str(thread_id))
+
+    def is_owner(self, thread_id: str, owner: str) -> bool:
+        return self.owner_for(thread_id) == str(owner)
+
+    def __contains__(self, thread_id: str) -> bool:
+        return str(thread_id) in self._owners
+
+    def clear(self) -> None:
+        self._owners.clear()
 
 
 # ─── Phone Number Redaction ──────────────────────────────────────────────────

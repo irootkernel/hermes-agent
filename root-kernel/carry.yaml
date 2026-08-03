@@ -2,7 +2,7 @@ schema_version: 1
 ledger_kind: root-kernel-release-carry
 release:
   version: v0.19.1
-  status: d3-owner-accepted-d4-pending-start-authorization
+  status: d4-owner-accepted-await-d5-authorization
   tag_blocker: true
   scaffolded_at: '2026-08-02T17:24:26+09:00'
   candidate_branch: rk/v0.19.1
@@ -534,7 +534,7 @@ active_carries:
     commit_header: '[D3]'
     live_mutation: false
     retirement_rule: Retire only when an exact later upstream target supplies profile-local exact ID and label affinity, fail-closed unavailable-pin behavior without sibling or singleton substitution, and durable exact labelled reauth with equivalent regression coverage.
-    next_action: Keep active until an exact upstream replacement satisfies the retirement rule; D4 remains pending explicit start authorization.
+    next_action: Keep active until an exact upstream replacement satisfies the retirement rule.
   D4:
     current_id: D4
     renumbered_from_provisional_id: D2
@@ -545,17 +545,52 @@ active_carries:
       version: v0.18.2
       entry_id: D4
       status: local_minimize_applied
-    status: pending-re-audit
-    owner_direction: pending
+    status: implemented-verified-owner-accepted
+    owner_direction: retain-minimal-v0.19.1-aware
+    implementation_authorized: true
+    audit_started_at: '2026-08-03T11:38:26+09:00'
+    audit_completed_at: '2026-08-03T11:56:43+09:00'
     requirement: Preserve owned-thread response and ownership boundaries while failing closed on unsafe role mentions.
     likely_files:
       - gateway/platforms/helpers.py
       - plugins/platforms/discord/adapter.py
-    red_evidence: pending
-    green_evidence: pending
-    integrated_smoke: pending
+    upstream_absorbed:
+      - Persistent participation tracking and require/free-response/thread-require-mention gates.
+      - Fail-closed auto-thread failure, reply/voice skip behavior, bot inline-mention gates, safe output mentions, and missed-message recovery admission.
+    local_gaps:
+      - Persistent thread owner state is absent; participation still grants mention-free live routing.
+      - Recovered-message routing also treats participation as ownership.
+      - Role mentions can fall through to a free-response/default responder.
+      - Free-response owned auto-thread, parent-owner fallback, and ownership config bridge are absent.
+      - Auto-created, slash-created, and new forum text/media threads do not record ownership.
+    red_evidence:
+      - 'Re-audit disposable gap probe: 6 expected failures reproduced.'
+      - 'Implementation core RED: 7 failed.'
+      - 'Implementation sibling RED: 4 failed.'
+    green_evidence:
+      - 'Focused final: 42 passed.'
+      - 'Related Discord suite: 112 passed, 3 warnings.'
+      - 'Thread persistence sibling: 3 passed.'
+      - 'Broad gateway Discord glob matches clean base exactly: 233 passed, same 3 import-order failures.'
+    integrated_smoke: passed-related-baseline-equivalent
+    evidence:
+      path: root-kernel/evidence/v0.19.1-D4-discord-thread-ownership.json
+      sha256: a93a6e7c726fbb945726de186251cbb53fd9808ee925bc116500da354e2836f1
+    options:
+      A: Retain a minimal v0.19.1-aware owner and role fail-close extension across live, recovery, and new thread-creation siblings. Recommended.
+      B: Retire automatic ownership, require explicit mentions in shared threads, and retain only role-address fail-close.
+      C: Retire or defer D4 and accept current participation-based behavior.
+    rollback:
+      archive: /Users/draccoon/Workspace/Hermes/update-backups/20260803T033508Z-rk-v0191-d4-pre-implementation/d4-targets.tar.gz
+      sha256: 0cdccc37fd3c06cfab0d2317c5f6a058fdfdbe61c980ab571e97bed8745ad51c
+      base_commit: 9c0872d236d99be974d2384a94a2878b667565b2
     live_mutation: false
-    next_action: Probe ownership, free-response, and mention safety against v0.19.1 Discord recovery and media paths.
+    independent_review:
+      status: passed
+      security_concerns: 0
+      logic_errors: 0
+      reviewer: Claude Code read-only follow-up
+    next_action: D4 is owner-accepted. Await separate owner authorization before starting D5.
   D5:
     current_id: D5
     renumbered_from_provisional_id: D3
