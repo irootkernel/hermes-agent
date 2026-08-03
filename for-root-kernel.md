@@ -2,7 +2,7 @@
 
 ## Release state
 
-- Status: `d4-owner-accepted-await-d5-authorization`
+- Status: `d5-d2-a-audit-committed-owner-direction-pending`
 - Candidate branch: `rk/v0.19.1`
 - Candidate worktree: `/Users/draccoon/Workspace/Hermes/17th-hermes-agent-worktree`
 - Tag blocker: `true`
@@ -142,7 +142,7 @@ Inherited carry lineages remain `pending-re-audit` until their own gate starts. 
 | D2 | Fail-closed skill write approval import boundary | New v0.19.1 defect discovered in Task 6 | `implemented-verified-owner-accepted` | Keep active until an exact upstream fail-closed replacement is behaviorally verified. |
 | D3 | OpenAI Codex credential pinning and labelled reauth | `v0.18.2/D8` | `implemented-verified-owner-accepted` | Keep active until an exact upstream replacement satisfies the retirement rule. |
 | D4 | Discord thread ownership and role-mention fail-close | `v0.18.2/D4` | `implemented-verified-owner-accepted` | Closed; await separate authorization before D5. |
-| D5 | Kanban same-card review and workflow seams | `v0.18.2/D2` | `pending-re-audit` | Audit native review/repair/model/worktree behavior before testing remaining Root Kernel seams. |
+| D5 | Kanban same-card review and workflow seams | `v0.18.2/D2` | `d2-a-audit-committed-owner-direction-pending` | Decide scenario A only: canonical D2-b through D2-f; D2-b bundles legacy b-e. |
 | D6 | CLI return-code passthrough | `v0.18.2/D6` | `pending-re-audit` | Trace the v0.19.1 process boundary and reproduce exact integer/bool behavior. |
 | D7 | Doctor optional tool warning filter | `v0.18.2/D7` | `pending-re-audit` | Probe enabled versus disabled/default-off tool diagnostics without hiding new doctor checks. |
 
@@ -275,4 +275,21 @@ D4 read-only re-audit result:
 - independent review: passed; security concerns `0`, logic errors `0`;
 - evidence: `root-kernel/evidence/v0.19.1-D4-discord-thread-ownership.json`, SHA-256 `a93a6e7c726fbb945726de186251cbb53fd9808ee925bc116500da354e2836f1`.
 
-D1–D4 are owner-accepted. D5–D7, fleet re-seed, live mutation, tag, push, and remote-ref movement remain unauthorized.
+D5 read-only re-audit result:
+
+- exact upstream anchor: tag `v2026.7.30`, commit `cc4cab2f592e60a197e796506de9168f74baf3ea`; candidate D5 source and tests are byte-identical to that anchor;
+- historical lineage: `D2-a` was audit-only; the v0.18.2 minimal implementation bundled legacy `D2-b` through `D2-e` into commit `4f7e449fb [D2-b] restore Kanban same-card review loop`, followed by legacy `D2-f`, `D2-g`, `D2-h`, and `D2-i` commits;
+- canonical subitems for this carry: `D2-a` analysis; `D2-b` core same-card loop; `D2-c` review watcher; `D2-d` result acceptance; `D2-e` mutex; `D2-f` workflow banner;
+- renumbering: legacy b-e → canonical b, legacy f → c, legacy g → d, legacy h → e, legacy i → f; no requirement is retired;
+- preserve upstream: native review claim/dispatch, generic workflow metadata, goal judge, repair/corruption recovery/WAL checkpoint, per-task model/provider override, delegated-child mutation denial, child/project worktree isolation, and profile-aware cursor-safe notifier routing;
+- remaining gaps: cooperative same-card handoff; submit-review/request-changes/creator final gate; creator result acceptance; review-specific watcher outcomes; `mutex_key`; closed `workflow_type` banners; immediate worker tool disclosure;
+- semantic confirmation: a native reviewer claims `review -> running` and `kanban_complete` closes directly to `done`; current worker guidance still uses `review-required` block as a workaround;
+- disposable D5 gap probe: `7 failed, 1 passed`, where the pass confirms native review and generic workflow metadata remain;
+- native related suite: `89 passed, 1 skipped`;
+- repair/WAL/model/child/worktree preservation suite: `23 passed`;
+- independent review: passed; security concerns `0`, logic errors `0`;
+- KSCQ retrieval: no related indexed learning note; no raw-packet expansion;
+- evidence: `root-kernel/evidence/v0.19.1-D5-kanban-same-card-review.json`, SHA-256 `fa7ae8074bbedd6f71f886ae519dcc44fbe502d3de57765aed86f0b8aca12748`;
+- scenario A, recommended: retain canonical D2-b through D2-f at current chokepoints; canonical b is the bundled core same-card loop, while canonical c/d/e/f are watcher/result/mutex/banner; preserve every verified new upstream behavior.
+
+D1–D4 are owner-accepted. D5 implementation and commit await one owner direction on scenario A. D6–D7, fleet re-seed, live mutation, tag, push, and remote-ref movement remain unauthorized.

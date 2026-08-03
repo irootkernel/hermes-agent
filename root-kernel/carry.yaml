@@ -2,7 +2,7 @@ schema_version: 1
 ledger_kind: root-kernel-release-carry
 release:
   version: v0.19.1
-  status: d4-owner-accepted-await-d5-authorization
+  status: d5-d2-a-audit-committed-owner-direction-pending
   tag_blocker: true
   scaffolded_at: '2026-08-02T17:24:26+09:00'
   candidate_branch: rk/v0.19.1
@@ -601,9 +601,24 @@ active_carries:
       version: v0.18.2
       entry_id: D2
       status: local_minimize_applied
-    status: pending-re-audit
+    status: d2-a-audit-committed-owner-direction-pending
     owner_direction: pending
+    audit_started_at: '2026-08-03T13:55:06+09:00'
+    audit_completed_at: '2026-08-03T13:59:37+09:00'
     requirement: Preserve only still-missing same-card review, result, mutex, watcher, and closed workflow semantics.
+    canonical_subitems:
+      D2-a: native-overlap analysis
+      D2-b: 'core same-card loop: cooperative handoff, submit-for-review, request-changes, and creator final gate'
+      D2-c: review outcome watcher
+      D2-d: creator/acceptor result submission
+      D2-e: mutex-key serialization
+      D2-f: closed workflow context banners
+    renumbered_from_legacy:
+      D2-b: legacy D2-b through D2-e
+      D2-c: legacy D2-f
+      D2-d: legacy D2-g
+      D2-e: legacy D2-h
+      D2-f: legacy D2-i
     likely_files:
       - hermes_cli/kanban_db.py
       - tools/kanban_tools.py
@@ -611,11 +626,39 @@ active_carries:
       - hermes_cli/kanban.py
       - gateway/kanban_watchers.py
       - agent/prompt_builder.py
-    red_evidence: pending
-    green_evidence: pending
-    integrated_smoke: pending
+    upstream_native_foundations:
+      - Native review claim/dispatch and generic workflow metadata.
+      - Goal-mode completion judge and structured completion contracts.
+      - Kanban repair, corruption recovery, backup retention, and WAL checkpoint behavior.
+      - Per-task model/provider override.
+      - Delegated-child mutation denial and isolated child/project worktrees.
+      - Multi-board, cursor-safe, profile-aware notifier routing.
+    local_gaps:
+      - Worker cooperative same-card handoff is absent.
+      - Submit-review, request-changes, and creator final-gate transitions are absent.
+      - Creator/acceptor result submission is absent.
+      - Review-specific requested_changes and review_accepted notifier outcomes are absent.
+      - mutex_key serialization is absent.
+      - Closed workflow_type banners are absent.
+      - Same-card worker tools are absent from registration and immediate Kanban disclosure.
+    red_evidence:
+      - 'Disposable D5 gap probe: 7 failed, 1 native-foundation test passed.'
+    green_evidence:
+      - 'Native related DB/tool/CLI/notifier suite: 89 passed, 1 skipped.'
+      - 'Repair/WAL/model/child/worktree preservation suite: 23 passed.'
+    integrated_smoke: not-run-no-implementation
+    evidence:
+      path: root-kernel/evidence/v0.19.1-D5-kanban-same-card-review.json
+      sha256: fa7ae8074bbedd6f71f886ae519dcc44fbe502d3de57765aed86f0b8aca12748
+    direction_scenario:
+      A: Retain canonical D2-b through D2-f while preserving all verified new upstream behavior. Canonical D2-b bundles legacy D2-b through D2-e; canonical D2-c/d/e/f map to legacy D2-f/g/h/i. Recommended.
+    independent_review:
+      status: passed
+      security_concerns: 0
+      logic_errors: 0
+      reviewer: Claude Code read-only audit follow-up
     live_mutation: false
-    next_action: Audit native review, repair, model, child-isolation, and worktree behavior before testing remaining seams.
+    next_action: Await one owner direction on scenario A; do not implement, commit, or start D6.
   D6:
     current_id: D6
     renumbered_from_provisional_id: D4
