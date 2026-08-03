@@ -2,7 +2,7 @@
 
 ## Release state
 
-- Status: `d3-implemented-verified-committed-owner-acceptance-pending`
+- Status: `d3-owner-accepted-d4-pending-start-authorization`
 - Candidate branch: `rk/v0.19.1`
 - Candidate worktree: `/Users/draccoon/Workspace/Hermes/17th-hermes-agent-worktree`
 - Tag blocker: `true`
@@ -15,7 +15,8 @@
 - Task 5 and D1 accepted by owner at `2026-08-02T23:25:52+09:00`; Task 6 read-only reconciliation authorized
 - Task 6 accepted and D2 minimal fail-closed implementation/commit authorized by owner at `2026-08-03T00:41:48+09:00`; commit header must be `[D2]`
 - D2 accepted by owner at `2026-08-03T01:14:44+09:00`; D3 was then authorized for a clean retain-minimal reimplementation
-- D3 implementation, focused verification, independent review correction, typed rollback, and scoped commit completed at `2026-08-03T10:31:22+09:00`; owner acceptance remains pending
+- D3 implementation, focused verification, independent review correction, typed rollback, and scoped commit completed at `2026-08-03T10:31:22+09:00`
+- D3 accepted by owner at `2026-08-03T11:38:26+09:00`; D4 remains pending and is not authorized to start
 - Tag, push, and remote-ref movement: not authorized
 - Scaffolded at: `2026-08-02T17:24:26+09:00`
 
@@ -132,13 +133,13 @@ These values are the completed planning baseline. Fleet values must be refreshed
 
 ## v0.19.1 active D items
 
-Inherited carry lineages remain `pending-re-audit` until their own gate starts. D1 and D2 are owner-accepted. D3 has been cleanly reimplemented from `516f0b74d`, verified, independently reviewed, rollback-rehearsed, and committed; owner acceptance is pending. D4–D7 remain blocked. A familiar v0.18.2 patch is not authority to replay it.
+Inherited carry lineages remain `pending-re-audit` until their own gate starts. D1–D3 are owner-accepted. D3 remains active under its retirement rule. D4–D7 remain blocked, and D4 requires separate start authorization. A familiar v0.18.2 patch is not authority to replay it.
 
 | Current ID | Work item | Previous release | Current status | Next action |
 |---|---|---|---|---|
 | D1 | CJK-aware offline session recovery | New v0.19.1 defect discovered in Task 5 | `implemented-verified-task5-accepted` | Keep active until an exact upstream replacement satisfies the recorded retirement rule. |
 | D2 | Fail-closed skill write approval import boundary | New v0.19.1 defect discovered in Task 6 | `implemented-verified-owner-accepted` | Keep active until an exact upstream fail-closed replacement is behaviorally verified. |
-| D3 | OpenAI Codex credential pinning and labelled reauth | `v0.18.2/D8` | `implemented-verified-committed-owner-acceptance-pending` | Request owner acceptance of the scoped `[D3]` commit; D4 remains blocked. |
+| D3 | OpenAI Codex credential pinning and labelled reauth | `v0.18.2/D8` | `implemented-verified-owner-accepted` | Keep active until an exact upstream replacement satisfies the retirement rule; D4 remains pending explicit start authorization. |
 | D4 | Discord thread ownership and role-mention fail-close | `v0.18.2/D4` | `pending-re-audit` | Probe ownership/free-response/mention safety against new Discord recovery and media paths. |
 | D5 | Kanban same-card review and workflow seams | `v0.18.2/D2` | `pending-re-audit` | Audit native review/repair/model/worktree behavior before testing remaining Root Kernel seams. |
 | D6 | CLI return-code passthrough | `v0.18.2/D6` | `pending-re-audit` | Trace the v0.19.1 process boundary and reproduce exact integer/bool behavior. |
@@ -251,7 +252,7 @@ D3 technical result:
 - D3 focused result: 19 passed; related four-module result: 299 passed with the unchanged timing-sensitive test deselected, and that test passed separately 1/1;
 - `py_compile`, `ruff`, `git diff --check`, added-line secret scan, and live-state boundary checks pass;
 - independent read-only review initially found three logic errors; all three reproduced RED, passed after correction, and the bounded verdict-only follow-up reports zero remaining findings;
-- evidence: `root-kernel/evidence/v0.19.1-D3-codex-credential-pinning.json`, SHA-256 `cb4835753b0c63dfd6b47fa8684848d8e05ef21e35aaba40d899f500402c5316`;
+- evidence: `root-kernel/evidence/v0.19.1-D3-codex-credential-pinning.json`, SHA-256 `f3413b141b12c42b4b94958e20fa2cb55d595e492ce26144fa562da530570e1e`;
 - rollback: `/Users/draccoon/Workspace/Hermes/update-backups/20260803T013102Z-rk-v0191-d3-clean.tar.gz`, SHA-256 `2abe783db89ab7bf0a0c694a26e0d43a481147980e58fcfb1cfd8ea48d6deeaf`; disposable restore canary changed 19 GREEN to 16 RED plus 3 preservation passes.
 
-D1 and D2 are owner-accepted. D3 is implemented, verified, independently reviewed, rollback-rehearsed, and committed; owner acceptance is pending. The next single gate is owner acceptance of the scoped `[D3]` commit. D4–D7, fleet re-seed, live mutation, tag, push, and remote-ref movement remain unauthorized.
+D1–D3 are owner-accepted. D3 remains active until its retirement rule is met. The next single gate is D4 re-audit, but D4 remains pending explicit start authorization. D5–D7, fleet re-seed, live mutation, tag, push, and remote-ref movement remain unauthorized.

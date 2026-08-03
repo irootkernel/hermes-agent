@@ -2,7 +2,7 @@ schema_version: 1
 ledger_kind: root-kernel-release-carry
 release:
   version: v0.19.1
-  status: d3-implemented-verified-committed-owner-acceptance-pending
+  status: d3-owner-accepted-d4-pending-start-authorization
   tag_blocker: true
   scaffolded_at: '2026-08-02T17:24:26+09:00'
   candidate_branch: rk/v0.19.1
@@ -492,8 +492,12 @@ active_carries:
       version: v0.18.2
       entry_id: D8
       status: local_minimize_applied
-    status: implemented-verified-committed-owner-acceptance-pending
+    status: implemented-verified-owner-accepted
     owner_direction: retain-minimal-approved
+    implementation_authorized: true
+    tag_blocker: false
+    owner_acceptance: accepted
+    accepted_at: '2026-08-03T11:38:26+09:00'
     requirement: Preserve profile-local credential ID or label selection and fail closed without sibling or singleton Codex credential substitution.
     files:
       - agent/credential_pool.py
@@ -519,7 +523,7 @@ active_carries:
       remaining_findings: 0
     evidence:
       path: root-kernel/evidence/v0.19.1-D3-codex-credential-pinning.json
-      sha256: cb4835753b0c63dfd6b47fa8684848d8e05ef21e35aaba40d899f500402c5316
+      sha256: f3413b141b12c42b4b94958e20fa2cb55d595e492ce26144fa562da530570e1e
       publication: git-excluded-progress-state
     rollback:
       package: /Users/draccoon/Workspace/Hermes/update-backups/20260803T013102Z-rk-v0191-d3-clean.tar.gz
@@ -530,7 +534,7 @@ active_carries:
     commit_header: '[D3]'
     live_mutation: false
     retirement_rule: Retire only when an exact later upstream target supplies profile-local exact ID and label affinity, fail-closed unavailable-pin behavior without sibling or singleton substitution, and durable exact labelled reauth with equivalent regression coverage.
-    next_action: Request owner acceptance of the scoped '[D3]' commit; D4 remains blocked.
+    next_action: Keep active until an exact upstream replacement satisfies the retirement rule; D4 remains pending explicit start authorization.
   D4:
     current_id: D4
     renumbered_from_provisional_id: D2
