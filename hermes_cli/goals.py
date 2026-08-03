@@ -1666,6 +1666,7 @@ def run_kanban_goal_loop(
     run_turn,
     task_status_fn,
     block_fn,
+    expected_run_id: Optional[int] = None,
     max_turns: int = DEFAULT_MAX_TURNS,
     first_response: str = "",
     log=None,
@@ -1705,6 +1706,26 @@ def run_kanban_goal_loop(
             except Exception:
                 pass
 
+    def _task_snapshot() -> tuple[object, Optional[int], bool]:
+        state = task_status_fn()
+        current_run_id: Optional[int] = None
+        run_state_supplied = False
+        if isinstance(state, tuple) and len(state) == 2:
+            status, current_run_id = state
+            run_state_supplied = True
+        elif isinstance(state, dict):
+            status = state.get("status")
+            current_run_id = state.get("current_run_id")
+            run_state_supplied = "current_run_id" in state
+        else:
+            status = state
+        if current_run_id is not None:
+            try:
+                current_run_id = int(current_run_id)
+            except (TypeError, ValueError):
+                current_run_id = None
+        return status, current_run_id, run_state_supplied
+
     max_turns = int(max_turns or DEFAULT_MAX_TURNS)
     if max_turns < 1:
         max_turns = DEFAULT_MAX_TURNS
@@ -1717,10 +1738,23 @@ def run_kanban_goal_loop(
     while True:
         # Did the worker terminate the task itself this turn?
         try:
-            status = task_status_fn()
+            status, current_run_id, run_state_supplied = _task_snapshot()
         except Exception as exc:
             _log(f"kanban goal loop: status check failed ({exc}); stopping")
             return {"outcome": "stopped", "turns_used": turns_used, "reason": "status check failed"}
+
+        if expected_run_id is not None and (
+            not run_state_supplied or current_run_id != int(expected_run_id)
+        ):
+            _log(
+                f"kanban goal loop: task {task_id} active run changed "
+                f"({expected_run_id} -> {current_run_id}); stopping"
+            )
+            return {
+                "outcome": "run_released",
+                "turns_used": turns_used,
+                "reason": "active run changed",
+            }
 
         if status == "done":
             _log(f"kanban goal loop: task {task_id} completed by worker after {turns_used} turn(s)")
@@ -1772,6 +1806,50 @@ def run_kanban_goal_loop(
             except Exception as exc:
                 _log(f"kanban goal loop: block_fn failed ({exc})")
             return {"outcome": "blocked_budget", "turns_used": turns_used, "reason": "turn budget exhausted"}
+
+        # The judge can take long enough for an operator or worker tool to
+        # release/reclaim the run. Revalidate immediately before spending a
+        # model turn so a stale process cannot continue after handoff.
+        try:
+            refreshed_status, refreshed_run_id, refreshed_run_supplied = _task_snapshot()
+        except Exception as exc:
+            _log(f"kanban goal loop: pre-turn status check failed ({exc}); stopping")
+            return {
+                "outcome": "stopped",
+                "turns_used": turns_used,
+                "reason": "pre-turn status check failed",
+            }
+        if expected_run_id is not None and (
+            not refreshed_run_supplied
+            or refreshed_run_id != int(expected_run_id)
+        ):
+            _log(
+                f"kanban goal loop: task {task_id} active run changed before turn "
+                f"({expected_run_id} -> {refreshed_run_id}); stopping"
+            )
+            return {
+                "outcome": "run_released",
+                "turns_used": turns_used,
+                "reason": "active run changed before turn",
+            }
+        if refreshed_status == "done":
+            return {
+                "outcome": "completed_by_worker",
+                "turns_used": turns_used,
+                "reason": "worker completed the task",
+            }
+        if refreshed_status == "blocked":
+            return {
+                "outcome": "blocked_by_worker",
+                "turns_used": turns_used,
+                "reason": "worker blocked the task",
+            }
+        if refreshed_status not in ("running", "ready"):
+            return {
+                "outcome": "stopped",
+                "turns_used": turns_used,
+                "reason": f"status={refreshed_status}",
+            }
 
         # Run another turn in the same session.
         try:

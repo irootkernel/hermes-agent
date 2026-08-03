@@ -83,6 +83,7 @@ def test_legacy_db_migrates_goal_columns(tmp_path, monkeypatch):
         cols = {r["name"] for r in conn.execute("PRAGMA table_info(tasks)")}
         assert "goal_mode" in cols
         assert "goal_max_turns" in cols
+        assert "review_submission_event_id" in cols
         task = kb.get_task(conn, "legacy1")
     # Existing row keeps the safe default.
     assert task.goal_mode is False
@@ -128,8 +129,195 @@ def test_loop_stops_when_worker_already_completed(monkeypatch):
     assert turns == []  # no extra turns
 
 
+def test_loop_stops_when_same_card_run_is_released(monkeypatch):
+    judge_calls = []
+    monkeypatch.setattr(
+        goals,
+        "judge_goal",
+        lambda *args, **kwargs: judge_calls.append((args, kwargs))
+        or ("continue", "keep going", False, None, False),
+    )
+    turns = []
+    blocks = []
+
+    res = goals.run_kanban_goal_loop(
+        task_id="t1",
+        goal_text="do the thing",
+        run_turn=lambda p: turns.append(p) or "x",
+        task_status_fn=lambda: ("ready", None),
+        block_fn=lambda r: blocks.append(r),
+        expected_run_id=41,
+        first_response="handoff complete",
+    )
+
+    assert res["outcome"] == "run_released"
+    assert res["reason"] == "active run changed"
+    assert judge_calls == []
+    assert turns == []
+    assert blocks == []
 
 
+def test_loop_rechecks_run_after_judge_before_next_turn(monkeypatch):
+    released = False
+    turns = []
+
+    def fake_judge(*args, **kwargs):
+        nonlocal released
+        released = True
+        return "continue", "keep going", False, None, False
+
+    monkeypatch.setattr(goals, "judge_goal", fake_judge)
+
+    def status():
+        return ("ready", None) if released else ("running", 77)
+
+    res = goals.run_kanban_goal_loop(
+        task_id="t1",
+        goal_text="do the thing",
+        run_turn=lambda prompt: turns.append(prompt) or "unexpected",
+        task_status_fn=status,
+        block_fn=lambda reason: pytest.fail("should not block"),
+        expected_run_id=77,
+        first_response="initial",
+    )
+
+    assert res["outcome"] == "run_released"
+    assert res["reason"] == "active run changed before turn"
+    assert turns == []
+
+
+# ---------------------------------------------------------------------------
+# Dispatcher goal wrapper ownership
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("raw_run_id", [None, "bad", "0", "-3"])
+def test_dispatcher_goal_wrapper_refuses_invalid_run_id(
+    monkeypatch, raw_run_id
+):
+    import types
+
+    import cli as cli_module
+
+    monkeypatch.setenv("HERMES_KANBAN_TASK", "t_goal")
+    if raw_run_id is None:
+        monkeypatch.delenv("HERMES_KANBAN_RUN_ID", raising=False)
+    else:
+        monkeypatch.setenv("HERMES_KANBAN_RUN_ID", raw_run_id)
+
+    fake_conn = types.SimpleNamespace(close=lambda: None)
+    fake_task = types.SimpleNamespace(
+        title="goal",
+        body="criteria",
+        goal_max_turns=3,
+    )
+    monkeypatch.setattr(kb, "connect", lambda: fake_conn)
+    monkeypatch.setattr(kb, "get_task", lambda conn, task_id: fake_task)
+    loop_calls = []
+    monkeypatch.setattr(
+        goals,
+        "run_kanban_goal_loop",
+        lambda **kwargs: loop_calls.append(kwargs),
+    )
+
+    getattr(cli_module, "_run_kanban_goal_loop_q")(
+        types.SimpleNamespace(),
+        "first response",
+    )
+    assert loop_calls == []
+
+
+# ---------------------------------------------------------------------------
+# CLI native transition parity
+# ---------------------------------------------------------------------------
+
+
+def test_cli_registers_owned_same_card_transition_verbs():
+    import argparse
+
+    from hermes_cli import kanban
+
+    parser = argparse.ArgumentParser()
+    sub = parser.add_subparsers(dest="command")
+    kanban.build_parser(sub)
+
+    handoff = parser.parse_args(
+        ["kanban", "handoff", "t1", "peer", "--run-id", "7"]
+    )
+    submit = parser.parse_args(
+        ["kanban", "submit-review", "t1", "--run-id", "8", "--reviewer", "reviewer"]
+    )
+    changes = parser.parse_args(
+        ["kanban", "request-changes", "t1", "--run-id", "9"]
+    )
+
+    assert (handoff.kanban_action, handoff.run_id) == ("handoff", 7)
+    assert (submit.kanban_action, submit.run_id) == ("submit-review", 8)
+    assert (changes.kanban_action, changes.run_id) == ("request-changes", 9)
+    with pytest.raises(SystemExit):
+        parser.parse_args(["kanban", "handoff", "t1", "peer"])
+
+
+def test_cli_native_transition_handlers_drive_same_db_primitives(
+    kanban_home, monkeypatch
+):
+    import argparse
+
+    from hermes_cli import kanban as kanban_module
+    from hermes_cli import profiles
+
+    monkeypatch.setattr(profiles, "profile_exists", lambda name: True)
+    with kb.connect() as conn:
+        handoff_id = kb.create_task(conn, title="handoff", assignee="worker")
+        handoff_run = kb.claim_task(conn, handoff_id)
+        review_id = kb.create_task(
+            conn,
+            title="review",
+            assignee="worker",
+            created_by="creator",
+        )
+        review_run = kb.claim_task(conn, review_id)
+    assert handoff_run is not None
+    assert review_run is not None
+
+    assert getattr(kanban_module, "_cmd_handoff")(
+        argparse.Namespace(
+            task_id=handoff_id,
+            assignee="peer",
+            run_id=handoff_run.current_run_id,
+            summary="ready",
+            reason="peer owns next",
+            metadata='{"files": ["a.py"]}',
+        )
+    ) == 0
+    assert getattr(kanban_module, "_cmd_submit_review")(
+        argparse.Namespace(
+            task_id=review_id,
+            run_id=review_run.current_run_id,
+            reviewer="reviewer",
+            final_assignee="creator",
+            summary="implementation ready",
+            metadata=None,
+        )
+    ) == 0
+    with kb.connect() as conn:
+        claimed_review = kb.claim_review_task(conn, review_id)
+    assert claimed_review is not None
+    assert getattr(kanban_module, "_cmd_request_changes")(
+        argparse.Namespace(
+            task_id=review_id,
+            run_id=claimed_review.current_run_id,
+            assignee=None,
+            reason="add coverage",
+            summary="changes requested",
+            metadata=None,
+        )
+    ) == 0
+    with kb.connect() as conn:
+        handed = kb.get_task(conn, handoff_id)
+        rework = kb.get_task(conn, review_id)
+    assert handed is not None and (handed.status, handed.assignee) == ("ready", "peer")
+    assert rework is not None and (rework.status, rework.assignee) == ("ready", "worker")
 
 
 # ---------------------------------------------------------------------------
@@ -145,7 +333,8 @@ class TestCLIJudgeGate:
     """
 
     def _run(self, monkeypatch, *, goal_mode=True, judge_available=True,
-             verdict="done", reason="", complete_ok=True, summary="done"):
+             verdict="done", reason="", complete_ok=True, summary="done",
+             review_state=("none", None)):
         import argparse
         import types
         from unittest.mock import MagicMock
@@ -172,6 +361,7 @@ class TestCLIJudgeGate:
 
         monkeypatch.setattr("hermes_cli.kanban.kb.get_task", lambda conn, tid: fake_task)
         monkeypatch.setattr("hermes_cli.kanban.kb.complete_task", fake_complete_task)
+        monkeypatch.setattr("hermes_cli.kanban.kb.review_completion_state", lambda *args, **kwargs: review_state)
         monkeypatch.setattr("hermes_cli.kanban.kb.connect_closing", fake_connect_closing)
         monkeypatch.setattr("hermes_cli.kanban._worker_run_id_for", lambda _: None)
 
@@ -203,5 +393,15 @@ class TestCLIJudgeGate:
     def test_non_goal_mode_task_skips_gate(self, monkeypatch):
         """Plain (non-goal_mode) tasks are never sent to the judge."""
         rc, complete_calls = self._run(monkeypatch, goal_mode=False)
+        assert rc == 0
+        assert complete_calls == ["t1"]
+
+    def test_proven_review_run_skips_goal_judge(self, monkeypatch):
+        rc, complete_calls = self._run(
+            monkeypatch,
+            verdict="continue",
+            reason="implementation is not final",
+            review_state=("final_gate", "creator"),
+        )
         assert rc == 0
         assert complete_calls == ["t1"]

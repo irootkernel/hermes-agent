@@ -901,6 +901,7 @@ class Task:
     max_runtime_seconds: Optional[int] = None
     last_heartbeat_at: Optional[int] = None
     current_run_id: Optional[int] = None
+    review_submission_event_id: Optional[int] = None
     workflow_template_id: Optional[str] = None
     current_step_key: Optional[str] = None
     # Force-loaded skills for the worker on this task (passed via
@@ -1004,6 +1005,11 @@ class Task:
             ),
             current_run_id=(
                 row["current_run_id"] if "current_run_id" in keys else None
+            ),
+            review_submission_event_id=(
+                row["review_submission_event_id"]
+                if "review_submission_event_id" in keys
+                else None
             ),
             workflow_template_id=(
                 row["workflow_template_id"] if "workflow_template_id" in keys else None
@@ -1169,6 +1175,9 @@ CREATE TABLE IF NOT EXISTS tasks (
     -- Pointer into task_runs for the currently-active run (NULL if no
     -- run is in-flight). Denormalised for cheap reads.
     current_run_id       INTEGER,
+    -- Exact native review-submission event currently backing status='review'.
+    -- NULL means a legacy/manual review with no D5-b provenance contract.
+    review_submission_event_id INTEGER,
     -- Forward-compat for v2 workflow routing. In v1 the kernel writes
     -- these when the task is opted into a template but otherwise ignores
     -- them; the dispatcher doesn't consult them for routing yet.
@@ -2388,6 +2397,14 @@ def _migrate_add_optional_columns(conn: sqlite3.Connection) -> None:
             conn, "tasks", "goal_max_turns", "goal_max_turns INTEGER"
         )
 
+    if "review_submission_event_id" not in cols:
+        _add_column_if_missing(
+            conn,
+            "tasks",
+            "review_submission_event_id",
+            "review_submission_event_id INTEGER",
+        )
+
     if "session_id" not in cols:
         # Originating agent/chat session id, populated when the task is
         # created from within an agent loop that propagated
@@ -3347,11 +3364,16 @@ def assign_task(conn: sqlite3.Connection, task_id: str, profile: Optional[str]) 
             # new profile should not inherit the previous profile's streak.
             conn.execute(
                 "UPDATE tasks SET assignee = ?, consecutive_failures = 0, "
-                "last_failure_error = NULL WHERE id = ?",
+                "last_failure_error = NULL, review_submission_event_id = NULL "
+                "WHERE id = ?",
                 (profile, task_id),
             )
         else:
-            conn.execute("UPDATE tasks SET assignee = ? WHERE id = ?", (profile, task_id))
+            conn.execute(
+                "UPDATE tasks SET assignee = ?, review_submission_event_id = NULL "
+                "WHERE id = ?",
+                (profile, task_id),
+            )
         _append_event(conn, task_id, "assigned", {"assignee": profile})
         return True
 
@@ -3811,8 +3833,8 @@ def _append_event(
     payload: Optional[dict] = None,
     *,
     run_id: Optional[int] = None,
-) -> None:
-    """Record an event row.  Called from within an already-open txn.
+) -> int:
+    """Record an event row and return its id inside the open transaction.
 
     ``run_id`` is optional: pass the current run id so UIs can group
     events by attempt. For events that aren't scoped to a single run
@@ -3821,11 +3843,13 @@ def _append_event(
     """
     now = int(time.time())
     pl = json.dumps(payload, ensure_ascii=False) if payload else None
-    conn.execute(
+    cur = conn.execute(
         "INSERT INTO task_events (task_id, run_id, kind, payload, created_at) "
         "VALUES (?, ?, ?, ?, ?)",
         (task_id, run_id, kind, pl, now),
     )
+    assert cur.lastrowid is not None
+    return int(cur.lastrowid)
 
 
 def _end_run(
@@ -3897,6 +3921,7 @@ def _synthesize_ended_run(
     task_id: str,
     *,
     outcome: str,
+    status: Optional[str] = None,
     summary: Optional[str] = None,
     error: Optional[str] = None,
     metadata: Optional[dict] = None,
@@ -3934,7 +3959,7 @@ def _synthesize_ended_run(
         """,
         (
             task_id, profile, step_key,
-            outcome, outcome,
+            status or outcome, outcome,
             summary, error,
             json.dumps(metadata, ensure_ascii=False) if metadata else None,
             now, now,
@@ -4155,8 +4180,8 @@ def claim_task(
         # Look up the current task row so we can populate the run with
         # its assignee / step / runtime cap.
         trow = conn.execute(
-            "SELECT assignee, max_runtime_seconds, current_step_key "
-            "FROM tasks WHERE id = ?",
+            "SELECT assignee, max_runtime_seconds, current_step_key, "
+            "review_submission_event_id FROM tasks WHERE id = ?",
             (task_id,),
         ).fetchone()
         run_cur = conn.execute(
@@ -4182,9 +4207,25 @@ def claim_task(
             "UPDATE tasks SET current_run_id = ? WHERE id = ?",
             (run_id, task_id),
         )
+        claim_payload: dict[str, Any] = {
+            "lock": lock,
+            "expires": expires,
+            "run_id": run_id,
+        }
+        if trow and trow["review_submission_event_id"]:
+            claim_payload.update(
+                {
+                    "source_status": "review",
+                    "review_submission_event_id": int(
+                        trow["review_submission_event_id"]
+                    ),
+                }
+            )
         _append_event(
-            conn, task_id, "claimed",
-            {"lock": lock, "expires": expires, "run_id": run_id},
+            conn,
+            task_id,
+            "claimed",
+            claim_payload,
             run_id=run_id,
         )
         claimed = get_task(conn, task_id)
@@ -4237,8 +4278,8 @@ def claim_review_task(
         if cur.rowcount != 1:
             return None
         trow = conn.execute(
-            "SELECT assignee, max_runtime_seconds, current_step_key "
-            "FROM tasks WHERE id = ?",
+            "SELECT assignee, max_runtime_seconds, current_step_key, "
+            "review_submission_event_id FROM tasks WHERE id = ?",
             (task_id,),
         ).fetchone()
         run_cur = conn.execute(
@@ -4267,7 +4308,12 @@ def claim_review_task(
         _append_event(
             conn, task_id, "claimed",
             {"lock": lock, "expires": expires, "run_id": run_id,
-             "source_status": "review"},
+             "source_status": "review",
+             "review_submission_event_id": (
+                 int(trow["review_submission_event_id"])
+                 if trow and trow["review_submission_event_id"]
+                 else None
+             )},
             run_id=run_id,
         )
         return get_task(conn, task_id)
@@ -4664,6 +4710,414 @@ def _scan_prose_for_phantom_ids(
     return [m for m in unique if m not in existing]
 
 
+def _is_spawnable_profile_name(name: Optional[str]) -> bool:
+    """Return True only when ``name`` resolves to a real Hermes profile."""
+    candidate = (name or "").strip()
+    if not candidate or candidate.startswith("t_"):
+        return False
+    try:
+        from hermes_cli.profiles import profile_exists
+
+        return bool(profile_exists(candidate))
+    except Exception:
+        return False
+
+
+def handoff_task(
+    conn: sqlite3.Connection,
+    task_id: str,
+    assignee: str,
+    *,
+    summary: Optional[str] = None,
+    reason: Optional[str] = None,
+    metadata: Optional[dict[str, Any]] = None,
+    expected_run_id: Optional[int] = None,
+) -> bool:
+    """Release the active run to another assignee on the same task id."""
+    target = _canonical_assignee(assignee)
+    if not target:
+        raise ValueError("assignee is required")
+
+    with write_txn(conn):
+        row = conn.execute(
+            "SELECT assignee, status, current_run_id FROM tasks WHERE id = ?",
+            (task_id,),
+        ).fetchone()
+        if not row or row["status"] != "running" or not row["current_run_id"]:
+            return False
+        source_assignee = _canonical_assignee(row["assignee"])
+        if not source_assignee or target == source_assignee:
+            return False
+        if not _is_spawnable_profile_name(target):
+            return False
+        run_id = int(row["current_run_id"])
+        if expected_run_id is None or run_id != int(expected_run_id):
+            return False
+        review_provenance, _ = _current_review_submission(
+            conn,
+            task_id,
+            expected_run_id=run_id,
+        )
+        if review_provenance != "none":
+            # A reviewer must use request-changes or accept the review. A
+            # generic handoff would erase the exact review/final-gate chain.
+            return False
+
+        closed_run_id = _end_run(
+            conn,
+            task_id,
+            outcome="handed_off",
+            status="released",
+            summary=summary,
+            metadata=metadata,
+        )
+        if closed_run_id != run_id:
+            raise RuntimeError("active run changed during handoff")
+        cur = conn.execute(
+            """
+            UPDATE tasks
+               SET status = 'ready',
+                   assignee = ?,
+                   claim_lock = NULL,
+                   claim_expires = NULL,
+                   worker_pid = NULL,
+                   current_run_id = NULL,
+                   review_submission_event_id = NULL,
+                   last_heartbeat_at = NULL,
+                   consecutive_failures = 0,
+                   last_failure_error = NULL,
+                   block_kind = NULL,
+                   block_recurrences = 0
+             WHERE id = ?
+            """,
+            (target, task_id),
+        )
+        if cur.rowcount != 1:
+            raise RuntimeError("task changed during handoff")
+        payload: dict[str, Any] = {
+            "from": row["assignee"],
+            "to": target,
+            "summary": summary,
+            "reason": reason,
+        }
+        if metadata is not None:
+            payload["metadata"] = metadata
+        _append_event(conn, task_id, "handed_off", payload, run_id=run_id)
+    return True
+
+
+def submit_task_for_review(
+    conn: sqlite3.Connection,
+    task_id: str,
+    *,
+    reviewer: Optional[str] = None,
+    final_assignee: Optional[str] = None,
+    summary: Optional[str] = None,
+    metadata: Optional[dict[str, Any]] = None,
+    expected_run_id: Optional[int] = None,
+) -> bool:
+    """Release the same task into the native review queue."""
+    with write_txn(conn):
+        row = conn.execute(
+            """
+            SELECT assignee, status, current_run_id, created_by
+              FROM tasks
+             WHERE id = ?
+            """,
+            (task_id,),
+        ).fetchone()
+        if not row or row["status"] not in {"running", "ready", "blocked"}:
+            return False
+
+        source_assignee = _canonical_assignee(row["assignee"])
+        reviewer_name = _canonical_assignee(reviewer) if reviewer else None
+        if not reviewer_name:
+            reviewer_name = _canonical_assignee(row["created_by"])
+        if not _is_spawnable_profile_name(reviewer_name):
+            return False
+        if source_assignee and reviewer_name == source_assignee:
+            return False
+
+        active_run_id = int(row["current_run_id"]) if row["current_run_id"] else None
+        if expected_run_id is not None:
+            if active_run_id is None or active_run_id != int(expected_run_id):
+                return False
+        elif row["status"] == "running" and active_run_id is not None:
+            # A running worker must prove ownership of its active run.
+            return False
+
+        final_gate = _canonical_assignee(final_assignee) if final_assignee else None
+        if final_gate:
+            if final_gate == reviewer_name or not _is_spawnable_profile_name(final_gate):
+                return False
+        else:
+            created_by = _canonical_assignee(row["created_by"])
+            if created_by and created_by != reviewer_name:
+                if not _is_spawnable_profile_name(created_by):
+                    return False
+                final_gate = created_by
+
+        run_id = active_run_id
+        if active_run_id is not None:
+            closed_run_id = _end_run(
+                conn,
+                task_id,
+                outcome="submitted_review",
+                status="released",
+                summary=summary,
+                metadata=metadata,
+            )
+            if closed_run_id != active_run_id:
+                raise RuntimeError("active run changed during review submission")
+            run_id = closed_run_id
+        elif summary or metadata:
+            run_id = _synthesize_ended_run(
+                conn,
+                task_id,
+                outcome="submitted_review",
+                status="released",
+                summary=summary,
+                metadata=metadata,
+            )
+
+        payload: dict[str, Any] = {
+            "from_assignee": source_assignee,
+            "reviewer": reviewer_name,
+            "summary": summary,
+        }
+        if final_gate:
+            payload["final_assignee"] = final_gate
+        if metadata is not None:
+            payload["metadata"] = metadata
+        submission_event_id = _append_event(
+            conn,
+            task_id,
+            "submitted_review",
+            payload,
+            run_id=run_id,
+        )
+        cur = conn.execute(
+            """
+            UPDATE tasks
+               SET status = 'review',
+                   assignee = ?,
+                   claim_lock = NULL,
+                   claim_expires = NULL,
+                   worker_pid = NULL,
+                   current_run_id = NULL,
+                   review_submission_event_id = ?,
+                   last_heartbeat_at = NULL,
+                   consecutive_failures = 0,
+                   last_failure_error = NULL,
+                   block_kind = NULL,
+                   block_recurrences = 0
+             WHERE id = ?
+            """,
+            (reviewer_name, submission_event_id, task_id),
+        )
+        if cur.rowcount != 1:
+            raise RuntimeError("task changed during review submission")
+    return True
+
+
+def _current_review_submission(
+    conn: sqlite3.Connection,
+    task_id: str,
+    *,
+    expected_run_id: Optional[int] = None,
+) -> tuple[str, Optional[dict[str, Any]]]:
+    """Return validated provenance for the current review-origin run."""
+    task = conn.execute(
+        "SELECT status, assignee, current_run_id, review_submission_event_id "
+        "FROM tasks WHERE id = ?",
+        (task_id,),
+    ).fetchone()
+    if not task or task["status"] != "running" or not task["current_run_id"]:
+        return "none", None
+    run_id = int(task["current_run_id"])
+    if expected_run_id is not None and run_id != int(expected_run_id):
+        return "none", None
+    claimed = conn.execute(
+        """
+        SELECT id, payload
+          FROM task_events
+         WHERE task_id = ? AND run_id = ? AND kind = 'claimed'
+         ORDER BY id DESC
+         LIMIT 1
+        """,
+        (task_id, run_id),
+    ).fetchone()
+    if not claimed or not claimed["payload"]:
+        return "none", None
+    try:
+        claim_payload = json.loads(claimed["payload"])
+    except Exception:
+        return "invalid", None
+    if not isinstance(claim_payload, dict):
+        return "invalid", None
+    if claim_payload.get("source_status") != "review":
+        return "none", None
+    linked_submission_id = claim_payload.get("review_submission_event_id")
+    if linked_submission_id is None:
+        return "legacy", None
+    try:
+        linked_submission_id = int(linked_submission_id)
+    except (TypeError, ValueError):
+        return "invalid", None
+    if (
+        not task["review_submission_event_id"]
+        or int(task["review_submission_event_id"]) != linked_submission_id
+    ):
+        return "invalid", None
+
+    reviewer = _canonical_assignee(task["assignee"])
+    run = conn.execute(
+        "SELECT profile, status, ended_at FROM task_runs WHERE id = ?",
+        (run_id,),
+    ).fetchone()
+    if (
+        not reviewer
+        or not run
+        or run["status"] != "running"
+        or run["ended_at"] is not None
+        or _canonical_assignee(run["profile"]) != reviewer
+    ):
+        return "invalid", None
+
+    submitted = conn.execute(
+        """
+        SELECT payload
+          FROM task_events
+         WHERE task_id = ? AND id = ? AND kind = 'submitted_review'
+           AND id < ?
+        """,
+        (task_id, linked_submission_id, int(claimed["id"])),
+    ).fetchone()
+    if not submitted or not submitted["payload"]:
+        return "invalid", None
+    try:
+        payload = json.loads(submitted["payload"])
+    except Exception:
+        return "invalid", None
+    if not isinstance(payload, dict):
+        return "invalid", None
+    if _canonical_assignee(payload.get("reviewer")) != reviewer:
+        return "invalid", None
+    return "review", payload
+
+
+def review_completion_state(
+    conn: sqlite3.Connection,
+    task_id: str,
+    *,
+    expected_run_id: Optional[int] = None,
+) -> tuple[str, Optional[str]]:
+    """Describe whether current completion is a review or creator route."""
+    provenance, payload = _current_review_submission(
+        conn,
+        task_id,
+        expected_run_id=expected_run_id,
+    )
+    if provenance == "invalid":
+        return "invalid", None
+    if provenance != "review" or payload is None:
+        return "none", None
+    final_assignee = _canonical_assignee(payload.get("final_assignee"))
+    if not final_assignee:
+        return "review", None
+    reviewer = _canonical_assignee(payload.get("reviewer"))
+    if final_assignee == reviewer or not _is_spawnable_profile_name(final_assignee):
+        return "invalid", final_assignee
+    return "final_gate", final_assignee
+
+
+def request_changes_task(
+    conn: sqlite3.Connection,
+    task_id: str,
+    *,
+    assignee: Optional[str] = None,
+    reason: Optional[str] = None,
+    summary: Optional[str] = None,
+    metadata: Optional[dict[str, Any]] = None,
+    expected_run_id: Optional[int] = None,
+) -> bool:
+    """Release a proven review run to rework on the same task id."""
+    with write_txn(conn):
+        row = conn.execute(
+            "SELECT assignee, status, current_run_id FROM tasks WHERE id = ?",
+            (task_id,),
+        ).fetchone()
+        if not row or row["status"] != "running" or not row["current_run_id"]:
+            return False
+        run_id = int(row["current_run_id"])
+        if expected_run_id is None or run_id != int(expected_run_id):
+            return False
+        provenance, submission = _current_review_submission(
+            conn,
+            task_id,
+            expected_run_id=run_id,
+        )
+        if provenance != "review" or submission is None:
+            return False
+        target = _canonical_assignee(assignee) if assignee else None
+        if not target:
+            target = _canonical_assignee(submission.get("from_assignee"))
+        if (
+            not target
+            or target == _canonical_assignee(row["assignee"])
+            or not _is_spawnable_profile_name(target)
+        ):
+            return False
+
+        closed_run_id = _end_run(
+            conn,
+            task_id,
+            outcome="requested_changes",
+            status="released",
+            summary=summary if summary is not None else reason,
+            metadata=metadata,
+        )
+        if closed_run_id != run_id:
+            raise RuntimeError("active run changed during request-changes")
+        cur = conn.execute(
+            """
+            UPDATE tasks
+               SET status = 'ready',
+                   assignee = ?,
+                   claim_lock = NULL,
+                   claim_expires = NULL,
+                   worker_pid = NULL,
+                   current_run_id = NULL,
+                   review_submission_event_id = NULL,
+                   last_heartbeat_at = NULL,
+                   consecutive_failures = 0,
+                   last_failure_error = NULL,
+                   block_kind = NULL,
+                   block_recurrences = 0
+             WHERE id = ?
+            """,
+            (target, task_id),
+        )
+        if cur.rowcount != 1:
+            raise RuntimeError("task changed during request-changes")
+        payload: dict[str, Any] = {
+            "reviewer": row["assignee"],
+            "assignee": target,
+            "reason": reason,
+            "summary": summary,
+        }
+        if metadata is not None:
+            payload["metadata"] = metadata
+        _append_event(
+            conn,
+            task_id,
+            "requested_changes",
+            payload,
+            run_id=run_id,
+        )
+    return True
+
+
 class HallucinatedCardsError(ValueError):
     """Raised by ``complete_task`` when ``created_cards`` contains ids
     that don't exist or weren't created by the completing worker.
@@ -4684,6 +5138,79 @@ class HallucinatedCardsError(ValueError):
 
 class ArtifactPreservationError(RuntimeError):
     """Raised when a declared scratch deliverable cannot be preserved."""
+
+
+def _route_review_completion_to_final_gate(
+    conn: sqlite3.Connection,
+    task_id: str,
+    *,
+    final_assignee: str,
+    summary: Optional[str],
+    result: Optional[str],
+    metadata: Optional[dict],
+    expected_run_id: Optional[int],
+) -> bool:
+    """Release a proven review acceptance to its distinct creator gate."""
+    with write_txn(conn):
+        state, current_target = review_completion_state(
+            conn,
+            task_id,
+            expected_run_id=expected_run_id,
+        )
+        if state != "final_gate" or current_target != final_assignee:
+            return False
+        row = conn.execute(
+            "SELECT assignee, current_run_id FROM tasks WHERE id = ?",
+            (task_id,),
+        ).fetchone()
+        if not row or not row["current_run_id"]:
+            return False
+        run_id = int(row["current_run_id"])
+        closed_run_id = _end_run(
+            conn,
+            task_id,
+            outcome="review_accepted",
+            status="released",
+            summary=summary if summary is not None else result,
+            metadata=metadata,
+        )
+        if closed_run_id != run_id:
+            raise RuntimeError("active run changed during review acceptance")
+        cur = conn.execute(
+            """
+            UPDATE tasks
+               SET status = 'ready',
+                   assignee = ?,
+                   result = NULL,
+                   completed_at = NULL,
+                   claim_lock = NULL,
+                   claim_expires = NULL,
+                   worker_pid = NULL,
+                   current_run_id = NULL,
+                   review_submission_event_id = NULL,
+                   last_heartbeat_at = NULL,
+                   consecutive_failures = 0,
+                   last_failure_error = NULL,
+                   block_kind = NULL,
+                   block_recurrences = 0
+             WHERE id = ?
+            """,
+            (final_assignee, task_id),
+        )
+        if cur.rowcount != 1:
+            raise RuntimeError("task changed during review acceptance")
+        _append_event(
+            conn,
+            task_id,
+            "review_accepted",
+            {
+                "reviewer": row["assignee"],
+                "final_assignee": final_assignee,
+                "summary": summary,
+            },
+            run_id=run_id,
+        )
+    return True
 
 
 def complete_task(
@@ -4724,6 +5251,46 @@ def complete_task(
     ``suspected_hallucinated_references`` event. This pass is advisory
     and never blocks.
     """
+    initial_row = conn.execute(
+        "SELECT status, current_run_id FROM tasks WHERE id = ?",
+        (task_id,),
+    ).fetchone()
+    if not initial_row:
+        return False
+    initial_status = initial_row["status"]
+    if initial_status not in {"running", "ready", "blocked"}:
+        return False
+    initial_run_id = (
+        int(initial_row["current_run_id"])
+        if initial_row["current_run_id"]
+        else None
+    )
+    review_state, final_assignee = review_completion_state(
+        conn,
+        task_id,
+        expected_run_id=expected_run_id,
+    )
+    if review_state == "invalid":
+        return False
+    if review_state == "final_gate" and final_assignee:
+        completion_artifacts = (
+            metadata.get("artifacts") if isinstance(metadata, dict) else None
+        )
+        if created_cards or completion_artifacts:
+            raise ValueError(
+                "review acceptance is not final completion; creator must declare "
+                "created_cards and completion artifacts at the final gate"
+            )
+        return _route_review_completion_to_final_gate(
+            conn,
+            task_id,
+            final_assignee=final_assignee,
+            summary=summary,
+            result=result,
+            metadata=metadata,
+            expected_run_id=expected_run_id,
+        )
+
     now = int(time.time())
 
     # Gate: verify created_cards BEFORE the main write txn. A rejected
@@ -4757,7 +5324,9 @@ def complete_task(
         conn, task_id, metadata, summary=summary, result=result,
     )
     with write_txn(conn):
-        if expected_run_id is None:
+        if expected_run_id is not None and initial_run_id != int(expected_run_id):
+            return False
+        if initial_run_id is None:
             cur = conn.execute(
                 """
                 UPDATE tasks
@@ -4767,12 +5336,14 @@ def complete_task(
                        claim_lock   = NULL,
                        claim_expires= NULL,
                        worker_pid   = NULL,
+                       review_submission_event_id = NULL,
                        block_kind   = NULL,
                        block_recurrences = 0
                  WHERE id = ?
-                   AND status IN ('running', 'ready', 'blocked')
+                   AND status = ?
+                   AND current_run_id IS NULL
                 """,
-                (result, now, task_id),
+                (result, now, task_id, initial_status),
             )
         else:
             cur = conn.execute(
@@ -4784,13 +5355,14 @@ def complete_task(
                        claim_lock   = NULL,
                        claim_expires= NULL,
                        worker_pid   = NULL,
+                       review_submission_event_id = NULL,
                        block_kind   = NULL,
                        block_recurrences = 0
                  WHERE id = ?
-                   AND status IN ('running', 'ready', 'blocked')
+                   AND status = ?
                    AND current_run_id = ?
                 """,
-                (result, now, task_id, int(expected_run_id)),
+                (result, now, task_id, initial_status, initial_run_id),
             )
         if cur.rowcount != 1:
             return False

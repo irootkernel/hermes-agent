@@ -601,6 +601,36 @@ def build_parser(parent_subparsers: argparse._SubParsersAction) -> argparse.Argu
                             help='JSON dict of structured facts (e.g. \'{"changed_files": [...], '
                                  '"tests_run": 12}\'). Stored on the closing run.')
 
+    p_handoff = sub.add_parser(
+        "handoff", help="Release an owned active run to another profile on the same task"
+    )
+    p_handoff.add_argument("task_id")
+    p_handoff.add_argument("assignee")
+    p_handoff.add_argument("--run-id", type=int, required=True)
+    p_handoff.add_argument("--summary", default=None)
+    p_handoff.add_argument("--reason", default=None)
+    p_handoff.add_argument("--metadata", default=None, help="JSON object")
+
+    p_submit_review = sub.add_parser(
+        "submit-review", help="Submit an owned run to native same-card review"
+    )
+    p_submit_review.add_argument("task_id")
+    p_submit_review.add_argument("--run-id", type=int, required=True)
+    p_submit_review.add_argument("--reviewer", default=None)
+    p_submit_review.add_argument("--final-assignee", default=None)
+    p_submit_review.add_argument("--summary", default=None)
+    p_submit_review.add_argument("--metadata", default=None, help="JSON object")
+
+    p_request_changes = sub.add_parser(
+        "request-changes", help="Return an owned native review run to same-card rework"
+    )
+    p_request_changes.add_argument("task_id")
+    p_request_changes.add_argument("--run-id", type=int, required=True)
+    p_request_changes.add_argument("--assignee", default=None)
+    p_request_changes.add_argument("--reason", default=None)
+    p_request_changes.add_argument("--summary", default=None)
+    p_request_changes.add_argument("--metadata", default=None, help="JSON object")
+
     p_edit = sub.add_parser(
         "edit",
         help="Edit recovery fields on an already-completed task",
@@ -1062,6 +1092,9 @@ def kanban_command(args: argparse.Namespace) -> int:
             "attachments": _cmd_attachments,
             "attach-rm": _cmd_attach_rm,
             "complete": _cmd_complete,
+            "handoff": _cmd_handoff,
+            "submit-review": _cmd_submit_review,
+            "request-changes": _cmd_request_changes,
             "edit":     _cmd_edit,
             "block":    _cmd_block,
             "schedule": _cmd_schedule,
@@ -2138,6 +2171,73 @@ def _worker_run_id_for(task_id: str) -> Optional[int]:
         return None
 
 
+def _transition_metadata(args: argparse.Namespace) -> Optional[dict[str, Any]]:
+    raw = getattr(args, "metadata", None)
+    if not raw:
+        return None
+    parsed = json.loads(raw)
+    if not isinstance(parsed, dict):
+        raise ValueError("--metadata must be a JSON object")
+    return parsed
+
+
+def _cmd_handoff(args: argparse.Namespace) -> int:
+    metadata = _transition_metadata(args)
+    with kb.connect_closing() as conn:
+        ok = kb.handoff_task(
+            conn,
+            args.task_id,
+            args.assignee,
+            summary=args.summary,
+            reason=args.reason,
+            metadata=metadata,
+            expected_run_id=args.run_id,
+        )
+    if not ok:
+        print(f"cannot hand off {args.task_id}", file=sys.stderr)
+        return 1
+    print(f"Handed off {args.task_id} to {args.assignee}")
+    return 0
+
+
+def _cmd_submit_review(args: argparse.Namespace) -> int:
+    metadata = _transition_metadata(args)
+    with kb.connect_closing() as conn:
+        ok = kb.submit_task_for_review(
+            conn,
+            args.task_id,
+            reviewer=args.reviewer,
+            final_assignee=args.final_assignee,
+            summary=args.summary,
+            metadata=metadata,
+            expected_run_id=args.run_id,
+        )
+    if not ok:
+        print(f"cannot submit {args.task_id} for review", file=sys.stderr)
+        return 1
+    print(f"Submitted {args.task_id} for review")
+    return 0
+
+
+def _cmd_request_changes(args: argparse.Namespace) -> int:
+    metadata = _transition_metadata(args)
+    with kb.connect_closing() as conn:
+        ok = kb.request_changes_task(
+            conn,
+            args.task_id,
+            assignee=args.assignee,
+            reason=args.reason,
+            summary=args.summary,
+            metadata=metadata,
+            expected_run_id=args.run_id,
+        )
+    if not ok:
+        print(f"cannot request changes for {args.task_id}", file=sys.stderr)
+        return 1
+    print(f"Requested changes for {args.task_id}")
+    return 0
+
+
 def _cmd_complete(args: argparse.Namespace) -> int:
     """Mark one or more tasks done. Supports a single id or a list."""
     ids = list(args.task_ids or [])
@@ -2175,7 +2275,25 @@ def _cmd_complete(args: argparse.Namespace) -> int:
             # `hermes kanban complete <id>` from the terminal tool and
             # bypass the auxiliary judge that the tool-call path enforces.
             task = kb.get_task(conn, tid)
-            if task and task.goal_mode:
+            expected_run_id = _worker_run_id_for(tid)
+            review_state, review_target = kb.review_completion_state(
+                conn,
+                tid,
+                expected_run_id=expected_run_id,
+            )
+            if review_state == "invalid":
+                print(
+                    f"kanban: review final gate {review_target!r} is unavailable "
+                    f"or role-conflicting for {tid}; active review was not changed",
+                    file=sys.stderr,
+                )
+                failed.append(tid)
+                continue
+            if (
+                task
+                and task.goal_mode
+                and review_state not in {"review", "final_gate"}
+            ):
                 judge_available = False
                 try:
                     from agent.auxiliary_client import get_text_auxiliary_client
@@ -2218,7 +2336,7 @@ def _cmd_complete(args: argparse.Namespace) -> int:
                 result=args.result,
                 summary=summary,
                 metadata=metadata,
-                expected_run_id=_worker_run_id_for(tid),
+                expected_run_id=expected_run_id,
             ):
                 failed.append(tid)
                 print(f"cannot complete {tid} (unknown id or terminal state)", file=sys.stderr)

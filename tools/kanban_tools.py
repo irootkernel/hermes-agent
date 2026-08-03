@@ -108,6 +108,13 @@ def _check_kanban_mode() -> bool:
     return _profile_has_kanban_toolset()
 
 
+def _check_kanban_worker_mode() -> bool:
+    """Expose cooperative run transitions only to dispatcher task workers."""
+    if _is_delegated_child_context():
+        return False
+    return bool(os.environ.get("HERMES_KANBAN_TASK"))
+
+
 def _check_kanban_orchestrator_mode() -> bool:
     """Board-routing tools (kanban_list, kanban_unblock) are intentionally
     hidden from task workers.
@@ -636,7 +643,22 @@ def _handle_complete(args: dict, **kw) -> str:
             # Only enforce when a judge is actually reachable — see
             # _goal_judge_available for why an unavailable judge fails open.
             task = kb.get_task(conn, tid)
-            if task and task.goal_mode and _goal_judge_available():
+            review_state, review_target = kb.review_completion_state(
+                conn,
+                tid,
+                expected_run_id=_worker_run_id(tid),
+            )
+            if review_state == "invalid":
+                return tool_error(
+                    f"review final gate {review_target!r} is unavailable or role-conflicting; "
+                    "task remains in the active review run"
+                )
+            if (
+                task
+                and task.goal_mode
+                and review_state not in {"review", "final_gate"}
+                and _goal_judge_available()
+            ):
                 verdict = "done"
                 reason = ""
                 try:
@@ -705,7 +727,21 @@ def _handle_complete(args: dict, **kw) -> str:
                     f"could not complete {tid} (unknown id or already terminal)"
                 )
             run = kb.latest_run(conn, tid)
-            return _ok(task_id=tid, run_id=run.id if run else None)
+            landed = kb.get_task(conn, tid)
+            outcome = run.outcome if run else None
+            transition = (
+                "creator_final_gate"
+                if outcome == "review_accepted"
+                else "completed"
+            )
+            return _ok(
+                task_id=tid,
+                run_id=run.id if run else None,
+                status=landed.status if landed else None,
+                assignee=landed.assignee if landed else None,
+                outcome=outcome,
+                transition=transition,
+            )
         finally:
             conn.close()
     except ValueError as e:
@@ -713,6 +749,192 @@ def _handle_complete(args: dict, **kw) -> str:
     except Exception as e:
         logger.exception("kanban_complete failed")
         return tool_error(f"kanban_complete: {e}")
+
+
+def _transition_metadata(value: Any) -> tuple[Optional[dict], Optional[str]]:
+    if value is None:
+        return None, None
+    if not isinstance(value, dict):
+        return None, f"metadata must be an object/dict, got {type(value).__name__}"
+    redacted = redact_sensitive_text(json.dumps(value), force=True)
+    try:
+        parsed = json.loads(redacted)
+    except json.JSONDecodeError:
+        return None, "metadata could not be safely redacted"
+    if not isinstance(parsed, dict):
+        return None, "metadata redaction produced a non-object value"
+    return parsed, None
+
+
+def _transition_worker_context(args: dict, tool_name: str) -> tuple[Optional[str], Optional[int], Optional[str]]:
+    delegated_err = _reject_delegated_child_mutation(tool_name)
+    if delegated_err:
+        return None, None, delegated_err
+    tid = _default_task_id(args.get("task_id"))
+    if not tid:
+        return None, None, tool_error(
+            "task_id is required (or set HERMES_KANBAN_TASK in the env)"
+        )
+    ownership_err = _enforce_worker_task_ownership(tid)
+    if ownership_err:
+        return None, None, ownership_err
+    run_id = _worker_run_id(tid)
+    if run_id is None:
+        return None, None, tool_error(
+            f"{tool_name} requires the dispatcher's active HERMES_KANBAN_RUN_ID"
+        )
+    return tid, run_id, None
+
+
+def _handle_reassign(args: dict, **kw) -> str:
+    """Cooperatively hand the current task run to another assignee."""
+    tid, run_id, guard = _transition_worker_context(args, "kanban_reassign")
+    if guard:
+        return guard
+    assignee = str(args.get("assignee") or "").strip()
+    if not assignee:
+        return tool_error("assignee is required")
+    summary = args.get("summary")
+    reason = args.get("reason")
+    if summary:
+        summary = redact_sensitive_text(str(summary), force=True)
+    if reason:
+        reason = redact_sensitive_text(str(reason), force=True)
+    metadata, metadata_err = _transition_metadata(args.get("metadata"))
+    if metadata_err:
+        return tool_error(metadata_err)
+    metadata = _stamp_worker_session_metadata(tid, metadata)
+    try:
+        kb, conn = _connect(board=args.get("board"))
+        try:
+            ok = kb.handoff_task(
+                conn,
+                tid,
+                assignee,
+                summary=summary,
+                reason=reason,
+                metadata=metadata,
+                expected_run_id=run_id,
+            )
+            if not ok:
+                return tool_error(f"could not hand off {tid}; active run changed")
+            task = kb.get_task(conn, tid)
+            run = kb.latest_run(conn, tid)
+            return _ok(
+                task_id=tid,
+                run_id=run.id if run else None,
+                status=task.status if task else None,
+                assignee=task.assignee if task else None,
+                outcome=run.outcome if run else None,
+                transition="same_card_handoff",
+            )
+        finally:
+            conn.close()
+    except ValueError as e:
+        return tool_error(f"kanban_reassign: {e}")
+    except Exception as e:
+        logger.exception("kanban_reassign failed")
+        return tool_error(f"kanban_reassign: {e}")
+
+
+def _handle_submit_review(args: dict, **kw) -> str:
+    """Submit the current active run into native review on the same task."""
+    tid, run_id, guard = _transition_worker_context(args, "kanban_submit_review")
+    if guard:
+        return guard
+    summary = args.get("summary")
+    if summary:
+        summary = redact_sensitive_text(str(summary), force=True)
+    metadata, metadata_err = _transition_metadata(args.get("metadata"))
+    if metadata_err:
+        return tool_error(metadata_err)
+    metadata = _stamp_worker_session_metadata(tid, metadata)
+    try:
+        kb, conn = _connect(board=args.get("board"))
+        try:
+            ok = kb.submit_task_for_review(
+                conn,
+                tid,
+                reviewer=args.get("reviewer"),
+                final_assignee=args.get("final_assignee"),
+                summary=summary,
+                metadata=metadata,
+                expected_run_id=run_id,
+            )
+            if not ok:
+                return tool_error(
+                    f"could not submit {tid} for review; verify distinct spawnable "
+                    "reviewer/final roles and the active run"
+                )
+            task = kb.get_task(conn, tid)
+            run = kb.latest_run(conn, tid)
+            return _ok(
+                task_id=tid,
+                run_id=run.id if run else None,
+                status=task.status if task else None,
+                assignee=task.assignee if task else None,
+                outcome=run.outcome if run else None,
+                transition="submitted_review",
+            )
+        finally:
+            conn.close()
+    except ValueError as e:
+        return tool_error(f"kanban_submit_review: {e}")
+    except Exception as e:
+        logger.exception("kanban_submit_review failed")
+        return tool_error(f"kanban_submit_review: {e}")
+
+
+def _handle_request_changes(args: dict, **kw) -> str:
+    """Return the current proven review run to same-card rework."""
+    tid, run_id, guard = _transition_worker_context(args, "kanban_request_changes")
+    if guard:
+        return guard
+    reason = str(args.get("reason") or "").strip()
+    if not reason:
+        return tool_error("reason is required")
+    reason = redact_sensitive_text(reason, force=True)
+    summary = args.get("summary")
+    if summary:
+        summary = redact_sensitive_text(str(summary), force=True)
+    metadata, metadata_err = _transition_metadata(args.get("metadata"))
+    if metadata_err:
+        return tool_error(metadata_err)
+    metadata = _stamp_worker_session_metadata(tid, metadata)
+    try:
+        kb, conn = _connect(board=args.get("board"))
+        try:
+            ok = kb.request_changes_task(
+                conn,
+                tid,
+                assignee=args.get("assignee"),
+                reason=reason,
+                summary=summary,
+                metadata=metadata,
+                expected_run_id=run_id,
+            )
+            if not ok:
+                return tool_error(
+                    f"could not request changes for {tid}; current run is not "
+                    "a matching review claim"
+                )
+            task = kb.get_task(conn, tid)
+            run = kb.latest_run(conn, tid)
+            return _ok(
+                task_id=tid,
+                run_id=run.id if run else None,
+                status=task.status if task else None,
+                assignee=task.assignee if task else None,
+                outcome=run.outcome if run else None,
+                transition="requested_changes",
+            )
+        finally:
+            conn.close()
+    except ValueError as e:
+        return tool_error(f"kanban_request_changes: {e}")
+    except Exception as e:
+        logger.exception("kanban_request_changes failed")
+        return tool_error(f"kanban_request_changes: {e}")
 
 
 def _handle_block(args: dict, **kw) -> str:
@@ -1627,6 +1849,68 @@ KANBAN_COMPLETE_SCHEMA = {
     },
 }
 
+KANBAN_REASSIGN_SCHEMA = {
+    "name": "kanban_reassign",
+    "description": (
+        "Cooperatively hand your current active Kanban task to another assignee "
+        "without creating a new card. The same task id and workspace are kept. "
+        "Use only when the next assignee owns the next step, then stop working."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "task_id": {"type": "string", "description": _DESC_TASK_ID_DEFAULT},
+            "assignee": {"type": "string", "description": "Next assignee or lane."},
+            "summary": {"type": "string", "description": "Durable handoff summary."},
+            "reason": {"type": "string", "description": "Why ownership moves."},
+            "metadata": {"type": "object", "description": "Structured handoff facts."},
+            "board": _board_schema_prop(),
+        },
+        "required": ["assignee"],
+    },
+}
+
+KANBAN_SUBMIT_REVIEW_SCHEMA = {
+    "name": "kanban_submit_review",
+    "description": (
+        "Submit your current active task into the native review queue on the "
+        "same card. The reviewer must be a distinct spawnable profile. A distinct "
+        "final assignee receives the card after review acceptance. Stop after success."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "task_id": {"type": "string", "description": _DESC_TASK_ID_DEFAULT},
+            "reviewer": {"type": "string", "description": "Spawnable reviewer profile; defaults to task creator."},
+            "final_assignee": {"type": "string", "description": "Distinct creator/final gate profile."},
+            "summary": {"type": "string", "description": "Implementation evidence for review."},
+            "metadata": {"type": "object", "description": "Structured tests and changed-file facts."},
+            "board": _board_schema_prop(),
+        },
+        "required": [],
+    },
+}
+
+KANBAN_REQUEST_CHANGES_SCHEMA = {
+    "name": "kanban_request_changes",
+    "description": (
+        "From a dispatcher-claimed review run, return the same task to its "
+        "implementer for rework. Requires durable review feedback. Stop after success."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "task_id": {"type": "string", "description": _DESC_TASK_ID_DEFAULT},
+            "assignee": {"type": "string", "description": "Optional rework target; defaults to submitting implementer."},
+            "reason": {"type": "string", "description": "Required actionable change request."},
+            "summary": {"type": "string", "description": "Optional concise review summary."},
+            "metadata": {"type": "object", "description": "Structured missing checks or evidence."},
+            "board": _board_schema_prop(),
+        },
+        "required": ["reason"],
+    },
+}
+
 KANBAN_BLOCK_SCHEMA = {
     "name": "kanban_block",
     "description": (
@@ -2072,6 +2356,33 @@ registry.register(
     handler=_handle_complete,
     check_fn=_check_kanban_mode,
     emoji="✔",
+)
+
+registry.register(
+    name="kanban_reassign",
+    toolset="kanban",
+    schema=KANBAN_REASSIGN_SCHEMA,
+    handler=_handle_reassign,
+    check_fn=_check_kanban_worker_mode,
+    emoji="🔄",
+)
+
+registry.register(
+    name="kanban_submit_review",
+    toolset="kanban",
+    schema=KANBAN_SUBMIT_REVIEW_SCHEMA,
+    handler=_handle_submit_review,
+    check_fn=_check_kanban_worker_mode,
+    emoji="🔎",
+)
+
+registry.register(
+    name="kanban_request_changes",
+    toolset="kanban",
+    schema=KANBAN_REQUEST_CHANGES_SCHEMA,
+    handler=_handle_request_changes,
+    check_fn=_check_kanban_worker_mode,
+    emoji="↩",
 )
 
 registry.register(

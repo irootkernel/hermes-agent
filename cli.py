@@ -17401,6 +17401,13 @@ def _run_kanban_goal_loop_q(cli: "HermesCLI", first_response: str) -> None:
         return
 
     max_turns = task.goal_max_turns or _DEF_TURNS
+    raw_run_id = (_os.environ.get("HERMES_KANBAN_RUN_ID") or "").strip()
+    try:
+        expected_run_id = int(raw_run_id)
+    except (TypeError, ValueError):
+        return
+    if expected_run_id <= 0:
+        return
 
     def _run_turn(prompt: str) -> str:
         result = cli.agent.run_conversation(
@@ -17418,11 +17425,13 @@ def _run_kanban_goal_loop_q(cli: "HermesCLI", first_response: str) -> None:
             print(resp)
         return resp or ""
 
-    def _task_status() -> "str | None":
+    def _task_status() -> "tuple[str | None, int | None]":
         c = _kb.connect()
         try:
             t = _kb.get_task(c, task_id)
-            return t.status if t is not None else None
+            if t is None:
+                return None, None
+            return t.status, t.current_run_id
         finally:
             try:
                 c.close()
@@ -17432,7 +17441,12 @@ def _run_kanban_goal_loop_q(cli: "HermesCLI", first_response: str) -> None:
     def _block(reason: str) -> None:
         c = _kb.connect()
         try:
-            _kb.block_task(c, task_id, reason=reason)
+            _kb.block_task(
+                c,
+                task_id,
+                reason=reason,
+                expected_run_id=expected_run_id,
+            )
         finally:
             try:
                 c.close()
@@ -17445,6 +17459,7 @@ def _run_kanban_goal_loop_q(cli: "HermesCLI", first_response: str) -> None:
         run_turn=_run_turn,
         task_status_fn=_task_status,
         block_fn=_block,
+        expected_run_id=expected_run_id,
         max_turns=max_turns,
         first_response=first_response or "",
         log=lambda m: logger.info("%s", m),

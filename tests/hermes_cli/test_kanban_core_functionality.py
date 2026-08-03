@@ -1408,3 +1408,15 @@ def test_notify_sub_starts_caught_up_on_active_task(kanban_home):
         conn.close()
 
 
+def test_kanban_guidance_documents_same_card_transition_tools():
+    from agent.prompt_builder import KANBAN_GUIDANCE
+
+    assert "kanban_reassign" in KANBAN_GUIDANCE
+    assert "kanban_submit_review" in KANBAN_GUIDANCE
+    assert "kanban_request_changes" in KANBAN_GUIDANCE
+    assert "same task id" in KANBAN_GUIDANCE
+    assert "same workspace" in KANBAN_GUIDANCE
+    assert "stop" in KANBAN_GUIDANCE.lower()
+    assert "review-required:" not in KANBAN_GUIDANCE
+
+

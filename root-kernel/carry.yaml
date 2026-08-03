@@ -2,7 +2,7 @@ schema_version: 1
 ledger_kind: root-kernel-release-carry
 release:
   version: v0.19.1
-  status: d5-d2-a-audit-committed-owner-direction-pending
+  status: d5-b-investigation-complete-implementation-authorized
   tag_blocker: true
   scaffolded_at: '2026-08-02T17:24:26+09:00'
   candidate_branch: rk/v0.19.1
@@ -51,24 +51,33 @@ release:
   publication:
     commit_authorized: true
     authorized_commit:
-      task: D1 / Task 5
-      subject: '[D1] CJK-aware offline session recovery'
-      authorized_at: '2026-08-02T22:53:25+09:00'
+      task: D5-b
+      subject: '[D5-b] Implement Kanban same-card core loop'
+      authorized_at: '2026-08-03T21:27:46+09:00'
       scope:
-        - hermes_cli/session_recovery.py
-        - tests/hermes_cli/test_session_recovery.py
+        - agent/prompt_builder.py
+        - cli.py
         - for-root-kernel.md
+        - hermes_cli/goals.py
+        - hermes_cli/kanban.py
+        - hermes_cli/kanban_db.py
         - root-kernel/carry.yaml
+        - tests/hermes_cli/test_kanban_core_functionality.py
+        - tests/hermes_cli/test_kanban_db.py
+        - tests/hermes_cli/test_kanban_goal_mode.py
+        - tests/tools/test_kanban_tools.py
+        - tools/kanban_tools.py
+        - toolsets.py
     latest_commit:
-      task: D1 / Task 5
+      task: D5-b
       commit_ref: self
-      subject: '[D1] CJK-aware offline session recovery'
-      authorized_at: '2026-08-02T22:53:25+09:00'
+      subject: '[D5-b] Implement Kanban same-card core loop'
+      authorized_at: '2026-08-03T21:27:46+09:00'
     previous_commit:
-      task: Task 3
-      commit: 53e6060682a8dc98df6a30ef671b2ecb53c2384e
-      subject: '[INT] record Task 3 findings and smart approval policy'
-      authorized_at: '2026-08-02T18:13:17+09:00'
+      task: D5-a
+      commit: b11b70c117fc4969ad3104ab625450faa2182995
+      subject: '[D5-a] Re-audit Kanban native overlap and renumber carry'
+      authorized_at: '2026-08-03T17:19:03+09:00'
     scaffold_commit:
       task: Task 2
       commit: 509ae0f6d1c5ea9f7dfb9a77a965614dd91b16ff
@@ -601,24 +610,27 @@ active_carries:
       version: v0.18.2
       entry_id: D2
       status: local_minimize_applied
-    status: d2-a-audit-committed-owner-direction-pending
-    owner_direction: pending
+    status: d5-b-implemented-verified-review-passed-committed
+    owner_direction: committed-awaiting-owner-acceptance
+    d5_b_investigation_started_at: '2026-08-03T16:39:16+09:00'
+    d5_b_investigation_completed_at: '2026-08-03T17:07:28+09:00'
+    d5_b_implementation_verified_at: '2026-08-03T18:38:22+09:00'
     audit_started_at: '2026-08-03T13:55:06+09:00'
     audit_completed_at: '2026-08-03T13:59:37+09:00'
     requirement: Preserve only still-missing same-card review, result, mutex, watcher, and closed workflow semantics.
     canonical_subitems:
-      D2-a: native-overlap analysis
-      D2-b: 'core same-card loop: cooperative handoff, submit-for-review, request-changes, and creator final gate'
-      D2-c: review outcome watcher
-      D2-d: creator/acceptor result submission
-      D2-e: mutex-key serialization
-      D2-f: closed workflow context banners
+      D5-a: native-overlap analysis
+      D5-b: 'core same-card loop: cooperative handoff, submit-for-review, request-changes, and creator final gate'
+      D5-c: review outcome watcher
+      D5-d: creator/acceptor result submission
+      D5-e: mutex-key serialization
+      D5-f: closed workflow context banners
     renumbered_from_legacy:
-      D2-b: legacy D2-b through D2-e
-      D2-c: legacy D2-f
-      D2-d: legacy D2-g
-      D2-e: legacy D2-h
-      D2-f: legacy D2-i
+      D5-b: legacy D2-b through D2-e
+      D5-c: legacy D2-f
+      D5-d: legacy D2-g
+      D5-e: legacy D2-h
+      D5-f: legacy D2-i
     likely_files:
       - hermes_cli/kanban_db.py
       - tools/kanban_tools.py
@@ -633,32 +645,78 @@ active_carries:
       - Per-task model/provider override.
       - Delegated-child mutation denial and isolated child/project worktrees.
       - Multi-board, cursor-safe, profile-aware notifier routing.
+    resolved_in_d5_b:
+      - Worker cooperative same-card handoff with owned-run release.
+      - Native submit-review and exact-provenance request-changes.
+      - Creator final-gate routing before final completion side effects.
+      - Worker-only same-card tools and explicit-run CLI parity.
+      - Goal-loop release and post-judge ownership safety.
     local_gaps:
-      - Worker cooperative same-card handoff is absent.
-      - Submit-review, request-changes, and creator final-gate transitions are absent.
       - Creator/acceptor result submission is absent.
       - Review-specific requested_changes and review_accepted notifier outcomes are absent.
       - mutex_key serialization is absent.
       - Closed workflow_type banners are absent.
-      - Same-card worker tools are absent from registration and immediate Kanban disclosure.
     red_evidence:
       - 'Disposable D5 gap probe: 7 failed, 1 native-foundation test passed.'
     green_evidence:
-      - 'Native related DB/tool/CLI/notifier suite: 89 passed, 1 skipped.'
-      - 'Repair/WAL/model/child/worktree preservation suite: 23 passed.'
-    integrated_smoke: not-run-no-implementation
+      - 'D5-b focused implementation suite: 109 passed, 1 skipped.'
+      - 'D5-b canonical file-isolated broad gate: 34 files, 206 passed, 1 skipped, 0 failed files.'
+      - 'Static gates: py_compile, Ruff, and git diff --check passed.'
+    integrated_smoke: passed-disposable-db-no-live-runtime
     evidence:
       path: root-kernel/evidence/v0.19.1-D5-kanban-same-card-review.json
-      sha256: fa7ae8074bbedd6f71f886ae519dcc44fbe502d3de57765aed86f0b8aca12748
+      sha256: f7d341a6ba42306bfb51fa180b26dbbe4be0eda12ac2bb31ddbf5e93a51d97da
+    d5_b_analysis:
+      evidence:
+        path: root-kernel/evidence/v0.19.1-D5-b-core-same-card-loop-investigation.json
+        sha256: c9a53df199b46cfe1a4636fe1e4ee3cd63a694d05ed8ab8449fd1b0e1a3dbb26
+      historical_characterization: '18 passed; 13 native review sibling tests passed.'
+      current_gap_probe: '6 failed, 1 native review foundation passed.'
+      direct_historical_replay: rejected-git-apply-check-failed-and-v0191-sibling-gaps
+      implementation_status: implemented-verified-committed
+      implementation_design: retain-minimal-v0191-aware-core-loop-with-exact-review-provenance
+      schema_deviation:
+        column: tasks.review_submission_event_id
+        kind: additive-nullable-backward-compatible
+        reason: Independent review reproduced stale nearest-event reuse and legacy/manual review lockout; exact durable linkage was required.
+      preserved_boundaries:
+        - Delegated-child and own-task/run gates wrap every worker transition.
+        - Transition tools are worker-only; operator reclaim/reassign retains takeover authority.
+        - Creator routing precedes goal judge bypass and final completion side effects.
+        - Reviewer/final and rework/handoff targets are spawnable and role-safe.
+        - Goal mode fails closed on invalid run ids and rechecks after judging.
+      verification:
+        focused: '109 passed, 1 skipped'
+        broad_file_isolated: '34 files; 206 passed, 1 skipped, 0 failed files'
+        static: py_compile-ruff-diff-check-passed
+      rollback:
+        archive_sha256: 28c0785c9c589eaac13628fc2757260eb835e86a43bca9ed066c6fa313523f46
+        restored_suite: '61 passed'
+        additive_schema_backward_compatibility: passed
+      expected_product_files:
+        - hermes_cli/kanban_db.py
+        - tools/kanban_tools.py
+        - toolsets.py
+        - agent/prompt_builder.py
+        - hermes_cli/kanban.py
+        - cli.py
+        - hermes_cli/goals.py
+      independent_review:
+        first_pass: changes-required-6-findings-all-remediated
+        follow_up: passed-zero-blocking-findings
+        reviewer: Claude-Code-read-only-final-review
+        redaction_nit: remediated-fail-closed-and-regression-tested
+      implementation_authorized: true
+      commit_authorized: true
     direction_scenario:
-      A: Retain canonical D2-b through D2-f while preserving all verified new upstream behavior. Canonical D2-b bundles legacy D2-b through D2-e; canonical D2-c/d/e/f map to legacy D2-f/g/h/i. Recommended.
+      A: Retain current D5-b through D5-f while preserving all verified new upstream behavior. Current D5-b bundles legacy D2-b through D2-e; current D5-c/d/e/f map to legacy D2-f/g/h/i. Recommended.
     independent_review:
       status: passed
       security_concerns: 0
       logic_errors: 0
       reviewer: Claude Code read-only audit follow-up
     live_mutation: false
-    next_action: Await one owner direction on scenario A; do not implement, commit, or start D6.
+    next_action: Await owner acceptance of committed D5-b; do not start D5-c.
   D6:
     current_id: D6
     renumbered_from_provisional_id: D4

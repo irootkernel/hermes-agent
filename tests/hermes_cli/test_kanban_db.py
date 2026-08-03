@@ -1575,3 +1575,574 @@ def test_bare_connect_does_not_close_on_context_exit(tmp_path):
     # Still usable after with-block exit (the leak).
     conn.execute("SELECT 1").fetchone()
     conn.close()  # explicit close to avoid leaking THIS test
+
+
+# ---------------------------------------------------------------------------
+# D5-b same-card core loop
+# ---------------------------------------------------------------------------
+
+
+def test_handoff_task_releases_same_card_to_target_and_rejects_stale_run(
+    kanban_home, monkeypatch
+):
+    from hermes_cli import profiles
+
+    monkeypatch.setattr(
+        profiles,
+        "profile_exists",
+        lambda name: name in {"alice", "bob"},
+    )
+    with kb.connect() as conn:
+        task_id = kb.create_task(conn, title="handoff", assignee="alice")
+        claimed = kb.claim_task(conn, task_id)
+        assert claimed is not None
+        run_id = claimed.current_run_id
+
+        assert kb.handoff_task(conn, task_id, "bob") is False
+        assert kb.handoff_task(
+            conn,
+            task_id,
+            "missing",
+            expected_run_id=run_id,
+        ) is False
+        assert kb.handoff_task(
+            conn,
+            task_id,
+            "alice",
+            reason="reset my own run",
+            expected_run_id=run_id,
+        ) is False
+        before_handoff = kb.get_task(conn, task_id)
+        assert before_handoff is not None
+        assert before_handoff.status == "running"
+        assert before_handoff.current_run_id == run_id
+
+        assert kb.handoff_task(
+            conn,
+            task_id,
+            "bob",
+            summary="setup complete",
+            reason="bob owns the next step",
+            metadata={"files": ["a.py"]},
+            expected_run_id=run_id,
+        ) is True
+        task = kb.get_task(conn, task_id)
+        run = kb.latest_run(conn, task_id)
+        events = [e for e in kb.list_events(conn, task_id) if e.kind == "handed_off"]
+        assert task is not None
+        assert run is not None
+        assert events
+        event = events[-1]
+
+        assert task.id == task_id
+        assert task.status == "ready"
+        assert task.assignee == "bob"
+        assert task.current_run_id is None
+        assert run.id == run_id
+        assert run.status == "released"
+        assert run.outcome == "handed_off"
+        assert run.summary == "setup complete"
+        assert run.metadata == {"files": ["a.py"]}
+        assert event.run_id == run_id
+        assert event.payload["from"] == "alice"
+        assert event.payload["to"] == "bob"
+
+        reclaimed = kb.claim_task(conn, task_id)
+        assert reclaimed is not None
+        assert kb.handoff_task(
+            conn,
+            task_id,
+            "mallory",
+            expected_run_id=run_id,
+        ) is False
+        unchanged = kb.get_task(conn, task_id)
+        assert unchanged is not None
+        assert unchanged.status == "running"
+        assert unchanged.assignee == "bob"
+        assert unchanged.current_run_id == reclaimed.current_run_id
+
+
+def test_same_card_review_rework_and_creator_final_gate(kanban_home, monkeypatch):
+    from hermes_cli import profiles
+
+    valid_profiles = {"alice", "reviewer", "creator"}
+    monkeypatch.setattr(
+        profiles,
+        "profile_exists",
+        lambda name: name in valid_profiles,
+    )
+
+    with kb.connect() as conn:
+        task_id = kb.create_task(
+            conn,
+            title="same-card review",
+            assignee="alice",
+            created_by="creator",
+        )
+        first_impl = kb.claim_task(conn, task_id)
+        assert first_impl is not None
+        assert kb.submit_task_for_review(
+            conn,
+            task_id,
+            reviewer="reviewer",
+            final_assignee="creator",
+            summary="first review",
+            expected_run_id=first_impl.current_run_id,
+        ) is True
+
+        first_review = kb.claim_review_task(conn, task_id)
+        assert first_review is not None
+        assert kb.handoff_task(
+            conn,
+            task_id,
+            "other-reviewer",
+            expected_run_id=first_review.current_run_id,
+        ) is False
+        assert kb.request_changes_task(
+            conn,
+            task_id,
+            reason="missing run id",
+        ) is False
+        assert kb.request_changes_task(
+            conn,
+            task_id,
+            assignee="missing",
+            reason="unknown target",
+            expected_run_id=first_review.current_run_id,
+        ) is False
+        assert kb.request_changes_task(
+            conn,
+            task_id,
+            reason="add edge-case coverage",
+            summary="changes requested",
+            expected_run_id=first_review.current_run_id,
+        ) is True
+
+        second_impl = kb.claim_task(conn, task_id)
+        assert second_impl is not None
+        assert second_impl.assignee == "alice"
+        assert kb.submit_task_for_review(
+            conn,
+            task_id,
+            reviewer="reviewer",
+            final_assignee="creator",
+            summary="second review",
+            expected_run_id=second_impl.current_run_id,
+        ) is True
+
+        second_review = kb.claim_review_task(conn, task_id)
+        assert second_review is not None
+        assert kb.complete_task(
+            conn,
+            task_id,
+            summary="review accepted",
+            result="approved",
+            expected_run_id=second_review.current_run_id,
+        ) is True
+
+        routed = kb.get_task(conn, task_id)
+        routed_run = kb.latest_run(conn, task_id)
+        assert routed is not None
+        assert routed_run is not None
+        assert routed.id == task_id
+        assert routed.status == "ready"
+        assert routed.assignee == "creator"
+        assert routed.completed_at is None
+        assert routed.result is None
+        assert routed_run.status == "released"
+        assert routed_run.outcome == "review_accepted"
+
+        final_run = kb.claim_task(conn, task_id)
+        assert final_run is not None
+        assert final_run.assignee == "creator"
+        assert kb.complete_task(
+            conn,
+            task_id,
+            summary="creator accepted",
+            result="final",
+            expected_run_id=final_run.current_run_id,
+        ) is True
+        done = kb.get_task(conn, task_id)
+        events = kb.list_events(conn, task_id)
+
+    assert done is not None
+    assert done.status == "done"
+    assert done.result == "final"
+    assert len([e for e in events if e.kind == "submitted_review"]) == 2
+    assert len([e for e in events if e.kind == "requested_changes"]) == 1
+    assert len([e for e in events if e.kind == "review_accepted"]) == 1
+
+
+def test_submit_review_from_ready_synthesizes_released_run(kanban_home, monkeypatch):
+    from hermes_cli import profiles
+
+    monkeypatch.setattr(profiles, "profile_exists", lambda name: name == "reviewer")
+    with kb.connect() as conn:
+        task_id = kb.create_task(
+            conn,
+            title="direct submit",
+            assignee="alice",
+            created_by="reviewer",
+        )
+        assert kb.submit_task_for_review(
+            conn,
+            task_id,
+            reviewer="reviewer",
+            summary="manual submission",
+            metadata={"tests": 3},
+        ) is True
+        task = kb.get_task(conn, task_id)
+        run = kb.latest_run(conn, task_id)
+        event = [
+            e for e in kb.list_events(conn, task_id)
+            if e.kind == "submitted_review"
+        ][-1]
+
+    assert task is not None
+    assert run is not None
+    assert task.status == "review"
+    assert run.status == "released"
+    assert run.outcome == "submitted_review"
+    assert event.run_id == run.id
+
+
+def test_request_changes_requires_current_review_provenance(kanban_home):
+    with kb.connect() as conn:
+        task_id = kb.create_task(conn, title="plain run", assignee="alice")
+        claimed = kb.claim_task(conn, task_id)
+        assert claimed is not None
+        assert kb.request_changes_task(
+            conn,
+            task_id,
+            assignee="bob",
+            reason="not actually review",
+            expected_run_id=claimed.current_run_id,
+        ) is False
+        unchanged = kb.get_task(conn, task_id)
+
+    assert unchanged is not None
+    assert unchanged.status == "running"
+    assert unchanged.assignee == "alice"
+    assert unchanged.current_run_id == claimed.current_run_id
+
+
+def test_review_without_distinct_final_gate_completes_normally(kanban_home, monkeypatch):
+    from hermes_cli import profiles
+
+    monkeypatch.setattr(
+        profiles,
+        "profile_exists",
+        lambda name: name in {"alice", "reviewer"},
+    )
+    with kb.connect() as conn:
+        task_id = kb.create_task(
+            conn,
+            title="review is final",
+            assignee="alice",
+            created_by="reviewer",
+        )
+        impl = kb.claim_task(conn, task_id)
+        assert impl is not None
+        assert kb.submit_task_for_review(
+            conn,
+            task_id,
+            reviewer="reviewer",
+            summary="ready",
+            expected_run_id=impl.current_run_id,
+        ) is True
+        review = kb.claim_review_task(conn, task_id)
+        assert review is not None
+        assert kb.review_completion_state(
+            conn,
+            task_id,
+            expected_run_id=review.current_run_id,
+        ) == ("review", None)
+        assert kb.complete_task(
+            conn,
+            task_id,
+            result="approved",
+            expected_run_id=review.current_run_id,
+        ) is True
+        done = kb.get_task(conn, task_id)
+
+    assert done is not None
+    assert done.status == "done"
+    assert done.result == "approved"
+
+
+def test_invalid_final_gate_and_review_artifacts_fail_without_mutation(
+    kanban_home, monkeypatch
+):
+    from hermes_cli import profiles
+
+    valid_profiles = {"alice", "reviewer", "creator"}
+    monkeypatch.setattr(
+        profiles,
+        "profile_exists",
+        lambda name: name in valid_profiles,
+    )
+    with kb.connect() as conn:
+        task_id = kb.create_task(
+            conn,
+            title="invalid final",
+            assignee="alice",
+            created_by="creator",
+        )
+        impl = kb.claim_task(conn, task_id)
+        assert impl is not None
+        assert kb.submit_task_for_review(
+            conn,
+            task_id,
+            reviewer="reviewer",
+            final_assignee="creator",
+            expected_run_id=impl.current_run_id,
+        ) is True
+        review = kb.claim_review_task(conn, task_id)
+        assert review is not None
+
+        with pytest.raises(ValueError, match="not final completion"):
+            kb.complete_task(
+                conn,
+                task_id,
+                summary="approved",
+                metadata={"artifacts": ["/tmp/not-final.pdf"]},
+                expected_run_id=review.current_run_id,
+            )
+        still_reviewing = kb.get_task(conn, task_id)
+        assert still_reviewing is not None
+        assert still_reviewing.status == "running"
+        assert still_reviewing.current_run_id == review.current_run_id
+
+        conn.execute(
+            "UPDATE tasks SET assignee='intruder' WHERE id=?",
+            (task_id,),
+        )
+        assert kb.review_completion_state(
+            conn,
+            task_id,
+            expected_run_id=review.current_run_id,
+        ) == ("invalid", None)
+        assert kb.complete_task(
+            conn,
+            task_id,
+            summary="tampered reviewer",
+            expected_run_id=review.current_run_id,
+        ) is False
+        conn.execute(
+            "UPDATE tasks SET assignee='reviewer' WHERE id=?",
+            (task_id,),
+        )
+
+        valid_profiles.remove("creator")
+        assert kb.complete_task(
+            conn,
+            task_id,
+            summary="approved",
+            expected_run_id=review.current_run_id,
+        ) is False
+        unchanged = kb.get_task(conn, task_id)
+
+    assert unchanged is not None
+    assert unchanged.status == "running"
+    assert unchanged.assignee == "reviewer"
+    assert unchanged.current_run_id == review.current_run_id
+
+
+def test_review_role_defaults_override_and_invalid_reviewer_are_fail_closed(
+    kanban_home, monkeypatch
+):
+    from hermes_cli import profiles
+
+    valid_profiles = {"alice", "reviewer", "creator", "specialist"}
+    monkeypatch.setattr(
+        profiles,
+        "profile_exists",
+        lambda name: name in valid_profiles,
+    )
+    with kb.connect() as conn:
+        task_id = kb.create_task(
+            conn,
+            title="role routing",
+            assignee="alice",
+            created_by="reviewer",
+        )
+        impl = kb.claim_task(conn, task_id)
+        assert impl is not None
+        assert kb.submit_task_for_review(
+            conn,
+            task_id,
+            summary="default reviewer",
+            expected_run_id=impl.current_run_id,
+        ) is True
+        queued = kb.get_task(conn, task_id)
+        assert queued is not None and queued.assignee == "reviewer"
+
+        review = kb.claim_review_task(conn, task_id)
+        assert review is not None
+        assert kb.request_changes_task(
+            conn,
+            task_id,
+            assignee="specialist",
+            reason="specialist rework",
+            expected_run_id=review.current_run_id,
+        ) is True
+        rework = kb.get_task(conn, task_id)
+        assert rework is not None and rework.assignee == "specialist"
+
+        rework_run = kb.claim_task(conn, task_id)
+        assert rework_run is not None
+        before_events = len(kb.list_events(conn, task_id))
+        assert kb.submit_task_for_review(
+            conn,
+            task_id,
+            reviewer="missing",
+            expected_run_id=rework_run.current_run_id,
+        ) is False
+        unchanged = kb.get_task(conn, task_id)
+        after_events = len(kb.list_events(conn, task_id))
+
+    assert unchanged is not None
+    assert unchanged.status == "running"
+    assert unchanged.assignee == "specialist"
+    assert unchanged.current_run_id == rework_run.current_run_id
+    assert after_events == before_events
+
+
+def test_complete_task_rejects_state_change_between_review_preflight_and_write(
+    kanban_home, monkeypatch
+):
+    from hermes_cli import profiles
+
+    monkeypatch.setattr(profiles, "profile_exists", lambda name: True)
+    with kb.connect() as conn:
+        task_id = kb.create_task(
+            conn,
+            title="preflight race",
+            assignee="alice",
+            created_by="creator",
+        )
+        impl = kb.claim_task(conn, task_id)
+        assert impl is not None
+        original_review_state = kb.review_completion_state
+        raced = False
+
+        def race_review_state(inner_conn, inner_task_id, **kwargs):
+            nonlocal raced
+            state = original_review_state(inner_conn, inner_task_id, **kwargs)
+            if not raced:
+                raced = True
+                assert state == ("none", None)
+                assert kb.submit_task_for_review(
+                    inner_conn,
+                    inner_task_id,
+                    reviewer="reviewer",
+                    final_assignee="creator",
+                    expected_run_id=impl.current_run_id,
+                ) is True
+                assert kb.claim_review_task(inner_conn, inner_task_id) is not None
+            return state
+
+        monkeypatch.setattr(kb, "review_completion_state", race_review_state)
+        assert kb.complete_task(
+            conn,
+            task_id,
+            summary="stale operator completion",
+        ) is False
+        unchanged = kb.get_task(conn, task_id)
+
+    assert unchanged is not None
+    assert unchanged.status == "running"
+    assert unchanged.assignee == "reviewer"
+    assert unchanged.current_run_id != impl.current_run_id
+
+
+def test_review_claim_uses_exact_submission_and_legacy_review_completes_normally(
+    kanban_home, monkeypatch
+):
+    from hermes_cli import profiles
+
+    monkeypatch.setattr(profiles, "profile_exists", lambda name: True)
+    with kb.connect() as conn:
+        task_id = kb.create_task(
+            conn,
+            title="exact review provenance",
+            assignee="worker",
+            created_by="creator",
+        )
+        impl = kb.claim_task(conn, task_id)
+        assert impl is not None
+        assert kb.submit_task_for_review(
+            conn,
+            task_id,
+            reviewer="reviewer",
+            expected_run_id=impl.current_run_id,
+        ) is True
+        first_review = kb.claim_review_task(conn, task_id)
+        assert first_review is not None
+        assert kb.request_changes_task(
+            conn,
+            task_id,
+            expected_run_id=first_review.current_run_id,
+        ) is True
+
+        # A later manual/operator review must not reuse the stale native
+        # submission that belonged to the previous review cycle.
+        assert kb.assign_task(conn, task_id, "reviewer") is True
+        conn.execute("UPDATE tasks SET status='review' WHERE id=?", (task_id,))
+        conn.commit()
+        legacy_review = kb.claim_review_task(conn, task_id)
+        assert legacy_review is not None
+        assert kb.review_completion_state(
+            conn,
+            task_id,
+            expected_run_id=legacy_review.current_run_id,
+        ) == ("none", None)
+        assert kb.request_changes_task(
+            conn,
+            task_id,
+            expected_run_id=legacy_review.current_run_id,
+        ) is False
+        assert kb.complete_task(
+            conn,
+            task_id,
+            summary="legacy review accepted",
+            expected_run_id=legacy_review.current_run_id,
+        ) is True
+        done = kb.get_task(conn, task_id)
+
+    assert done is not None
+    assert done.status == "done"
+    assert done.review_submission_event_id is None
+
+
+def test_reclaimed_review_retry_preserves_exact_native_provenance(
+    kanban_home, monkeypatch
+):
+    from hermes_cli import profiles
+
+    monkeypatch.setattr(profiles, "profile_exists", lambda name: True)
+    with kb.connect() as conn:
+        task_id = kb.create_task(
+            conn,
+            title="review retry",
+            assignee="worker",
+            created_by="creator",
+        )
+        impl = kb.claim_task(conn, task_id)
+        assert impl is not None
+        assert kb.submit_task_for_review(
+            conn,
+            task_id,
+            reviewer="reviewer",
+            expected_run_id=impl.current_run_id,
+        ) is True
+        review = kb.claim_review_task(conn, task_id)
+        assert review is not None
+        assert kb.reclaim_task(conn, task_id, reason="review worker crashed") is True
+        retried = kb.claim_task(conn, task_id)
+        assert retried is not None
+        assert kb.review_completion_state(
+            conn,
+            task_id,
+            expected_run_id=retried.current_run_id,
+        ) == ("final_gate", "creator")
