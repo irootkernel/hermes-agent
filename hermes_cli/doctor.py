@@ -164,6 +164,9 @@ def _apply_doctor_tool_availability_overrides(available: list[str], unavailable:
     updated_available = list(available)
     updated_unavailable = []
     for item in unavailable:
+        if not isinstance(item, dict):
+            updated_unavailable.append(item)
+            continue
         name = item.get("name")
         if _is_kanban_worker_env_gate(item):
             if "kanban" not in updated_available:
@@ -335,11 +338,69 @@ def _enabled_cli_toolsets_for_doctor() -> set[str] | None:
         return None
 
 
+def _doctor_tool_warning_scope() -> tuple[set[str], set[str]]:
+    """Return actionable configured toolsets and their effective runtime tools."""
+    from hermes_cli.config import load_config
+    from hermes_cli.tools_config import _get_platform_tools
+    from toolsets import resolve_toolset
+
+    cfg = load_config() or {}
+    platforms = {"cli"}
+    configured = cfg.get("platform_toolsets") or {}
+    if isinstance(configured, dict):
+        platforms.update(
+            str(platform)
+            for platform, toolsets in configured.items()
+            if isinstance(toolsets, list)
+        )
+
+    enabled_toolsets: set[str] = set()
+    for platform in platforms:
+        enabled_toolsets.update(
+            str(toolset) for toolset in _get_platform_tools(cfg, platform)
+        )
+
+    enabled_tools: set[str] = set()
+    for toolset in enabled_toolsets:
+        enabled_tools.update(str(tool) for tool in resolve_toolset(toolset))
+    return enabled_toolsets, enabled_tools
+
+
+def _filter_doctor_tool_warnings_for_config(unavailable: list[dict]) -> list[dict]:
+    """Hide warning rows proven to be outside the configured runtime scope."""
+    try:
+        enabled_toolsets, enabled_tools = _doctor_tool_warning_scope()
+    except Exception:
+        return unavailable
+    filtered: list[dict] = []
+    for item in unavailable:
+        if not isinstance(item, dict):
+            filtered.append(item)
+            continue
+        name = str(item.get("name") or "")
+        if name in enabled_toolsets:
+            filtered.append(item)
+            continue
+        tools = item.get("tools")
+        if (
+            not isinstance(tools, list)
+            or not tools
+            or any(not isinstance(tool, str) or not tool.strip() for tool in tools)
+        ):
+            filtered.append(item)
+            continue
+        tool_names = set(tools)
+        if tool_names & enabled_tools:
+            filtered.append(item)
+    return filtered
+
+
 def _missing_api_key_toolsets_for_summary(unavailable: list[dict]) -> list[dict]:
     """Filter unavailable API-key toolsets to those enabled for the CLI."""
     api_key_unavailable = [
         item for item in unavailable
-        if item.get("missing_vars") or item.get("env_vars")
+        if isinstance(item, dict)
+        and (item.get("missing_vars") or item.get("env_vars"))
     ]
     enabled_toolsets = _enabled_cli_toolsets_for_doctor()
     if enabled_toolsets is None:
@@ -2532,12 +2593,16 @@ def run_doctor(args):
         
         available, unavailable = check_tool_availability()
         available, unavailable = _apply_doctor_tool_availability_overrides(available, unavailable)
+        unavailable = _filter_doctor_tool_warnings_for_config(unavailable)
         
         for tid in available:
             info = TOOLSET_REQUIREMENTS.get(tid, {})
             check_ok(info.get("name", tid), _doctor_tool_availability_detail(tid))
         
         for item in unavailable:
+            if not isinstance(item, dict):
+                check_warn("Unknown tool availability diagnostic", "(malformed row)")
+                continue
             env_vars = item.get("missing_vars") or item.get("env_vars") or []
             if env_vars:
                 vars_str = ", ".join(env_vars)

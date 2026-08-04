@@ -63,6 +63,330 @@ class TestDoctorToolAvailabilitySummary:
 
         assert [item["name"] for item in filtered] == ["web"]
 
+    def test_missing_api_key_summary_ignores_malformed_rows(self, monkeypatch):
+        unavailable = [
+            "malformed-row",
+            {
+                "name": "web",
+                "env_vars": ["EXA_API_KEY"],
+                "tools": ["web_search", "web_extract"],
+            },
+        ]
+        monkeypatch.setattr(doctor, "_enabled_cli_toolsets_for_doctor", lambda: {"web"})
+
+        filtered = doctor._missing_api_key_toolsets_for_summary(unavailable)
+
+        assert [item["name"] for item in filtered] == ["web"]
+
+
+def _run_doctor_until_tool_summary(
+    monkeypatch,
+    tmp_path,
+    *,
+    config_yaml,
+    available,
+    unavailable,
+):
+    hermes_home = tmp_path / ".hermes"
+    project_root = tmp_path / "project"
+    hermes_home.mkdir()
+    project_root.mkdir()
+    (hermes_home / "config.yaml").write_text(config_yaml, encoding="utf-8")
+    monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+    monkeypatch.setattr(doctor_mod, "HERMES_HOME", hermes_home)
+    monkeypatch.setattr(doctor_mod, "PROJECT_ROOT", project_root)
+    monkeypatch.setattr(doctor_mod, "_DHH", str(hermes_home))
+
+    fake_model_tools = types.SimpleNamespace(
+        TOOLSET_REQUIREMENTS={
+            str(item.get("name") or ""): {"name": str(item.get("name") or "")}
+            for item in unavailable
+            if isinstance(item, dict)
+        },
+        check_tool_availability=lambda *a, **kw: (list(available), list(unavailable)),
+    )
+    monkeypatch.setitem(sys.modules, "model_tools", fake_model_tools)
+
+    def stop_after_tool_availability(_unavailable):
+        raise SystemExit(0)
+
+    monkeypatch.setattr(
+        doctor,
+        "_missing_api_key_toolsets_for_summary",
+        stop_after_tool_availability,
+    )
+    buf = io.StringIO()
+    with pytest.raises(SystemExit), contextlib.redirect_stdout(buf):
+        doctor_mod.run_doctor(Namespace(fix=False))
+    out = buf.getvalue()
+    start = out.index("Tool Availability")
+    return out[start:]
+
+
+class TestDoctorToolAvailabilityConfigFilter:
+    def test_real_cli_scope_hides_default_off_warnings(self, monkeypatch, tmp_path):
+        section = _run_doctor_until_tool_summary(
+            monkeypatch,
+            tmp_path,
+            config_yaml="platform_toolsets:\n  cli:\n    - web\n",
+            available=[],
+            unavailable=[
+                {
+                    "name": "discord",
+                    "env_vars": ["DISCORD_BOT_TOKEN"],
+                    "tools": ["discord"],
+                },
+                {
+                    "name": "x_search",
+                    "env_vars": ["XAI_API_KEY"],
+                    "tools": ["x_search"],
+                },
+                {
+                    "name": "web",
+                    "env_vars": ["EXA_API_KEY"],
+                    "tools": ["web_search", "web_extract"],
+                },
+            ],
+        )
+
+        assert "⚠ web" in section
+        assert "⚠ discord" not in section
+        assert "⚠ x_search" not in section
+
+    def test_explicit_platform_scope_keeps_only_configured_warning(
+        self, monkeypatch, tmp_path
+    ):
+        section = _run_doctor_until_tool_summary(
+            monkeypatch,
+            tmp_path,
+            config_yaml=(
+                "platform_toolsets:\n"
+                "  cli:\n"
+                "    - web\n"
+                "  discord:\n"
+                "    - discord\n"
+            ),
+            available=[],
+            unavailable=[
+                {
+                    "name": "discord",
+                    "env_vars": ["DISCORD_BOT_TOKEN"],
+                    "tools": ["discord"],
+                },
+                {
+                    "name": "discord_admin",
+                    "env_vars": ["DISCORD_BOT_TOKEN"],
+                    "tools": ["discord_admin"],
+                },
+                {
+                    "name": "web",
+                    "env_vars": ["EXA_API_KEY"],
+                    "tools": ["web_search", "web_extract"],
+                },
+            ],
+        )
+
+        assert "⚠ web" in section
+        assert "⚠ discord (" in section
+        assert "⚠ discord_admin" not in section
+
+    def test_effective_tool_overlap_keeps_browser_cdp_warning(
+        self, monkeypatch, tmp_path
+    ):
+        section = _run_doctor_until_tool_summary(
+            monkeypatch,
+            tmp_path,
+            config_yaml="platform_toolsets:\n  cli:\n    - browser\n",
+            available=[],
+            unavailable=[
+                {
+                    "name": "browser",
+                    "env_vars": [],
+                    "tools": ["browser_navigate", "browser_click"],
+                },
+                {
+                    "name": "browser-cdp",
+                    "env_vars": [],
+                    "tools": ["browser_cdp", "browser_dialog"],
+                },
+                {
+                    "name": "homeassistant",
+                    "env_vars": ["HASS_TOKEN"],
+                    "tools": ["ha_list_entities"],
+                },
+            ],
+        )
+
+        assert "⚠ browser (" in section
+        assert "⚠ browser-cdp" in section
+        assert "⚠ homeassistant" not in section
+
+    def test_unmapped_or_malformed_warning_rows_fail_open(self, monkeypatch):
+        monkeypatch.setattr(
+            doctor,
+            "_doctor_tool_warning_scope",
+            lambda: ({"web"}, {"web_search", "web_extract"}),
+        )
+        rows = [
+            {"name": "new-upstream-diagnostic", "env_vars": []},
+            {"name": "empty-tools", "env_vars": [], "tools": []},
+            {"name": "malformed-tools", "env_vars": [], "tools": "not-a-list"},
+            {"name": "tuple-tools", "env_vars": [], "tools": ("x_search",)},
+            {"name": "set-tools", "env_vars": [], "tools": {"x_search"}},
+            {"name": "none-tool", "env_vars": [], "tools": [None]},
+            {"name": "integer-tool", "env_vars": [], "tools": [7]},
+            {"name": "blank-tool", "env_vars": [], "tools": ["  "]},
+            {
+                "name": "x_search",
+                "env_vars": ["XAI_API_KEY"],
+                "tools": ["x_search"],
+            },
+        ]
+
+        filtered = doctor._filter_doctor_tool_warnings_for_config(rows)
+
+        assert [item["name"] for item in filtered] == [
+            "new-upstream-diagnostic",
+            "empty-tools",
+            "malformed-tools",
+            "tuple-tools",
+            "set-tools",
+            "none-tool",
+            "integer-tool",
+            "blank-tool",
+        ]
+
+    def test_non_mapping_row_does_not_abort_remaining_diagnostics(
+        self, monkeypatch, tmp_path
+    ):
+        section = _run_doctor_until_tool_summary(
+            monkeypatch,
+            tmp_path,
+            config_yaml="platform_toolsets:\n  cli:\n    - web\n",
+            available=[],
+            unavailable=[
+                "malformed-row",
+                {
+                    "name": "web",
+                    "env_vars": ["EXA_API_KEY"],
+                    "tools": ["web_search", "web_extract"],
+                },
+            ],
+        )
+
+        assert "⚠ Unknown tool availability diagnostic (malformed row)" in section
+        assert "⚠ web" in section
+        assert "Could not check tool availability" not in section
+
+    def test_scope_resolution_exception_preserves_every_warning(self, monkeypatch):
+        def fail_scope_resolution():
+            raise RuntimeError("scope unavailable")
+
+        monkeypatch.setattr(
+            doctor,
+            "_doctor_tool_warning_scope",
+            fail_scope_resolution,
+        )
+        rows = [
+            {
+                "name": "discord",
+                "env_vars": ["DISCORD_BOT_TOKEN"],
+                "tools": ["discord"],
+            },
+            {
+                "name": "web",
+                "env_vars": ["EXA_API_KEY"],
+                "tools": ["web_search", "web_extract"],
+            },
+        ]
+
+        assert doctor._filter_doctor_tool_warnings_for_config(rows) is rows
+
+    def test_agent_disabled_toolsets_override_explicit_cli_scope(
+        self, monkeypatch, tmp_path
+    ):
+        section = _run_doctor_until_tool_summary(
+            monkeypatch,
+            tmp_path,
+            config_yaml=(
+                "agent:\n"
+                "  disabled_toolsets:\n"
+                "    - web\n"
+                "platform_toolsets:\n"
+                "  cli:\n"
+                "    - web\n"
+                "    - x_search\n"
+            ),
+            available=[],
+            unavailable=[
+                {
+                    "name": "web",
+                    "env_vars": ["EXA_API_KEY"],
+                    "tools": ["web_search", "web_extract"],
+                },
+                {
+                    "name": "x_search",
+                    "env_vars": ["XAI_API_KEY"],
+                    "tools": ["x_search"],
+                },
+            ],
+        )
+
+        assert "⚠ web" not in section
+        assert "⚠ x_search" in section
+
+    def test_available_rows_are_never_filtered(self, monkeypatch, tmp_path):
+        section = _run_doctor_until_tool_summary(
+            monkeypatch,
+            tmp_path,
+            config_yaml="platform_toolsets:\n  cli:\n    - web\n",
+            available=["discord_admin"],
+            unavailable=[],
+        )
+
+        assert "✓ discord_admin" in section
+
+    def test_runtime_kanban_override_precedes_warning_filter(
+        self, monkeypatch, tmp_path
+    ):
+        monkeypatch.delenv("HERMES_KANBAN_TASK", raising=False)
+        section = _run_doctor_until_tool_summary(
+            monkeypatch,
+            tmp_path,
+            config_yaml="platform_toolsets:\n  cli:\n    - web\n",
+            available=[],
+            unavailable=[
+                {
+                    "name": "kanban",
+                    "env_vars": [],
+                    "tools": ["kanban_show"],
+                }
+            ],
+        )
+
+        assert "✓ kanban" in section
+        assert "runtime-gated" in section
+
+    def test_configured_honcho_override_precedes_warning_filter(
+        self, monkeypatch, tmp_path
+    ):
+        monkeypatch.setattr(doctor, "_honcho_is_configured_for_doctor", lambda: True)
+        section = _run_doctor_until_tool_summary(
+            monkeypatch,
+            tmp_path,
+            config_yaml="memory:\n  provider: honcho\n",
+            available=[],
+            unavailable=[
+                {
+                    "name": "honcho",
+                    "env_vars": ["HONCHO_API_KEY"],
+                    "tools": ["memory"],
+                }
+            ],
+        )
+
+        assert "✓ honcho" in section
+
 
 class TestDoctorEnvFileEncoding:
     """Regression for #18637 (bug 3): `hermes doctor` crashed on Windows

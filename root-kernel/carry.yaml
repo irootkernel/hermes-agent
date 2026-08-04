@@ -2,7 +2,7 @@ schema_version: 1
 ledger_kind: root-kernel-release-carry
 release:
   version: v0.19.1
-  status: d6-complete-owner-accepted-awaiting-d7-direction
+  status: d7-implementation-complete-verified-self-recording-commit-owner-accepted
   tag_blocker: true
   scaffolded_at: '2026-08-02T17:24:26+09:00'
   candidate_branch: rk/v0.19.1
@@ -1245,16 +1245,98 @@ active_carries:
       version: v0.18.2
       entry_id: D7
       status: local_keep_applied
-    status: pending-re-audit
-    owner_direction: pending
+    status: implementation-complete-verified-self-recording-commit-owner-accepted
+    owner_direction: commit-authorized-owner-accepted
+    audit_started_at: '2026-08-04T21:54:30+09:00'
+    audit_completed_at: '2026-08-04T22:24:50+09:00'
+    implementation_started_at: '2026-08-04T22:37:12+09:00'
+    implementation_completed_at: '2026-08-04T23:10:30+09:00'
     requirement: Suppress only disabled or default-off optional tool warnings without hiding enabled-tool or new core diagnostics.
     likely_files:
       - hermes_cli/doctor.py
-    red_evidence: pending
-    green_evidence: pending
-    integrated_smoke: pending
+    upstream_overlap:
+      classification: partial-not-replacement
+      native_commit: 6b21a935af24b7b3c4ee2370598471aa8978a243
+      native_behavior: The final missing-API-key summary is filtered to enabled CLI toolsets, but global Tool Availability warning rows are not.
+      retained_gap: Disabled and default-off optional tool warning rows remain visible before the native summary filter.
+    historical_lineage:
+      final_commit: 5582e0db6512f67214a1b37d66a76e4df09bfe27
+      direct_replay: rejected
+      reason: Exact-name filtering of available and unavailable rows is too broad for v0.19.1 aliases and subtoolsets such as browser-cdp.
+    recommendation:
+      option: C
+      name: warning-only-semantic-runtime-scope-filter
+      status: implemented-verified
+      design:
+        - Resolve CLI plus explicitly configured platform scopes through canonical _get_platform_tools.
+        - Expand enabled toolsets through resolve_toolset and keep warnings by exact toolset name or effective tool-name overlap.
+        - Apply after runtime overrides and filter only unavailable warning rows.
+        - Fail open globally on resolution exceptions and per row for malformed or unmapped metadata.
+        - Preserve the available list, native CLI-only summary filter, and all non-Tool-Availability diagnostics.
+      product_files:
+        - hermes_cli/doctor.py
+      permanent_test_files:
+        - tests/hermes_cli/test_doctor.py
+    evidence:
+      path: root-kernel/evidence/v0.19.1-D7-doctor-warning-filter-reaudit.json
+      sha256: 0cc19782f6672b5b83776e302a23a778ef588159afe8fbf98c27240df3b53836
+      git_excluded: true
+    verification:
+      historical_focused: 4 passed
+      historical_doctor_suite: 72 passed
+      current_target_suite_before_implementation: 55 passed
+      throwaway_red_loop: 3 failed, 2 passed
+      design_spike_contracts: 7 passed
+      permanent_vertical_red_contracts: 5 independently reproduced before each minimum GREEN
+      review_blocker_red_contracts: 3 failed, then 3 passed after remediation
+      final_doctor_file: 53 passed
+      final_task12_target: 66 passed, 0 failed
+      static: Ruff, py_compile, git diff --check, and added-line security scan passed
+      final_real_disposable_profiles: 5 passed with rc 0 and byte-unchanged configs
+      final_real_profile_summary_sha256: 3410c2ae47b2b65bc3d93163b0f6375257a26e29c8fe742d19e38cd057c2217a
+      output_outside_tool_availability: byte-identical for current-before versus final across all five cases
+      initial_implementation_reviews: 2 REVISE on one shared malformed-row fail-open blocker
+      final_implementation_reviews: 2 PASS, 0 blockers, 0 security concerns, 0 logic errors, 0 suggestions
+      kscq: no indexed learning note
+    rollback:
+      backup_dir: /Users/draccoon/Workspace/Hermes/update-backups/20260804T125430Z-rk-v0191-d7-investigation
+      archive: d7-ledgers-pre-investigation.tar.gz
+      archive_sha256: 08bd50dc4873c2db0d4cbdbe689399269e522e03810d17edab6b2db22078801a
+      restore_byte_parity: passed
+      secrets_included: false
+    implementation_rollback:
+      backup_dir: /Users/draccoon/Workspace/Hermes/update-backups/20260804T133712Z-rk-v0191-d7-implementation
+      archive: d7-pre-implementation.tar.gz
+      archive_sha256: 6aca8810e894d44cf7e488c7770dd53601c2ecd9f81b9bce484ffbb4ac0eacb2
+      restore_byte_parity: passed
+      secrets_included: false
+    owner_acceptance_rollback:
+      backup_dir: /Users/draccoon/Workspace/Hermes/update-backups/20260804T162028Z-rk-v0191-d7-owner-acceptance
+      archive: d7-pre-owner-acceptance.tar.gz
+      archive_sha256: b553146737994d12bb3b12489a566b99d9a39fc68dfa48a0c9d5f2f5e9deb29d
+      restore_byte_parity: passed
+      secrets_included: false
+    precommit_rollback:
+      backup_dir: /Users/draccoon/Workspace/Hermes/update-backups/20260804T163842Z-rk-v0191-d7-precommit
+      archive: d7-precommit-files.tar.gz
+      archive_sha256: 38417cd38cdf84789e2b5aea9650bb3ccb5dd512a99a4537dfd6d4860fd1ccce
+      restore_byte_parity: passed
+      secrets_included: false
+    investigation_authorized: true
+    implementation_authorized: true
+    commit_authorized: true
+    commit_authorized_at: '2026-08-05T01:38:42+09:00'
+    commit_execution_consent_reconfirmed_at: '2026-08-05T02:05:57+09:00'
+    commit_state: self-recording-commit-created
+    owner_acceptance: accepted
+    owner_accepted: true
+    owner_accepted_at: '2026-08-05T01:20:28+09:00'
+    acceptance_basis: explicit-owner-approval-without-commit-direction
+    red_evidence: permanent vertical RED contracts reproduced; review blocker reproduced as 2 failed plus 1 failed contracts
+    green_evidence: final doctor file 53 passed; Task 12 target 66 passed; static and security gates passed
+    integrated_smoke: five disposable doctor profiles passed; Task 13 not started
     live_mutation: false
-    next_action: Probe enabled versus disabled and default-off diagnostics before requesting one owner direction.
+    next_action: Self-recording D7 commit created; await separate Task 13 direction for final candidate smoke. Do not push or mutate live/profile/runtime state.
 historical_retired:
   v0.18.2/D1:
     title: Tool Search pair
@@ -1329,7 +1411,6 @@ post_live_gates:
 activation:
   status: blocked
   blockers:
-    - D7 re-audit/implementation direction pending
     - integrated candidate smoke pending
     - typed non-secret activation backup and rollback rehearsal pending
     - root default messaging token ownership unresolved and activation unauthorized
@@ -1354,10 +1435,10 @@ ledger_parity:
     - live-mutation state
     - rollback authority
     - next action
-  status: d6-complete-owner-accepted-awaiting-d7-direction
+  status: d7-implementation-complete-verified-self-recording-commit-owner-accepted
 next_action:
-  task: D7 re-audit direction
-  description: D6 implementation, verification, commit authorization, and owner acceptance are recorded in the current self-recording D6 commit. After commit creation, await explicit D7 re-audit direction; do not push or enter any R gate.
+  task: Task 13 direction
+  description: All current D items are implemented, verified, owner-accepted, and committed. Await separate Task 13 direction for final candidate smoke. Push, Task 13, live/profile/runtime mutation, tag, and remote-ref movement remain unauthorized.
   d1_classification_approved: true
   task5_source_fix_authorized: true
   task5_source_fix_verified: true
@@ -1368,8 +1449,8 @@ next_action:
   task6_status: owner-accepted
   task6_owner_acceptance: accepted
   task6_accepted_at: '2026-08-03T00:41:48+09:00'
-  next_d_item: D7
-  next_d_item_owner_direction: pending
+  next_d_item: null
+  next_d_item_owner_direction: all-current-d-items-owner-accepted-and-committed
   d_item_implementation_authorized: false
   authorized_d_item: null
   commit_header: null

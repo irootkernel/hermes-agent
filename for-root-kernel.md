@@ -2,7 +2,7 @@
 
 ## Release state
 
-- Status: `d6-complete-owner-accepted-awaiting-d7-direction`
+- Status: `d7-implementation-complete-verified-self-recording-commit-owner-accepted`
 - Candidate branch: `rk/v0.19.1`
 - Candidate worktree: `/Users/draccoon/Workspace/Hermes/17th-hermes-agent-worktree`
 - Tag blocker: `true`
@@ -20,6 +20,7 @@
 - D4 read-only re-audit authorized and started at `2026-08-03T11:38:26+09:00`; overlap/gap evidence completed at `2026-08-03T11:56:43+09:00`; owner selected option A and authorized minimal v0.19.1-aware implementation
 - D5-e commit and owner acceptance were both explicitly conveyed by the owner's commit direction at `2026-08-04T15:27:26+09:00`; this is the self-recording `[D5]` commit
 - D6 commit and owner acceptance were both explicitly conveyed by 주군의 commit direction at `2026-08-04T20:52:21+09:00`; this is the self-recording `[D6]` commit
+- D7 owner acceptance was recorded at `2026-08-05T01:20:28+09:00`; commit direction followed at `2026-08-05T01:38:42+09:00` and execution consent was reconfirmed at `2026-08-05T02:05:57+09:00`; this is the self-recording `[D7]` commit
 - Tag, push, and remote-ref movement: not authorized
 - Scaffolded at: `2026-08-02T17:24:26+09:00`
 
@@ -136,7 +137,7 @@ These values are the completed planning baseline. Fleet values must be refreshed
 
 ## v0.19.1 active D items
 
-Inherited carry lineages remain `pending-re-audit` until their own gate starts. D1–D6 are owner-accepted. D5-a through D5-f are committed, and D6 product, permanent tests, and both ledgers are recorded together in its authorized self-recording commit. D7 remains blocked pending separate direction. A familiar v0.18.2 patch is not authority to replay it.
+Inherited carry lineages remain `pending-re-audit` until their own gate starts. D1–D7 are owner-accepted. D5-a through D5-f and D6 are committed through their authorized self-recording commits, and D7 product, permanent tests, and both ledgers are recorded together in this authorized self-recording commit. Task 13 and live mutation remain unauthorized. A familiar v0.18.2 patch is not authority to replay it.
 
 | Current ID | Work item | Previous release | Current status | Next action |
 |---|---|---|---|---|
@@ -144,9 +145,9 @@ Inherited carry lineages remain `pending-re-audit` until their own gate starts. 
 | D2 | Fail-closed skill write approval import boundary | New v0.19.1 defect discovered in Task 6 | `implemented-verified-owner-accepted` | Keep active until an exact upstream fail-closed replacement is behaviorally verified. |
 | D3 | OpenAI Codex credential pinning and labelled reauth | `v0.18.2/D8` | `implemented-verified-owner-accepted` | Keep active until an exact upstream replacement satisfies the retirement rule. |
 | D4 | Discord thread ownership and role-mention fail-close | `v0.18.2/D4` | `implemented-verified-owner-accepted` | Closed; preserve until an exact upstream replacement is verified. |
-| D5 | Kanban same-card review and workflow seams | `v0.18.2/D2` | `implemented-verified-self-recording-commit-owner-accepted` | Closed; preserve while D7 awaits separate direction. |
-| D6 | CLI return-code passthrough | `v0.18.2/D6` | `implemented-verified-self-recording-commit-owner-accepted` | Closed in this authorized self-recording commit; await explicit D7 re-audit direction. |
-| D7 | Doctor optional tool warning filter | `v0.18.2/D7` | `pending-re-audit` | Probe enabled versus disabled/default-off tool diagnostics without hiding new doctor checks. |
+| D5 | Kanban same-card review and workflow seams | `v0.18.2/D2` | `implemented-verified-self-recording-commit-owner-accepted` | Closed; preserve while Task 13 remains separately unauthorized. |
+| D6 | CLI return-code passthrough | `v0.18.2/D6` | `implemented-verified-self-recording-commit-owner-accepted` | Closed; preserve while Task 13 remains separately unauthorized. |
+| D7 | Doctor optional tool warning filter | `v0.18.2/D7` | `implementation-complete-verified-self-recording-commit-owner-accepted` | Closed in this authorized self-recording commit; await separate Task 13 direction. |
 
 ### D5-b implementation result
 
@@ -278,6 +279,59 @@ Inherited carry lineages remain `pending-re-audit` until their own gate starts. 
 - Evidence: `root-kernel/evidence/v0.19.1-D6-cli-return-code-implementation.json`, SHA-256 `11ce00b87a572afa874dad7224e9d8ae5b8eedca15c675418e1c89b7bdfe8694` (local, Git-excluded).
 - Rollback: `/Users/draccoon/Workspace/Hermes/update-backups/20260804T101659Z-rk-v0191-d6-implementation/d6-pre-implementation.tar.gz`, SHA-256 `bd0baa55ee7624948bf93bc011cbc6a44357d6db1f825ac421b50bfce0e2703f`; restore byte parity passed and rollback removes the newly created test file. The reviewed precommit candidate archive is `/Users/draccoon/Workspace/Hermes/update-backups/20260804T115221Z-rk-v0191-d6-precommit/d6-precommit-files.tar.gz`, SHA-256 `8d6fe27e9afd79f48a36ebef720f317ca57ce526d469cade9afb8530ee65a688`; all five product/test/ledger/evidence files restored byte-for-byte at that checkpoint.
 - Boundary and next action: product and permanent tests are limited to the two recorded D6 files. 주군의 explicit commit direction authorizes and accepts this self-recording D6 commit. No live/profile/runtime, gateway, token, skill, plugin, cron, D7, R gate, tag, or push mutation occurred. After commit creation, await explicit D7 re-audit direction.
+
+### D7 read-only re-audit start
+
+- Authorization: 주군 authorized D7 investigation, analysis, and solution proposal at `2026-08-04T21:54:30+09:00`.
+- Active scope: reconstruct final `v0.18.2/D7`, trace current v0.19.1 doctor diagnostic ownership, run disposable minimal/default-off/disabled/enabled probes, compare preserved versus missing behavior, and propose one v0.19.1-aware solution.
+- Excluded: no product or permanent test implementation, commit, push, Task 13 integrated smoke, live/profile/config/gateway/token/skill/plugin/cron mutation, tag, remote-ref movement, or R gate.
+- Rollback: `/Users/draccoon/Workspace/Hermes/update-backups/20260804T125430Z-rk-v0191-d7-investigation/d7-ledgers-pre-investigation.tar.gz`, SHA-256 `08bd50dc4873c2db0d4cbdbe689399269e522e03810d17edab6b2db22078801a`; both ledgers restored byte-for-byte and no secrets are included.
+- Next action: investigation is complete; option C is proposed below. Implementation requires a separate direction.
+
+### D7 read-only re-audit result
+
+- Exact candidate anchor: `rk/v0.19.1` HEAD `11847601d5da3efe68e768e633e768482175c99a`, exact upstream `cc4cab2f592e60a197e796506de9168f74baf3ea`; `hermes_cli/doctor.py` and the three Task 12 target test files are byte-identical to upstream.
+- Historical lineage: final v0.18.2 D7 commit `5582e0db6512f67214a1b37d66a76e4df09bfe27` filtered both available and unavailable rows by exact enabled-toolset names. Re-execution passed focused `4/4` and doctor/dedicated-provider `72/72`.
+- Upstream overlap: commit `6b21a935af24b7b3c4ee2370598471aa8978a243` is **partial, not replacement**. It filters only the final missing-API-key setup summary to enabled CLI toolsets; `Tool Availability` warning rows remain global.
+- Current actual behavior: five disposable profiles (`default`, `web_only`, `web_disabled`, explicit `x_search`, explicit Discord platform) all returned `0` and preserved config bytes, but default-off `discord`, `discord_admin`, `homeassistant`, `spotify`, `video`, `video_gen`, and `x_search` warnings remained visible; disabled `web` also remained visible.
+- Throwaway RED loop: `3 failed, 2 passed`. The three failures reproduce default-off and explicit-disable leakage; the two passes preserve fail-open visibility and runtime-gated Kanban promotion. No product or permanent test file was changed.
+- Option A, retire as upstream-native: rejected because the warning-row gap remains. Option B, replay the historical available-and-unavailable name filter: rejected because v0.19.1 aliases/subtoolsets such as `browser-cdp` can differ from configured composite names and healthy-row filtering is broader than the requirement. Option D, read raw YAML only: rejected because it bypasses canonical defaults, restrictions, plugins/MCP, recent toolsets, and `agent.disabled_toolsets`.
+- **Recommended option C:** after existing Kanban/Honcho overrides, resolve CLI plus explicitly configured platform scopes through `_get_platform_tools`, expand them through `resolve_toolset`, and filter only unavailable warning rows proven outside scope. Keep rows by enabled toolset name or effective tool-name intersection. Leave available rows and the native final CLI-only summary unchanged. Fail open globally on scope exceptions and per row for malformed, empty, or unmapped metadata.
+- Stronger v0.19.1 diagnostics preserved: SQLite/source-ID/WAL/state/FTS repair, SSL/certifi, agent-browser/Chromium/CDP, config/deprecation, dedicated-provider/connectivity, and every section outside `Tool Availability` remain untouched.
+- Disposable design spike only: new contracts `7 passed`; current doctor/dedicated-provider/SQLite target `55 passed`; Ruff and `py_compile` passed; all five real profiles returned `0` with byte-unchanged configs and expected warning filtering. With the same venv, current versus spike output outside `Tool Availability` was byte-identical in all five cases.
+- Two independent read-only Codex reviews: architecture/security `PASS`, diagnostics/regression `PASS`, total blockers `0`. Permanent implementation must add real-resolver RED coverage for default, disabled, explicit tool/platform, `agent.disabled_toolsets`, `browser-cdp`, Kanban/Honcho, available-list preservation, unknown metadata, and fail-open behavior before product code.
+- KSCQ query `Hermes doctor optional tool warnings default-off config scope`: no indexed learning note; no raw packet expansion and no change to the source/test/probe conclusion.
+- Investigation-close evidence snapshot: `root-kernel/evidence/v0.19.1-D7-doctor-warning-filter-reaudit.json` had SHA-256 `4ce9e1f2acbd37895ba29a36f02c1d9737775786aa0b438227e0da1ae1af09f0`; the same local Git-excluded evidence file was later extended through implementation and owner acceptance, with its current hash recorded below.
+- Boundary at investigation close: investigation and proposal were complete while product implementation, permanent RED/GREEN, commit, push, Task 13, live/profile/runtime mutation, tag, and remote-ref movement remained unauthorized pending separate direction.
+
+### D7 option C implementation start
+
+- Authorization: 주군 authorized option C implementation at `2026-08-04T22:37:12+09:00`.
+- Scope: add permanent behavior contracts first, prove RED on the current candidate, implement only the warning-only semantic runtime-scope filter in `hermes_cli/doctor.py`, and run the full Task 12/static/real-profile/independent-review gate.
+- Commit boundary: product and permanent test implementation are authorized; commit, push, Task 13, live/profile/runtime mutation, tag, and remote-ref movement remain unauthorized.
+- Rollback: `/Users/draccoon/Workspace/Hermes/update-backups/20260804T133712Z-rk-v0191-d7-implementation/d7-pre-implementation.tar.gz`, SHA-256 `6aca8810e894d44cf7e488c7770dd53601c2ecd9f81b9bce484ffbb4ac0eacb2`; source, permanent test, both ledgers, and investigation evidence restored byte-for-byte in a disposable directory; no secrets are included.
+- TDD order: permanent RED contracts precede any product code. GREEN may change only `hermes_cli/doctor.py`; current native summary and every non-Tool-Availability diagnostic remain fixed preservation boundaries.
+
+### D7 option C implementation result
+
+- Result: option C is implemented in `hermes_cli/doctor.py` with permanent behavior coverage in `tests/hermes_cli/test_doctor.py`; no other product or permanent test file changed.
+- Behavior: existing Kanban/Honcho overrides run first; CLI plus explicitly list-shaped platform scopes resolve through canonical `_get_platform_tools`; `resolve_toolset` preserves aliases/subtoolsets by effective-tool overlap; only unavailable warning rows proven out of scope are hidden; available rows and the native CLI-only summary remain intact.
+- Fail-open boundary: scope exceptions preserve all rows. Missing, empty, non-list, non-string, or blank `tools` metadata remains visible. Non-dict rows pass through overrides/filtering, render a fixed generic warning without raw-value disclosure, and are excluded safely from the API-key summary.
+- TDD: five initial behavior contracts each reproduced RED before their minimum GREEN. The first independent implementation reviews then found one shared malformed-row blocker; permanent regressions reproduced it as two failed contracts plus one failed summary contract, and all three passed after remediation.
+- Verification: final doctor file `53 passed`; full Task 12 target `66 passed, 0 failed`; Ruff, `py_compile`, `git diff --check`, and added-line security scan passed.
+- Real smoke: all five disposable profiles returned `0`, preserved config bytes, hid default-off/disabled warnings, retained explicit `web`, `x_search`, Discord, `browser-cdp`, and runtime Kanban diagnostics, and matched implementation-before output byte-for-byte outside `Tool Availability` in `5/5` cases. Task 13 was not started.
+- Independent review: initial specification and security reviews returned `REVISE` on the same malformed-row fail-open blocker. After RED-driven remediation, fresh final reviews returned `PASS` with blocker `0`, security concern `0`, logic error `0`, and suggestion `0`; no reviewer modified files.
+- Evidence: `root-kernel/evidence/v0.19.1-D7-doctor-warning-filter-reaudit.json`, SHA-256 `0cc19782f6672b5b83776e302a23a778ef588159afe8fbf98c27240df3b53836` (local, Git-excluded).
+- Rollback: `/Users/draccoon/Workspace/Hermes/update-backups/20260804T133712Z-rk-v0191-d7-implementation/d7-pre-implementation.tar.gz`, SHA-256 `6aca8810e894d44cf7e488c7770dd53601c2ecd9f81b9bce484ffbb4ac0eacb2`; disposable byte restore passed and no secrets are included.
+- Boundary: D7 is technically complete and owner-accepted. 주군의 explicit commit direction authorizes this self-recording `[D7]` commit; push, Task 13, live/profile/runtime mutation, tag, and remote-ref movement remain unauthorized.
+
+### D7 owner acceptance and commit direction
+
+- Owner acceptance: 주군 explicitly approved D7 at `2026-08-05T01:20:28+09:00`.
+- Commit direction: 주군 explicitly authorized the D7 commit at `2026-08-05T01:38:42+09:00`; execution consent was reconfirmed at `2026-08-05T02:05:57+09:00`. This authorizes one self-recording `[D7]` commit only.
+- Acceptance rollback: `/Users/draccoon/Workspace/Hermes/update-backups/20260804T162028Z-rk-v0191-d7-owner-acceptance/d7-pre-owner-acceptance.tar.gz`, SHA-256 `b553146737994d12bb3b12489a566b99d9a39fc68dfa48a0c9d5f2f5e9deb29d`; both ledgers and Git-excluded evidence restored byte-for-byte, with no secrets included.
+- Precommit rollback: `/Users/draccoon/Workspace/Hermes/update-backups/20260804T163842Z-rk-v0191-d7-precommit/d7-precommit-files.tar.gz`, SHA-256 `38417cd38cdf84789e2b5aea9650bb3ccb5dd512a99a4537dfd6d4860fd1ccce`; product, permanent test, both ledgers, and Git-excluded evidence restored byte-for-byte, with no secrets included.
+- Next gate: the authorized self-recording commit is created; await separate Task 13 direction. Push, Task 13, live/profile/runtime mutation, tag, and remote-ref movement remain unauthorized.
 
 D1 retirement requires an exact later upstream target where CJK-enabled `hermes sessions recover` preserves canonical counts, reports `complete: true`, passes an equivalent CJK recovery regression, and leaves no Root Kernel-only behavior gap. A nearby CJK change, issue closure, or symbol match alone does not retire it.
 
@@ -425,4 +479,4 @@ D5 read-only re-audit result:
 - evidence: `root-kernel/evidence/v0.19.1-D5-kanban-same-card-review.json`, SHA-256 `f7d341a6ba42306bfb51fa180b26dbbe4be0eda12ac2bb31ddbf5e93a51d97da`;
 - scenario A, recommended: retain current D5-b through D5-f at current chokepoints; current b is the bundled core same-card loop, while current c/d/e/f are watcher/result/mutex/banner; preserve every verified new upstream behavior.
 
-D1–D6 are owner-accepted. D5-a through D5-f and D6 are implemented, verified, and committed through their respective self-recording commits. D7, fleet re-seed, live mutation, tag, push, and remote-ref movement remain unauthorized pending separate direction.
+D1–D7 are owner-accepted. D5-a through D5-f and D6 are implemented, verified, and committed through their respective self-recording commits. D7 option C is implemented and technically verified and is recorded in this authorized self-recording `[D7]` commit. Task 13, fleet re-seed, live mutation, tag, push, and remote-ref movement remain unauthorized pending separate direction.
