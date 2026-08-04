@@ -78,7 +78,8 @@ _HERMES_CORE_TOOLS = [
     # tools/kanban_tools.py.
     "kanban_show", "kanban_list",
     "kanban_complete", "kanban_block", "kanban_heartbeat",
-    "kanban_reassign", "kanban_submit_review", "kanban_request_changes",
+    "kanban_reassign", "kanban_submit_review", "kanban_submit_result",
+    "kanban_request_changes",
     "kanban_comment", "kanban_create", "kanban_link",
     "kanban_unblock",
     "kanban_attach", "kanban_attach_url", "kanban_attachments",

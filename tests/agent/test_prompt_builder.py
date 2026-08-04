@@ -29,6 +29,7 @@ from agent.prompt_builder import (
     OPENAI_MODEL_EXECUTION_GUIDANCE,
     PARALLEL_TOOL_CALL_GUIDANCE,
     GOOGLE_MODEL_OPERATIONAL_GUIDANCE,
+    KANBAN_GUIDANCE,
     MEMORY_GUIDANCE,
     SESSION_SEARCH_GUIDANCE,
     PLATFORM_HINTS,
@@ -43,6 +44,12 @@ from hermes_cli.nous_subscription import NousFeatureState, NousSubscriptionFeatu
 
 
 class TestGuidanceConstants:
+    def test_kanban_guidance_routes_results_to_native_acceptance(self):
+        assert "kanban_submit_result" in KANBAN_GUIDANCE
+        assert "creator or a distinct acceptor" in KANBAN_GUIDANCE
+        assert "kanban_request_changes" in KANBAN_GUIDANCE
+        assert "stop immediately" in KANBAN_GUIDANCE
+
     def test_memory_guidance_discourages_task_logs(self):
         assert "durable facts" in MEMORY_GUIDANCE
         assert "Do NOT save task progress" in MEMORY_GUIDANCE

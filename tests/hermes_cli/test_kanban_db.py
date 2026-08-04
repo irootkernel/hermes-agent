@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import concurrent.futures
+import json
 import os
 import sqlite3
 import subprocess
@@ -2146,3 +2147,782 @@ def test_reclaimed_review_retry_preserves_exact_native_provenance(
             task_id,
             expected_run_id=retried.current_run_id,
         ) == ("final_gate", "creator")
+
+
+def test_submit_task_result_records_exact_result_acceptance_provenance(
+    kanban_home, monkeypatch
+):
+    from hermes_cli import profiles
+
+    monkeypatch.setattr(
+        profiles,
+        "profile_exists",
+        lambda name: name in {"worker", "creator"},
+    )
+    with kb.connect() as conn:
+        task_id = kb.create_task(
+            conn,
+            title="creator accepts result",
+            assignee="worker",
+            created_by="creator",
+        )
+        worker_run = kb.claim_task(conn, task_id)
+        assert worker_run is not None
+
+        assert kb.submit_task_result(
+            conn,
+            task_id,
+            summary="deliverable ready",
+            metadata={"tests_run": 12},
+            expected_run_id=worker_run.current_run_id,
+        ) is True
+
+        queued = kb.get_task(conn, task_id)
+        assert queued is not None
+        assert queued.status == "review"
+        assert queued.assignee == "creator"
+        assert queued.current_run_id is None
+        assert queued.review_submission_event_id is not None
+
+        event = conn.execute(
+            "SELECT id, kind, run_id, payload FROM task_events WHERE id = ?",
+            (queued.review_submission_event_id,),
+        ).fetchone()
+        assert event is not None
+        assert event["kind"] == "submitted_result"
+        assert event["run_id"] == worker_run.current_run_id
+        payload = json.loads(event["payload"])
+        assert payload == {
+            "from_assignee": "worker",
+            "metadata": {"tests_run": 12},
+            "reviewer": "creator",
+            "submission_type": "result",
+            "summary": "deliverable ready",
+        }
+
+        acceptor_run = kb.claim_review_task(conn, task_id)
+        assert acceptor_run is not None
+        assert kb.review_completion_state(
+            conn,
+            task_id,
+            expected_run_id=acceptor_run.current_run_id,
+        ) == ("result_acceptance", None)
+
+
+def test_result_acceptor_request_changes_returns_to_exact_submitter(
+    kanban_home, monkeypatch
+):
+    from hermes_cli import profiles
+
+    monkeypatch.setattr(profiles, "profile_exists", lambda name: True)
+    with kb.connect() as conn:
+        task_id = kb.create_task(
+            conn,
+            title="result needs rework",
+            assignee="worker",
+            created_by="creator",
+        )
+        worker_run = kb.claim_task(conn, task_id)
+        assert worker_run is not None
+        assert kb.submit_task_result(
+            conn,
+            task_id,
+            reviewer="acceptor",
+            summary="first result",
+            expected_run_id=worker_run.current_run_id,
+        ) is True
+        acceptor_run = kb.claim_review_task(conn, task_id)
+        assert acceptor_run is not None
+
+        assert kb.request_changes_task(
+            conn,
+            task_id,
+            assignee="other-worker",
+            reason="must not reroute result provenance",
+            expected_run_id=acceptor_run.current_run_id,
+        ) is False
+        still_reviewing = kb.get_task(conn, task_id)
+        assert still_reviewing is not None
+        assert still_reviewing.status == "running"
+        assert still_reviewing.assignee == "acceptor"
+        assert still_reviewing.current_run_id == acceptor_run.current_run_id
+
+        assert kb.request_changes_task(
+            conn,
+            task_id,
+            reason="add evidence",
+            summary="needs one more check",
+            expected_run_id=acceptor_run.current_run_id,
+        ) is True
+
+        rework = kb.get_task(conn, task_id)
+        assert rework is not None
+        assert rework.status == "ready"
+        assert rework.assignee == "worker"
+        assert rework.current_run_id is None
+        assert rework.review_submission_event_id is None
+        latest = kb.list_events(conn, task_id)[-1]
+        assert latest.kind == "requested_changes"
+        assert latest.run_id == acceptor_run.current_run_id
+
+
+def test_result_acceptance_persists_submitter_scratch_artifacts(
+    kanban_home, monkeypatch
+):
+    from hermes_cli import profiles
+
+    monkeypatch.setattr(profiles, "profile_exists", lambda name: True)
+    with kb.connect() as conn:
+        task_id = kb.create_task(
+            conn,
+            title="accept scratch result",
+            assignee="worker",
+            created_by="creator",
+        )
+        worker_run = kb.claim_task(conn, task_id)
+        assert worker_run is not None
+        task = kb.get_task(conn, task_id)
+        assert task is not None
+        workspace = kb.resolve_workspace(task)
+        kb.set_workspace_path(conn, task_id, workspace)
+        artifact = workspace / "report.txt"
+        artifact.write_text("verified result", encoding="utf-8")
+
+        assert kb.submit_task_result(
+            conn,
+            task_id,
+            summary="report ready",
+            metadata={"artifacts": [str(artifact)]},
+            expected_run_id=worker_run.current_run_id,
+        ) is True
+        acceptor_run = kb.claim_review_task(conn, task_id)
+        assert acceptor_run is not None
+        assert kb.complete_task(
+            conn,
+            task_id,
+            result="accepted",
+            summary="creator accepted",
+            expected_run_id=acceptor_run.current_run_id,
+        ) is True
+
+        done = kb.get_task(conn, task_id)
+        events = kb.list_events(conn, task_id)
+        completed = [event for event in events if event.kind == "completed"][-1]
+        assert completed.payload is not None
+        persisted = Path(completed.payload["artifacts"][0])
+
+    assert done is not None and done.status == "done"
+    assert not any(event.kind == "review_accepted" for event in events)
+    assert not workspace.exists()
+    assert persisted.exists()
+    assert persisted.read_text(encoding="utf-8") == "verified result"
+    assert persisted.parent == kb.task_attachments_dir(task_id)
+
+
+def test_result_acceptance_rejects_anchor_change_before_completion_write(
+    kanban_home, monkeypatch
+):
+    from hermes_cli import profiles
+
+    monkeypatch.setattr(profiles, "profile_exists", lambda _name: True)
+    with kb.connect() as conn:
+        task_id = kb.create_task(
+            conn,
+            title="anchor CAS",
+            assignee="worker",
+            created_by="creator",
+        )
+        worker_run = kb.claim_task(conn, task_id)
+        assert worker_run is not None
+        assert kb.submit_task_result(
+            conn,
+            task_id,
+            expected_run_id=worker_run.current_run_id,
+        ) is True
+        acceptor_run = kb.claim_review_task(conn, task_id)
+        assert acceptor_run is not None
+        before = kb.get_task(conn, task_id)
+        assert before is not None and before.review_submission_event_id is not None
+        raced_anchor = before.review_submission_event_id + 1000
+        original_merge = kb._merge_completion_prose_artifacts
+
+        def race_anchor(inner_conn, inner_task_id, metadata, **kwargs):
+            merged = original_merge(
+                inner_conn,
+                inner_task_id,
+                metadata,
+                **kwargs,
+            )
+            inner_conn.execute(
+                "UPDATE tasks SET review_submission_event_id=? WHERE id=?",
+                (raced_anchor, inner_task_id),
+            )
+            inner_conn.commit()
+            return merged
+
+        monkeypatch.setattr(kb, "_merge_completion_prose_artifacts", race_anchor)
+        assert kb.complete_task(
+            conn,
+            task_id,
+            summary="stale acceptance",
+            expected_run_id=acceptor_run.current_run_id,
+        ) is False
+        unchanged = kb.get_task(conn, task_id)
+
+    assert unchanged is not None
+    assert unchanged.status == "running"
+    assert unchanged.current_run_id == acceptor_run.current_run_id
+    assert unchanged.review_submission_event_id == raced_anchor
+
+
+def test_submit_result_rejects_ready_self_stale_and_review_origin_runs(
+    kanban_home, monkeypatch
+):
+    from hermes_cli import profiles
+
+    monkeypatch.setattr(profiles, "profile_exists", lambda _name: True)
+    with kb.connect() as conn:
+        ready_id = kb.create_task(
+            conn,
+            title="not claimed",
+            assignee="worker",
+            created_by="creator",
+        )
+        assert kb.submit_task_result(
+            conn,
+            ready_id,
+            expected_run_id=1,
+        ) is False
+
+        self_id = kb.create_task(
+            conn,
+            title="self acceptance",
+            assignee="worker",
+            created_by="worker",
+        )
+        self_run = kb.claim_task(conn, self_id)
+        assert self_run is not None
+        assert kb.submit_task_result(
+            conn,
+            self_id,
+            expected_run_id=self_run.current_run_id,
+        ) is False
+
+        stale_id = kb.create_task(
+            conn,
+            title="stale result",
+            assignee="worker",
+            created_by="creator",
+        )
+        stale_run = kb.claim_task(conn, stale_id)
+        assert stale_run is not None and stale_run.current_run_id is not None
+        assert kb.submit_task_result(
+            conn,
+            stale_id,
+            expected_run_id=stale_run.current_run_id + 1,
+        ) is False
+
+        review_id = kb.create_task(
+            conn,
+            title="reviewer cannot overwrite chain",
+            assignee="worker",
+            created_by="creator",
+        )
+        implementation = kb.claim_task(conn, review_id)
+        assert implementation is not None
+        assert kb.submit_task_for_review(
+            conn,
+            review_id,
+            reviewer="reviewer",
+            final_assignee="creator",
+            expected_run_id=implementation.current_run_id,
+        ) is True
+        review_run = kb.claim_review_task(conn, review_id)
+        assert review_run is not None
+        assert kb.submit_task_result(
+            conn,
+            review_id,
+            reviewer="acceptor",
+            expected_run_id=review_run.current_run_id,
+        ) is False
+
+        ready = kb.get_task(conn, ready_id)
+        self_task = kb.get_task(conn, self_id)
+        stale = kb.get_task(conn, stale_id)
+        review = kb.get_task(conn, review_id)
+        events_by_task = {
+            task_id: kb.list_events(conn, task_id)
+            for task_id in (ready_id, self_id, stale_id, review_id)
+        }
+
+    assert ready is not None and ready.status == "ready"
+    assert self_task is not None and self_task.status == "running"
+    assert stale is not None and stale.status == "running"
+    assert stale.current_run_id == stale_run.current_run_id
+    assert review is not None and review.status == "running"
+    assert review.current_run_id == review_run.current_run_id
+    assert not any(
+        event.kind == "submitted_result"
+        for events in events_by_task.values()
+        for event in events
+    )
+
+
+def test_result_acceptance_missing_artifact_keeps_run_and_workspace(
+    kanban_home, monkeypatch
+):
+    from hermes_cli import profiles
+
+    monkeypatch.setattr(profiles, "profile_exists", lambda _name: True)
+    with kb.connect() as conn:
+        task_id = kb.create_task(
+            conn,
+            title="missing result artifact",
+            assignee="worker",
+            created_by="creator",
+        )
+        worker_run = kb.claim_task(conn, task_id)
+        assert worker_run is not None
+        task = kb.get_task(conn, task_id)
+        assert task is not None
+        workspace = kb.resolve_workspace(task)
+        kb.set_workspace_path(conn, task_id, workspace)
+        missing = workspace / "missing.pdf"
+        assert kb.submit_task_result(
+            conn,
+            task_id,
+            metadata={"artifacts": [str(missing)]},
+            expected_run_id=worker_run.current_run_id,
+        ) is True
+        acceptor_run = kb.claim_review_task(conn, task_id)
+        assert acceptor_run is not None
+
+        with pytest.raises(kb.ArtifactPreservationError):
+            kb.complete_task(
+                conn,
+                task_id,
+                summary="accept missing artifact",
+                expected_run_id=acceptor_run.current_run_id,
+            )
+        unchanged = kb.get_task(conn, task_id)
+        events = kb.list_events(conn, task_id)
+
+    assert unchanged is not None and unchanged.status == "running"
+    assert unchanged.current_run_id == acceptor_run.current_run_id
+    assert workspace.exists()
+    assert not any(event.kind == "completed" for event in events)
+
+
+def test_result_acceptance_post_copy_interrupt_rolls_back_and_removes_staged_artifact(
+    kanban_home, monkeypatch
+):
+    from hermes_cli import profiles
+
+    monkeypatch.setattr(profiles, "profile_exists", lambda _name: True)
+    with kb.connect() as conn:
+        task_id = kb.create_task(
+            conn,
+            title="post-copy rollback",
+            assignee="worker",
+            created_by="creator",
+        )
+        worker_run = kb.claim_task(conn, task_id)
+        assert worker_run is not None
+        task = kb.get_task(conn, task_id)
+        assert task is not None
+        workspace = kb.resolve_workspace(task)
+        kb.set_workspace_path(conn, task_id, workspace)
+        artifact = workspace / "post-copy.txt"
+        artifact.write_text("must roll back", encoding="utf-8")
+        assert kb.submit_task_result(
+            conn,
+            task_id,
+            metadata={"artifacts": [str(artifact)]},
+            expected_run_id=worker_run.current_run_id,
+        ) is True
+        acceptor = kb.claim_review_task(conn, task_id)
+        assert acceptor is not None
+
+        def interrupt_attachment_insert(*_args, **_kwargs):
+            raise KeyboardInterrupt("forced attachment insertion interrupt")
+
+        monkeypatch.setattr(
+            kb,
+            "_insert_completion_attachment",
+            interrupt_attachment_insert,
+        )
+        with pytest.raises(KeyboardInterrupt, match="forced attachment insertion interrupt"):
+            kb.complete_task(
+                conn,
+                task_id,
+                summary="must roll back all acceptance effects",
+                expected_run_id=acceptor.current_run_id,
+            )
+        assert conn.in_transaction is False
+        unchanged = kb.get_task(conn, task_id)
+        attachments = kb.list_attachments(conn, task_id)
+        attachment_dir = kb.task_attachments_dir(task_id)
+
+    assert unchanged is not None and unchanged.status == "running"
+    assert unchanged.current_run_id == acceptor.current_run_id
+    assert workspace.exists()
+    assert artifact.exists()
+    assert attachments == []
+    assert not attachment_dir.exists() or not any(attachment_dir.iterdir())
+
+
+def test_result_acceptance_copy_interrupt_removes_partial_destination(
+    kanban_home, monkeypatch
+):
+    from hermes_cli import profiles
+
+    monkeypatch.setattr(profiles, "profile_exists", lambda _name: True)
+    with kb.connect() as conn:
+        task_id = kb.create_task(
+            conn,
+            title="copy interrupt cleanup",
+            assignee="worker",
+            created_by="creator",
+        )
+        worker_run = kb.claim_task(conn, task_id)
+        assert worker_run is not None
+        task = kb.get_task(conn, task_id)
+        assert task is not None
+        workspace = kb.resolve_workspace(task)
+        kb.set_workspace_path(conn, task_id, workspace)
+        artifact = workspace / "copy-interrupt.txt"
+        artifact.write_bytes(b"partial destination must be removed")
+        assert kb.submit_task_result(
+            conn,
+            task_id,
+            metadata={"artifacts": [str(artifact)]},
+            expected_run_id=worker_run.current_run_id,
+        ) is True
+        acceptor = kb.claim_review_task(conn, task_id)
+        assert acceptor is not None
+        attachment_dir = kb.task_attachments_dir(task_id)
+        real_open = Path.open
+
+        class InterruptingDestination:
+            def __init__(self, handle):
+                self.handle = handle
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, traceback):
+                self.handle.close()
+                return False
+
+            def write(self, chunk):
+                self.handle.write(chunk[:1])
+                self.handle.flush()
+                raise KeyboardInterrupt("forced copy interrupt")
+
+        def interrupt_destination_open(path, mode="r", *args, **kwargs):
+            handle = real_open(path, mode, *args, **kwargs)
+            if mode == "xb" and path.parent == attachment_dir:
+                return InterruptingDestination(handle)
+            return handle
+
+        monkeypatch.setattr(Path, "open", interrupt_destination_open)
+        with pytest.raises(KeyboardInterrupt, match="forced copy interrupt"):
+            kb.complete_task(
+                conn,
+                task_id,
+                summary="must clean partial copy",
+                expected_run_id=acceptor.current_run_id,
+            )
+        assert conn.in_transaction is False
+        unchanged = kb.get_task(conn, task_id)
+        attachments = kb.list_attachments(conn, task_id)
+
+    assert unchanged is not None and unchanged.status == "running"
+    assert unchanged.current_run_id == acceptor.current_run_id
+    assert artifact.is_file()
+    assert attachments == []
+    assert not attachment_dir.exists() or not any(attachment_dir.iterdir())
+
+
+def test_result_acceptance_post_commit_validation_keeps_durable_artifact(
+    kanban_home, monkeypatch
+):
+    from hermes_cli import profiles
+
+    monkeypatch.setattr(profiles, "profile_exists", lambda _name: True)
+    with kb.connect() as conn:
+        task_id = kb.create_task(
+            conn,
+            title="post-commit artifact durability",
+            assignee="worker",
+            created_by="creator",
+        )
+        worker_run = kb.claim_task(conn, task_id)
+        assert worker_run is not None
+        task = kb.get_task(conn, task_id)
+        assert task is not None
+        workspace = kb.resolve_workspace(task)
+        kb.set_workspace_path(conn, task_id, workspace)
+        artifact = workspace / "committed.txt"
+        artifact.write_text("must stay durable", encoding="utf-8")
+        assert kb.submit_task_result(
+            conn,
+            task_id,
+            metadata={"artifacts": [str(artifact)]},
+            expected_run_id=worker_run.current_run_id,
+        ) is True
+        acceptor = kb.claim_review_task(conn, task_id)
+        assert acceptor is not None
+
+        def fail_post_commit_check(_conn):
+            raise RuntimeError("forced post-commit validation failure")
+
+        monkeypatch.setattr(kb, "_check_file_length_invariant", fail_post_commit_check)
+        with pytest.raises(RuntimeError, match="forced post-commit validation failure"):
+            kb.complete_task(
+                conn,
+                task_id,
+                summary="commit before validation",
+                expected_run_id=acceptor.current_run_id,
+            )
+        committed = kb.get_task(conn, task_id)
+        attachments = kb.list_attachments(conn, task_id)
+        events = kb.list_events(conn, task_id)
+
+    assert committed is not None and committed.status == "done"
+    assert committed.current_run_id is None
+    assert len(attachments) == 1
+    stored = Path(attachments[0].stored_path)
+    assert stored.is_file()
+    assert stored.read_text(encoding="utf-8") == "must stay durable"
+    assert any(event.kind == "completed" for event in events)
+
+
+def test_result_acceptance_rejects_scratch_symlink_escape(
+    kanban_home, monkeypatch, tmp_path
+):
+    from hermes_cli import profiles
+
+    monkeypatch.setattr(profiles, "profile_exists", lambda _name: True)
+    external = tmp_path / "external-result.txt"
+    external.write_text("outside scratch", encoding="utf-8")
+    with kb.connect() as conn:
+        task_id = kb.create_task(
+            conn,
+            title="symlink escape",
+            assignee="worker",
+            created_by="creator",
+        )
+        worker_run = kb.claim_task(conn, task_id)
+        assert worker_run is not None
+        task = kb.get_task(conn, task_id)
+        assert task is not None
+        workspace = kb.resolve_workspace(task)
+        kb.set_workspace_path(conn, task_id, workspace)
+        artifact = workspace / "escaped.txt"
+        artifact.symlink_to(external)
+        assert kb.submit_task_result(
+            conn,
+            task_id,
+            metadata={"artifacts": [str(artifact)]},
+            expected_run_id=worker_run.current_run_id,
+        ) is True
+        acceptor = kb.claim_review_task(conn, task_id)
+        assert acceptor is not None
+
+        with pytest.raises(kb.ArtifactPreservationError, match="escapes scratch workspace"):
+            kb.complete_task(
+                conn,
+                task_id,
+                summary="must reject escaped artifact",
+                expected_run_id=acceptor.current_run_id,
+            )
+        unchanged = kb.get_task(conn, task_id)
+        events = kb.list_events(conn, task_id)
+
+    assert unchanged is not None and unchanged.status == "running"
+    assert unchanged.current_run_id == acceptor.current_run_id
+    assert workspace.exists()
+    assert artifact.is_symlink()
+    assert external.read_text(encoding="utf-8") == "outside scratch"
+    assert not any(event.kind == "completed" for event in events)
+
+
+def test_submit_result_rejects_invalid_artifact_metadata_without_mutation(
+    kanban_home, monkeypatch
+):
+    from hermes_cli import profiles
+
+    monkeypatch.setattr(profiles, "profile_exists", lambda _name: True)
+    with kb.connect() as conn:
+        task_id = kb.create_task(
+            conn,
+            title="invalid artifact metadata",
+            assignee="worker",
+            created_by="creator",
+        )
+        worker_run = kb.claim_task(conn, task_id)
+        assert worker_run is not None
+        with pytest.raises(ValueError, match="metadata.artifacts"):
+            kb.submit_task_result(
+                conn,
+                task_id,
+                metadata={"artifacts": "report.txt"},
+                expected_run_id=worker_run.current_run_id,
+            )
+        unchanged = kb.get_task(conn, task_id)
+        events = kb.list_events(conn, task_id)
+
+    assert unchanged is not None and unchanged.status == "running"
+    assert unchanged.current_run_id == worker_run.current_run_id
+    assert not any(event.kind == "submitted_result" for event in events)
+
+
+def test_result_provenance_requires_exact_released_submission_run(
+    kanban_home, monkeypatch
+):
+    from hermes_cli import profiles
+
+    monkeypatch.setattr(profiles, "profile_exists", lambda _name: True)
+    with kb.connect() as conn:
+        task_id = kb.create_task(
+            conn,
+            title="tampered result run",
+            assignee="worker",
+            created_by="creator",
+        )
+        worker_run = kb.claim_task(conn, task_id)
+        assert worker_run is not None
+        assert kb.submit_task_result(
+            conn,
+            task_id,
+            expected_run_id=worker_run.current_run_id,
+        ) is True
+        task = kb.get_task(conn, task_id)
+        assert task is not None and task.review_submission_event_id is not None
+        conn.execute(
+            "UPDATE task_events SET run_id=NULL WHERE id=?",
+            (task.review_submission_event_id,),
+        )
+        conn.commit()
+        acceptor = kb.claim_review_task(conn, task_id)
+        assert acceptor is not None
+
+        assert kb.review_completion_state(
+            conn,
+            task_id,
+            expected_run_id=acceptor.current_run_id,
+        ) == ("invalid", None)
+        assert kb.complete_task(
+            conn,
+            task_id,
+            summary="must not accept tampered provenance",
+            expected_run_id=acceptor.current_run_id,
+        ) is False
+        unchanged = kb.get_task(conn, task_id)
+
+    assert unchanged is not None and unchanged.status == "running"
+    assert unchanged.current_run_id == acceptor.current_run_id
+
+
+def test_reclaimed_result_acceptor_preserves_exact_result_provenance(
+    kanban_home, monkeypatch
+):
+    from hermes_cli import profiles
+
+    monkeypatch.setattr(profiles, "profile_exists", lambda _name: True)
+    with kb.connect() as conn:
+        task_id = kb.create_task(
+            conn,
+            title="result acceptor retry",
+            assignee="worker",
+            created_by="creator",
+        )
+        worker_run = kb.claim_task(conn, task_id)
+        assert worker_run is not None
+        assert kb.submit_task_result(
+            conn,
+            task_id,
+            expected_run_id=worker_run.current_run_id,
+        ) is True
+        first_acceptor = kb.claim_review_task(conn, task_id)
+        assert first_acceptor is not None
+        assert kb.reclaim_task(
+            conn,
+            task_id,
+            reason="acceptor worker crashed",
+        ) is True
+        retried = kb.claim_task(conn, task_id)
+        assert retried is not None
+
+        assert kb.review_completion_state(
+            conn,
+            task_id,
+            expected_run_id=retried.current_run_id,
+        ) == ("result_acceptance", None)
+        assert kb.request_changes_task(
+            conn,
+            task_id,
+            reason="retry found missing evidence",
+            expected_run_id=retried.current_run_id,
+        ) is True
+        rework = kb.get_task(conn, task_id)
+
+    assert rework is not None and rework.status == "ready"
+    assert rework.assignee == "worker"
+    assert rework.review_submission_event_id is None
+
+
+def test_reclaimed_result_acceptance_cannot_complete_without_acceptor_run(
+    kanban_home, monkeypatch
+):
+    from hermes_cli import profiles
+
+    monkeypatch.setattr(profiles, "profile_exists", lambda _name: True)
+    with kb.connect() as conn:
+        task_id = kb.create_task(
+            conn,
+            title="reclaimed result must be claimed",
+            assignee="worker",
+            created_by="creator",
+        )
+        worker_run = kb.claim_task(conn, task_id)
+        assert worker_run is not None
+        task = kb.get_task(conn, task_id)
+        assert task is not None
+        workspace = kb.resolve_workspace(task)
+        kb.set_workspace_path(conn, task_id, workspace)
+        artifact = workspace / "pending-result.txt"
+        artifact.write_text("keep pending", encoding="utf-8")
+        assert kb.submit_task_result(
+            conn,
+            task_id,
+            metadata={"artifacts": [str(artifact)]},
+            expected_run_id=worker_run.current_run_id,
+        ) is True
+        submitted = kb.get_task(conn, task_id)
+        assert submitted is not None
+        submission_event_id = submitted.review_submission_event_id
+        assert submission_event_id is not None
+        acceptor = kb.claim_review_task(conn, task_id)
+        assert acceptor is not None
+        assert kb.reclaim_task(
+            conn,
+            task_id,
+            reason="acceptor stopped",
+        ) is True
+
+        assert kb.complete_task(
+            conn,
+            task_id,
+            summary="must not bypass pending acceptance",
+        ) is False
+        pending = kb.get_task(conn, task_id)
+        events = kb.list_events(conn, task_id)
+
+    assert pending is not None and pending.status == "ready"
+    assert pending.current_run_id is None
+    assert pending.review_submission_event_id == submission_event_id
+    assert workspace.exists()
+    assert artifact.read_text(encoding="utf-8") == "keep pending"
+    assert not any(event.kind == "completed" for event in events)

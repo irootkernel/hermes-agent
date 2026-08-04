@@ -68,14 +68,85 @@ def test_no_nudge_after_kanban_complete(clear_kanban_env):
                 }
             ],
         },
-        {"role": "tool", "name": "kanban_complete", "tool_call_id": "1", "content": "done"},
+        {
+            "role": "tool",
+            "name": "kanban_complete",
+            "tool_call_id": "1",
+            "content": '{"ok": true, "status": "done"}',
+        },
     ]
     assert session_called_kanban_terminal(messages) is True
     assert build_kanban_stop_nudge(messages=messages) is None
 
 
+def test_failed_kanban_complete_keeps_stop_nudge(clear_kanban_env):
+    clear_kanban_env.setenv("HERMES_KANBAN_TASK", "t_failed_complete")
+    messages = [
+        {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [
+                {
+                    "id": "failed-1",
+                    "type": "function",
+                    "function": {"name": "kanban_complete", "arguments": "{}"},
+                }
+            ],
+        },
+        {
+            "role": "tool",
+            "name": "kanban_complete",
+            "tool_call_id": "failed-1",
+            "content": '{"error": "active run changed"}',
+        },
+    ]
+
+    assert session_called_kanban_terminal(messages) is False
+    assert build_kanban_stop_nudge(messages=messages) is not None
 
 
+
+
+
+
+def test_successful_submit_result_suppresses_nudge_but_failed_result_does_not(
+    clear_kanban_env,
+):
+    clear_kanban_env.setenv("HERMES_KANBAN_TASK", "t_result")
+    call = {
+        "role": "assistant",
+        "content": "",
+        "tool_calls": [
+            {
+                "id": "result-1",
+                "type": "function",
+                "function": {"name": "kanban_submit_result", "arguments": "{}"},
+            }
+        ],
+    }
+    success = [
+        call,
+        {
+            "role": "tool",
+            "name": "kanban_submit_result",
+            "tool_call_id": "result-1",
+            "content": '{"ok": true, "status": "review"}',
+        },
+    ]
+    failed = [
+        call,
+        {
+            "role": "tool",
+            "name": "kanban_submit_result",
+            "tool_call_id": "result-1",
+            "content": '{"error": "active run changed"}',
+        },
+    ]
+
+    assert session_called_kanban_terminal(success) is True
+    assert build_kanban_stop_nudge(messages=success) is None
+    assert session_called_kanban_terminal(failed) is False
+    assert build_kanban_stop_nudge(messages=failed) is not None
 
 
 # ── Integration: agent nudge + dispatcher bounded retry ──────────────

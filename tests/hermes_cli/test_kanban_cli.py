@@ -156,6 +156,94 @@ def test_run_slash_reclaim_running_task(kanban_home):
 
 
 
+def test_run_slash_submit_result_requires_owned_run_and_emits_json(
+    kanban_home, monkeypatch
+):
+    from hermes_cli import profiles
+
+    monkeypatch.setattr(profiles, "profile_exists", lambda _name: True)
+    with kb.connect() as conn:
+        task_id = kb.create_task(
+            conn,
+            title="CLI result",
+            assignee="worker",
+            created_by="creator",
+        )
+        claimed = kb.claim_task(conn, task_id)
+        assert claimed is not None
+        run_id = claimed.current_run_id
+        assert run_id is not None
+
+    raw = kc.run_slash(
+        f"submit-result {task_id} --run-id {run_id} "
+        "--summary 'verified by CLI' --metadata '{\"tests_run\": 3}' --json"
+    )
+    payload = json.loads(raw)
+
+    assert payload == {
+        "assignee": "creator",
+        "outcome": "submitted_result",
+        "run_id": run_id,
+        "status": "review",
+        "task_id": task_id,
+    }
+    with kb.connect() as conn:
+        task = kb.get_task(conn, task_id)
+        run = kb.get_run(conn, run_id)
+    assert task is not None and task.status == "review"
+    assert run is not None and run.metadata == {"tests_run": 3}
+
+
+def test_submit_result_cli_rejects_nonpositive_run_metadata_and_delegated_child(
+    kanban_home, monkeypatch, capsys
+):
+    parser = argparse.ArgumentParser(prog="hermes", add_help=False)
+    sub = parser.add_subparsers(dest="command")
+    kc.build_parser(sub)
+
+    with pytest.raises(SystemExit) as exc_info:
+        parser.parse_args(
+            ["kanban", "submit-result", "t_fake", "--run-id", "0"]
+        )
+    assert exc_info.value.code == 2
+
+    with kb.connect() as conn:
+        task_id = kb.create_task(
+            conn,
+            title="CLI failure contracts",
+            assignee="worker",
+            created_by="creator",
+        )
+        claimed = kb.claim_task(conn, task_id)
+        assert claimed is not None and claimed.current_run_id is not None
+        run_id = claimed.current_run_id
+
+    bad_metadata = parser.parse_args(
+        [
+            "kanban",
+            "submit-result",
+            task_id,
+            "--run-id",
+            str(run_id),
+            "--metadata",
+            "[]",
+        ]
+    )
+    assert kc.kanban_command(bad_metadata) == 2
+    assert "JSON object" in capsys.readouterr().err
+
+    monkeypatch.setenv("HERMES_DELEGATED_CHILD_CONTEXT", "1")
+    delegated = parser.parse_args(
+        ["kanban", "submit-result", task_id, "--run-id", str(run_id)]
+    )
+    assert kc.kanban_command(delegated) == 1
+    assert "delegate_task child" in capsys.readouterr().err
+    with kb.connect() as conn:
+        unchanged = kb.get_task(conn, task_id)
+    assert unchanged is not None and unchanged.status == "running"
+    assert unchanged.current_run_id == run_id
+
+
 # ---------------------------------------------------------------------------
 # /kanban specify — slash surface (same entry point CLI + gateway use)
 # ---------------------------------------------------------------------------

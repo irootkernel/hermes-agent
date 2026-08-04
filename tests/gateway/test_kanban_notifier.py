@@ -129,6 +129,64 @@ def test_notifier_delivers_requested_changes_and_keeps_review_watch(
         assert len(kb.list_notify_subs(conn, tid)) == 1
 
 
+def test_notifier_delivers_result_acceptance_completion_and_removes_watch(
+    tmp_path, monkeypatch
+):
+    from hermes_cli import profiles
+
+    db_path = tmp_path / "result-accepted.db"
+    monkeypatch.setenv("HERMES_KANBAN_DB", str(db_path))
+    monkeypatch.setattr(profiles, "profile_exists", lambda _name: True)
+    kb.init_db()
+
+    with kb.connect() as conn:
+        tid = kb.create_task(
+            conn,
+            title="result acceptance",
+            assignee="worker",
+            created_by="creator",
+            session_id="origin-session",
+        )
+        impl = kb.claim_task(conn, tid)
+        assert impl is not None
+        assert kb.submit_task_result(
+            conn,
+            tid,
+            summary="candidate delivered",
+            expected_run_id=impl.current_run_id,
+        )
+        task = kb.get_task(conn, tid)
+        assert task is not None and task.review_submission_event_id is not None
+        kb.add_notify_sub(
+            conn,
+            task_id=tid,
+            platform="telegram",
+            chat_id="chat-1",
+            after_event_id=task.review_submission_event_id,
+        )
+        acceptor = kb.claim_review_task(conn, tid)
+        assert acceptor is not None
+        assert kb.complete_task(
+            conn,
+            tid,
+            summary="creator accepted result",
+            expected_run_id=acceptor.current_run_id,
+        )
+
+    adapter = RecordingAdapter()
+    asyncio.run(_run_one_notifier_tick(monkeypatch, _make_runner(adapter)))
+
+    assert len(adapter.sent) == 1
+    text = adapter.sent[0]["text"]
+    assert tid in text
+    assert "done" in text.lower()
+    assert "creator accepted result" in text
+    with kb.connect() as conn:
+        assert kb.list_notify_subs(conn, tid) == []
+        events = kb.list_events(conn, tid)
+    assert not any(event.kind == "review_accepted" for event in events)
+
+
 def test_notifier_delivers_review_accepted_and_keeps_final_gate_watch(
     tmp_path, monkeypatch
 ):

@@ -2769,7 +2769,7 @@ def write_txn(conn: sqlite3.Connection):
     _execute_boundary_with_retry(conn, "BEGIN IMMEDIATE")
     try:
         yield conn
-    except Exception:
+    except BaseException:
         try:
             conn.execute("ROLLBACK")
         except sqlite3.OperationalError:
@@ -2781,7 +2781,7 @@ def write_txn(conn: sqlite3.Connection):
     else:
         try:
             _execute_boundary_with_retry(conn, "COMMIT")
-        except Exception:
+        except BaseException:
             # COMMIT exhausted retries with the txn still open; roll back so the
             # connection isn't poisoned for the next BEGIN IMMEDIATE.
             try:
@@ -4920,6 +4920,130 @@ def submit_task_for_review(
     return True
 
 
+def submit_task_result(
+    conn: sqlite3.Connection,
+    task_id: str,
+    *,
+    reviewer: Optional[str] = None,
+    summary: Optional[str] = None,
+    metadata: Optional[dict[str, Any]] = None,
+    expected_run_id: Optional[int] = None,
+) -> bool:
+    """Release an owned worker run to creator/acceptor result review."""
+    if metadata is not None and not isinstance(metadata, dict):
+        raise ValueError("metadata must be an object/dict")
+    artifacts = metadata.get("artifacts") if metadata is not None else None
+    if artifacts is not None:
+        if not isinstance(artifacts, (list, tuple)):
+            raise ValueError("metadata.artifacts must be a list of file paths")
+        if any(not isinstance(path, str) or not path.strip() for path in artifacts):
+            raise ValueError(
+                "metadata.artifacts must contain only non-empty string paths"
+            )
+    with write_txn(conn):
+        row = conn.execute(
+            """
+            SELECT assignee, status, current_run_id, created_by,
+                   review_submission_event_id
+              FROM tasks
+             WHERE id = ?
+            """,
+            (task_id,),
+        ).fetchone()
+        if (
+            not row
+            or row["status"] != "running"
+            or not row["current_run_id"]
+            or expected_run_id is None
+        ):
+            return False
+
+        source_assignee = _canonical_assignee(row["assignee"])
+        reviewer_name = _canonical_assignee(reviewer) if reviewer else None
+        if not reviewer_name:
+            reviewer_name = _canonical_assignee(row["created_by"])
+        if (
+            not source_assignee
+            or not _is_spawnable_profile_name(reviewer_name)
+            or reviewer_name == source_assignee
+        ):
+            return False
+
+        run_id = int(row["current_run_id"])
+        if run_id != int(expected_run_id):
+            return False
+        run = conn.execute(
+            "SELECT profile, status, ended_at FROM task_runs WHERE id = ? AND task_id = ?",
+            (run_id, task_id),
+        ).fetchone()
+        if (
+            not run
+            or run["status"] != "running"
+            or run["ended_at"] is not None
+            or _canonical_assignee(run["profile"]) != source_assignee
+        ):
+            return False
+        provenance, _ = _current_review_submission(
+            conn,
+            task_id,
+            expected_run_id=run_id,
+        )
+        if provenance != "none" or row["review_submission_event_id"] is not None:
+            return False
+
+        closed_run_id = _end_run(
+            conn,
+            task_id,
+            outcome="submitted_result",
+            status="released",
+            summary=summary,
+            metadata=metadata,
+        )
+        if closed_run_id != run_id:
+            raise RuntimeError("active run changed during result submission")
+
+        payload: dict[str, Any] = {
+            "from_assignee": source_assignee,
+            "reviewer": reviewer_name,
+            "summary": summary,
+            "submission_type": "result",
+        }
+        if metadata is not None:
+            payload["metadata"] = metadata
+        submission_event_id = _append_event(
+            conn,
+            task_id,
+            "submitted_result",
+            payload,
+            run_id=run_id,
+        )
+        cur = conn.execute(
+            """
+            UPDATE tasks
+               SET status = 'review',
+                   assignee = ?,
+                   claim_lock = NULL,
+                   claim_expires = NULL,
+                   worker_pid = NULL,
+                   current_run_id = NULL,
+                   review_submission_event_id = ?,
+                   last_heartbeat_at = NULL,
+                   consecutive_failures = 0,
+                   last_failure_error = NULL,
+                   block_kind = NULL,
+                   block_recurrences = 0
+             WHERE id = ?
+               AND status = 'running'
+               AND current_run_id IS NULL
+               AND review_submission_event_id IS NULL
+            """,
+            (reviewer_name, submission_event_id, task_id),
+        )
+        if cur.rowcount != 1:
+            raise RuntimeError("task changed during result submission")
+    return True
+
+
 def _current_review_submission(
     conn: sqlite3.Connection,
     task_id: str,
@@ -4986,9 +5110,10 @@ def _current_review_submission(
 
     submitted = conn.execute(
         """
-        SELECT payload
+        SELECT kind, payload, run_id
           FROM task_events
-         WHERE task_id = ? AND id = ? AND kind = 'submitted_review'
+         WHERE task_id = ? AND id = ?
+           AND kind IN ('submitted_review', 'submitted_result')
            AND id < ?
         """,
         (task_id, linked_submission_id, int(claimed["id"])),
@@ -5003,6 +5128,34 @@ def _current_review_submission(
         return "invalid", None
     if _canonical_assignee(payload.get("reviewer")) != reviewer:
         return "invalid", None
+    if submitted["kind"] == "submitted_result":
+        if payload.get("submission_type") != "result":
+            return "invalid", None
+        source_assignee = _canonical_assignee(payload.get("from_assignee"))
+        submission_run_id = submitted["run_id"]
+        if (
+            not source_assignee
+            or source_assignee == reviewer
+            or submission_run_id is None
+        ):
+            return "invalid", None
+        submission_run = conn.execute(
+            """
+            SELECT profile, status, outcome, ended_at
+              FROM task_runs
+             WHERE id = ? AND task_id = ?
+            """,
+            (int(submission_run_id), task_id),
+        ).fetchone()
+        if (
+            not submission_run
+            or submission_run["status"] != "released"
+            or submission_run["outcome"] != "submitted_result"
+            or submission_run["ended_at"] is None
+            or _canonical_assignee(submission_run["profile"]) != source_assignee
+        ):
+            return "invalid", None
+        return "result", payload
     return "review", payload
 
 
@@ -5020,6 +5173,8 @@ def review_completion_state(
     )
     if provenance == "invalid":
         return "invalid", None
+    if provenance == "result":
+        return "result_acceptance", None
     if provenance != "review" or payload is None:
         return "none", None
     final_assignee = _canonical_assignee(payload.get("final_assignee"))
@@ -5057,11 +5212,16 @@ def request_changes_task(
             task_id,
             expected_run_id=run_id,
         )
-        if provenance != "review" or submission is None:
+        if provenance not in {"review", "result"} or submission is None:
             return False
+        source_assignee = _canonical_assignee(submission.get("from_assignee"))
         target = _canonical_assignee(assignee) if assignee else None
-        if not target:
-            target = _canonical_assignee(submission.get("from_assignee"))
+        if provenance == "result":
+            if not source_assignee or (target and target != source_assignee):
+                return False
+            target = source_assignee
+        elif not target:
+            target = source_assignee
         if (
             not target
             or target == _canonical_assignee(row["assignee"])
@@ -5138,6 +5298,38 @@ class HallucinatedCardsError(ValueError):
 
 class ArtifactPreservationError(RuntimeError):
     """Raised when a declared scratch deliverable cannot be preserved."""
+
+
+@contextlib.contextmanager
+def _remove_uncommitted_staged_artifacts(conn: sqlite3.Connection):
+    """Remove staged copies only when no durable attachment row references them."""
+    staged: list[str] = []
+    try:
+        yield staged
+    except BaseException:
+        parents: set[Path] = set()
+        for stored_path in staged:
+            try:
+                committed = conn.execute(
+                    "SELECT 1 FROM task_attachments WHERE stored_path = ? LIMIT 1",
+                    (stored_path,),
+                ).fetchone()
+            except sqlite3.Error:
+                committed = True
+            if committed:
+                continue
+            path = Path(stored_path)
+            parents.add(path.parent)
+            try:
+                path.unlink(missing_ok=True)
+            except OSError:
+                pass
+        for parent in sorted(parents, key=lambda path: len(path.parts), reverse=True):
+            try:
+                parent.rmdir()
+            except OSError:
+                pass
+        raise
 
 
 def _route_review_completion_to_final_gate(
@@ -5252,7 +5444,8 @@ def complete_task(
     and never blocks.
     """
     initial_row = conn.execute(
-        "SELECT status, current_run_id FROM tasks WHERE id = ?",
+        "SELECT status, current_run_id, review_submission_event_id "
+        "FROM tasks WHERE id = ?",
         (task_id,),
     ).fetchone()
     if not initial_row:
@@ -5265,12 +5458,19 @@ def complete_task(
         if initial_row["current_run_id"]
         else None
     )
+    initial_submission_event_id = (
+        int(initial_row["review_submission_event_id"])
+        if initial_row["review_submission_event_id"]
+        else None
+    )
     review_state, final_assignee = review_completion_state(
         conn,
         task_id,
         expected_run_id=expected_run_id,
     )
     if review_state == "invalid":
+        return False
+    if initial_submission_event_id is not None and review_state == "none":
         return False
     if review_state == "final_gate" and final_assignee:
         completion_artifacts = (
@@ -5290,6 +5490,35 @@ def complete_task(
             metadata=metadata,
             expected_run_id=expected_run_id,
         )
+    if review_state == "result_acceptance":
+        provenance, submission = _current_review_submission(
+            conn,
+            task_id,
+            expected_run_id=expected_run_id,
+        )
+        if provenance != "result" or not isinstance(submission, dict):
+            return False
+        submitted_metadata = submission.get("metadata")
+        submitted_artifacts = (
+            submitted_metadata.get("artifacts")
+            if isinstance(submitted_metadata, dict)
+            else None
+        )
+        if isinstance(submitted_artifacts, (list, tuple)):
+            merged_metadata = dict(metadata or {})
+            existing_artifacts = merged_metadata.get("artifacts")
+            merged_artifacts = (
+                list(existing_artifacts)
+                if isinstance(existing_artifacts, (list, tuple))
+                else []
+            )
+            seen_artifacts = {str(path) for path in merged_artifacts}
+            for path in submitted_artifacts:
+                if isinstance(path, str) and path.strip() and path not in seen_artifacts:
+                    merged_artifacts.append(path)
+                    seen_artifacts.add(path)
+            merged_metadata["artifacts"] = merged_artifacts
+            metadata = merged_metadata
 
     now = int(time.time())
 
@@ -5323,7 +5552,7 @@ def complete_task(
     metadata = _merge_completion_prose_artifacts(
         conn, task_id, metadata, summary=summary, result=result,
     )
-    with write_txn(conn):
+    with _remove_uncommitted_staged_artifacts(conn) as staged_artifacts, write_txn(conn):
         if expected_run_id is not None and initial_run_id != int(expected_run_id):
             return False
         if initial_run_id is None:
@@ -5342,8 +5571,22 @@ def complete_task(
                  WHERE id = ?
                    AND status = ?
                    AND current_run_id IS NULL
+                   AND (
+                       review_submission_event_id = ?
+                       OR (
+                           review_submission_event_id IS NULL
+                           AND ? IS NULL
+                       )
+                   )
                 """,
-                (result, now, task_id, initial_status),
+                (
+                    result,
+                    now,
+                    task_id,
+                    initial_status,
+                    initial_submission_event_id,
+                    initial_submission_event_id,
+                ),
             )
         else:
             cur = conn.execute(
@@ -5361,13 +5604,29 @@ def complete_task(
                  WHERE id = ?
                    AND status = ?
                    AND current_run_id = ?
+                   AND (
+                       review_submission_event_id = ?
+                       OR (
+                           review_submission_event_id IS NULL
+                           AND ? IS NULL
+                       )
+                   )
                 """,
-                (result, now, task_id, initial_status, initial_run_id),
+                (
+                    result,
+                    now,
+                    task_id,
+                    initial_status,
+                    initial_run_id,
+                    initial_submission_event_id,
+                    initial_submission_event_id,
+                ),
             )
         if cur.rowcount != 1:
             return False
         if isinstance(metadata, dict):
             _persist_scratch_completion_artifacts(conn, task_id, metadata)
+            staged_artifacts.extend(metadata.get("_staged_artifacts", []))
             for stored_path in metadata.pop("_staged_artifacts", []):
                 path = Path(stored_path)
                 _insert_completion_attachment(
@@ -5544,6 +5803,7 @@ def _persist_scratch_completion_artifacts(
 
     try:
         workspace_root = workspace.resolve()
+        workspace_lexical = Path(os.path.abspath(workspace))
     except OSError:
         return
 
@@ -5569,12 +5829,20 @@ def _persist_scratch_completion_artifacts(
             continue
         src = Path(artifact).expanduser()
         try:
+            lexical_src = Path(os.path.abspath(src))
             resolved_src = src.resolve()
         except OSError:
             persisted.append(artifact)
             continue
 
-        if not resolved_src.is_relative_to(workspace_root):
+        lexical_inside = lexical_src.is_relative_to(workspace_lexical)
+        resolved_inside = resolved_src.is_relative_to(workspace_root)
+        if lexical_inside and not resolved_inside:
+            _discard_copies()
+            raise ArtifactPreservationError(
+                f"declared scratch artifact escapes scratch workspace: {artifact}"
+            )
+        if not resolved_inside:
             persisted.append(artifact)
             continue
 
@@ -5605,13 +5873,15 @@ def _persist_scratch_completion_artifacts(
                             f"declared scratch artifact grew beyond the size limit: {artifact}"
                         )
                     destination_file.write(chunk)
-        except Exception as exc:
+        except BaseException as exc:
             if dest is not None:
                 try:
                     dest.unlink(missing_ok=True)
                 except OSError:
                     pass
             _discard_copies()
+            if not isinstance(exc, Exception):
+                raise
             if isinstance(exc, ArtifactPreservationError):
                 raise
             raise ArtifactPreservationError(

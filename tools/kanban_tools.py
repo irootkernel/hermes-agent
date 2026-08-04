@@ -876,6 +876,17 @@ def _submitted_review_event_id(
     return max(matches) if matches else None
 
 
+def _submitted_result_event_id(
+    kb: Any, conn: Any, task_id: str, run_id: int
+) -> Optional[int]:
+    matches = [
+        event.id
+        for event in kb.list_events(conn, task_id)
+        if event.kind == "submitted_result" and event.run_id == run_id
+    ]
+    return max(matches) if matches else None
+
+
 def _maybe_attach_review_watch(
     kb: Any,
     conn: Any,
@@ -888,7 +899,7 @@ def _maybe_attach_review_watch(
     chat_id = ""
     if after_event_id is None:
         logger.warning(
-            "_maybe_attach_review_watch refused missing submitted_review anchor "
+            "_maybe_attach_review_watch refused missing submission anchor "
             "for task %s",
             task_id,
         )
@@ -1058,6 +1069,112 @@ def _handle_submit_review(args: dict, **kw) -> str:
     except Exception as e:
         logger.exception("kanban_submit_review failed")
         return tool_error(f"kanban_submit_review: {e}")
+
+
+def _handle_submit_result(args: dict[str, Any], **kw) -> str:
+    """Release the owned implementation run for creator/acceptor review."""
+    tid, run_id, guard = _transition_worker_context(args, "kanban_submit_result")
+    if guard:
+        return guard
+    if tid is None or run_id is None:
+        return tool_error("kanban_submit_result could not verify worker ownership")
+    if args.get("board") is not None:
+        return tool_error(
+            "kanban_submit_result uses the dispatcher's pinned board; "
+            "per-tool board override is not allowed"
+        )
+
+    summary = args.get("summary")
+    if summary:
+        summary = redact_sensitive_text(str(summary), force=True)
+    metadata, metadata_err = _transition_metadata(args.get("metadata"))
+    if metadata_err:
+        return tool_error(metadata_err)
+    artifacts = args.get("artifacts")
+    if artifacts is not None:
+        if isinstance(artifacts, str):
+            artifacts = [artifacts]
+        if not isinstance(artifacts, (list, tuple)):
+            return tool_error(
+                f"artifacts must be a list of file paths, got "
+                f"{type(artifacts).__name__}"
+            )
+        normalized: list[str] = []
+        seen: set[str] = set()
+        for artifact in artifacts:
+            path = str(artifact).strip()
+            if path and path not in seen:
+                seen.add(path)
+                normalized.append(path)
+        if normalized:
+            metadata = dict(metadata or {})
+            existing = metadata.get("artifacts")
+            combined = list(existing) if isinstance(existing, (list, tuple)) else []
+            combined_seen = {str(item) for item in combined}
+            for path in normalized:
+                if path not in combined_seen:
+                    combined.append(path)
+                    combined_seen.add(path)
+            metadata["artifacts"] = combined
+    metadata, metadata_err = _transition_metadata(metadata)
+    if metadata_err:
+        return tool_error(metadata_err)
+    metadata = _stamp_worker_session_metadata(tid, metadata)
+
+    try:
+        kb, conn = _connect()
+        try:
+            ok = kb.submit_task_result(
+                conn,
+                tid,
+                reviewer=args.get("reviewer"),
+                summary=summary,
+                metadata=metadata,
+                expected_run_id=run_id,
+            )
+            if not ok:
+                return tool_error(
+                    f"could not submit result for {tid}; verify the distinct "
+                    "spawnable acceptor and exact active implementation run"
+                )
+            task = kb.get_task(conn, tid)
+            run = kb.get_run(conn, run_id)
+            review_watch = {"attached": False}
+            try:
+                subs = kb.list_notify_subs(conn, tid)
+                if subs:
+                    review_watch = _review_watch_receipt(subs)
+                else:
+                    review_watch = _maybe_attach_review_watch(
+                        kb,
+                        conn,
+                        tid,
+                        after_event_id=_submitted_result_event_id(
+                            kb, conn, tid, run_id
+                        ),
+                    )
+            except Exception as exc:
+                logger.warning(
+                    "kanban_submit_result watch setup failed for task %s: %r",
+                    tid,
+                    exc,
+                )
+            return _ok(
+                task_id=tid,
+                run_id=run_id,
+                status=task.status if task else None,
+                assignee=task.assignee if task else None,
+                outcome=run.outcome if run else None,
+                transition="submitted_result",
+                review_watch=review_watch,
+            )
+        finally:
+            conn.close()
+    except ValueError as e:
+        return tool_error(f"kanban_submit_result: {e}")
+    except Exception as e:
+        logger.exception("kanban_submit_result failed")
+        return tool_error(f"kanban_submit_result: {e}")
 
 
 def _handle_request_changes(args: dict, **kw) -> str:
@@ -2066,6 +2183,32 @@ KANBAN_SUBMIT_REVIEW_SCHEMA = {
     },
 }
 
+KANBAN_SUBMIT_RESULT_SCHEMA = {
+    "name": "kanban_submit_result",
+    "description": (
+        "Submit your current implementation result to the task creator or a "
+        "distinct acceptor on the same card. Include a concise verification "
+        "summary and declare scratch deliverables in artifacts. The acceptor "
+        "may complete the task or request changes. Stop after success."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "task_id": {"type": "string", "description": _DESC_TASK_ID_DEFAULT},
+            "reviewer": {"type": "string", "description": "Distinct spawnable acceptor; defaults to task creator."},
+            "summary": {"type": "string", "description": "Implementation and verification evidence."},
+            "metadata": {"type": "object", "description": "Structured tests and changed-file facts."},
+            "artifacts": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Scratch deliverable paths to preserve if accepted.",
+            },
+        },
+        "required": [],
+    },
+}
+
+
 KANBAN_REQUEST_CHANGES_SCHEMA = {
     "name": "kanban_request_changes",
     "description": (
@@ -2549,6 +2692,15 @@ registry.register(
     handler=_handle_submit_review,
     check_fn=_check_kanban_worker_mode,
     emoji="🔎",
+)
+
+registry.register(
+    name="kanban_submit_result",
+    toolset="kanban",
+    schema=KANBAN_SUBMIT_RESULT_SCHEMA,
+    handler=_handle_submit_result,
+    check_fn=_check_kanban_worker_mode,
+    emoji="📤",
 )
 
 registry.register(

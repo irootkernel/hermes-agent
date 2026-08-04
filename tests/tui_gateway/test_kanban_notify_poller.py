@@ -110,6 +110,56 @@ class TestCollectKanbanNotifications:
         assert "tighten tests" in texts[0]
         assert len(_sub_rows(tid)) == 1
 
+    def test_delivers_result_acceptance_completion_and_unsubscribes(
+        self, monkeypatch
+    ):
+        from hermes_cli import profiles
+
+        monkeypatch.setattr(profiles, "profile_exists", lambda _name: True)
+        conn = kb.connect()
+        try:
+            tid = kb.create_task(
+                conn,
+                title="TUI result acceptance",
+                assignee="worker",
+                created_by="creator",
+            )
+            impl = kb.claim_task(conn, tid)
+            assert impl is not None
+            assert kb.submit_task_result(
+                conn,
+                tid,
+                summary="result ready",
+                expected_run_id=impl.current_run_id,
+            )
+            task = kb.get_task(conn, tid)
+            assert task is not None and task.review_submission_event_id is not None
+            kb.add_notify_sub(
+                conn,
+                task_id=tid,
+                platform="tui",
+                chat_id=SESSION_KEY,
+                after_event_id=task.review_submission_event_id,
+            )
+            acceptor = kb.claim_review_task(conn, tid)
+            assert acceptor is not None
+            assert kb.complete_task(
+                conn,
+                tid,
+                summary="creator accepted result",
+                expected_run_id=acceptor.current_run_id,
+            )
+        finally:
+            conn.close()
+
+        texts = _collect_kanban_notifications(_session())
+
+        assert len(texts) == 1
+        assert tid in texts[0]
+        assert "done" in texts[0].lower()
+        assert "creator accepted result" in texts[0]
+        assert _sub_rows(tid) == []
+
     def test_delivers_review_accepted_and_keeps_subscription(self, monkeypatch):
         from hermes_cli import profiles
 

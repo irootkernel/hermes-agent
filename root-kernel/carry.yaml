@@ -2,7 +2,7 @@ schema_version: 1
 ledger_kind: root-kernel-release-carry
 release:
   version: v0.19.1
-  status: d5-c-implemented-verified-review-passed-committed
+  status: d5-d-implemented-verified-independent-review-passed-committed
   tag_blocker: true
   scaffolded_at: '2026-08-02T17:24:26+09:00'
   candidate_branch: rk/v0.19.1
@@ -607,7 +607,7 @@ active_carries:
       version: v0.18.2
       entry_id: D2
       status: local_minimize_applied
-    status: d5-c-implemented-verified-review-passed-committed
+    status: d5-d-implemented-verified-independent-review-passed-committed
     owner_direction: committed-awaiting-owner-acceptance
     d5_b_investigation_started_at: '2026-08-03T16:39:16+09:00'
     d5_b_investigation_completed_at: '2026-08-03T17:07:28+09:00'
@@ -616,6 +616,10 @@ active_carries:
     d5_c_implementation_verified_at: '2026-08-04T00:15:44+09:00'
     d5_c_independent_review_passed_at: '2026-08-04T00:19:20+09:00'
     d5_c_commit_authorized_at: '2026-08-04T03:51:47+09:00'
+    d5_d_implementation_started_at: '2026-08-04T10:53:20+09:00'
+    d5_d_implementation_verified_at: '2026-08-04T12:45:23+09:00'
+    d5_d_independent_review_passed_at: '2026-08-04T12:45:23+09:00'
+    d5_d_commit_authorized_at: '2026-08-04T12:53:37+09:00'
     audit_started_at: '2026-08-03T13:55:06+09:00'
     audit_completed_at: '2026-08-03T13:59:37+09:00'
     requirement: Preserve only still-missing same-card review, result, mutex, watcher, and closed workflow semantics.
@@ -657,8 +661,12 @@ active_carries:
       - Same-task review cursor anchoring, same-destination conflict safety, and ordinary duplicate cursor preservation.
       - Gateway and TUI requested_changes/review_accepted delivery, wake, and nonfinal subscription retention.
       - Best-effort watcher setup that cannot reverse or misreport a successful D5-b review transition.
+    resolved_in_d5_d:
+      - Worker-only exact-run result submission to a distinct creator/acceptor using the existing durable submission anchor.
+      - Exact submitted_result event/run/submitter provenance with rework only to that submitter and ordinary completed acceptance.
+      - Final-acceptance artifact preservation with rollback, ambiguous-COMMIT, symlink, and BaseException interrupt safety.
+      - Existing D5-c watcher cursor reuse and success-only terminal/run-release stop-guard behavior.
     local_gaps:
-      - Creator/acceptor result submission is absent.
       - mutex_key serialization is absent.
       - Closed workflow_type banners are absent.
     red_evidence:
@@ -669,6 +677,9 @@ active_carries:
       - 'D5-c focused implementation suite: 89 passed, 1 skipped.'
       - 'D5-c canonical file-isolated broad gate: 49 files, 298 passed, 1 skipped, 0 failed files.'
       - 'D5-c i18n catalog parity: 36 passed.'
+      - 'D5-d focused implementation suite: 213 passed, 1 skipped.'
+      - 'D5-d canonical file-isolated Kanban broad gate: 42 files, 269 passed, 0 failed files.'
+      - 'D5-d static, Bandit delta, added-line security, integrated smoke, and 16-target rollback gates passed.'
       - 'Static gates: py_compile, Ruff, and git diff --check passed.'
     integrated_smoke: passed-disposable-db-no-live-runtime
     evidence:
@@ -728,7 +739,7 @@ active_carries:
         - Default dispatcher workers still strip all HERMES_SESSION routing metadata.
         - HERMES_SESSION_ID is never promoted to a delivery destination.
         - Existing profile-aware multi-board routing, cursor claim/rewind, and non-push wake-before-advance behavior remain intact.
-        - Subscriptions remain until done or archived; D5-d result acceptance is absent and separately gated.
+        - Subscriptions remain until done or archived; at D5-c closeout, D5-d result acceptance remained absent and separately gated.
       verification:
         focused: '89 passed, 1 skipped'
         broad_file_isolated: '49 files; 298 passed, 1 skipped, 0 failed files'
@@ -750,15 +761,55 @@ active_carries:
         reviewer: Hermes-delegated-read-only-follow-up
       implementation_authorized: true
       commit_authorized: true
+    d5_d_analysis:
+      evidence:
+        path: root-kernel/evidence/v0.19.1-D5-d-result-submission.json
+        sha256: aef2b114fd01215e023db82900f7bbed88fc4c99a214d48bc00382df674e239e
+        publication_authorized: false
+      implementation_status: implemented-verified-independent-review-passed-committed
+      implementation_design: retain-minimal-v0191-aware-result-submission-with-exact-run-event-provenance
+      schema_change: none
+      preserved_boundaries:
+        - Worker submit-result requires the exact active owned run and is denied to delegated children and orchestrators.
+        - The acceptor defaults to the distinct spawnable creator; no worker board override is exposed.
+        - Result rework returns only to the exact submitter; acceptance emits completed and never review_accepted.
+        - Goal-mode acceptance keeps the completion judge and rechecks exact active acceptance provenance.
+        - Artifacts remain in scratch until final acceptance and preserve DB/filesystem consistency across rollback, ambiguous COMMIT, symlink, and BaseException paths.
+        - D5-c watcher foundations are reused without gateway or TUI product changes.
+      verification:
+        focused: '8 files; 213 passed, 1 skipped, 0 failed'
+        broad_file_isolated: '42 files; 269 passed, 0 failed files'
+        targeted_review_regressions: passed
+        integrated_smoke: passed-disposable-worker-submit-creator-accept-artifact
+        static: pycompile-ruff-diff-check-bandit-delta-added-line-security-passed
+      rollback:
+        primary_archive_sha256: 2974e8fde1d3813861df15ba040935e5eebddabb94f733d430b6542b0674814e
+        prompt_test_supplement_sha256: a6477156e696e3f447ba94c0222efb9ebd44e489b73bfbfcc7d7f67d32b4d1ee
+        disposable_restore: 16-targets-byte-identical-to-head
+      expected_product_files:
+        - agent/kanban_stop.py
+        - agent/prompt_builder.py
+        - hermes_cli/kanban.py
+        - hermes_cli/kanban_db.py
+        - tools/kanban_tools.py
+        - toolsets.py
+      independent_review:
+        first_passes: changes-required-8-blockers-all-red-reproduced-and-remediated
+        final_follow_up: passed-zero-blocking-findings
+        final_reviewer: Hermes-delegated-read-only-partial-copy-follow-up
+        timeout_runs_excluded_from_verdict: true
+      implementation_authorized: true
+      commit_authorized: true
+      d5_e_started: false
     direction_scenario:
       A: Retain current D5-b through D5-f while preserving all verified new upstream behavior. Current D5-b bundles legacy D2-b through D2-e; current D5-c/d/e/f map to legacy D2-f/g/h/i. Recommended.
     independent_review:
       status: passed
       security_concerns: 0
       logic_errors: 0
-      reviewer: Claude Code read-only audit follow-up
+      reviewer: Hermes-delegated-read-only-final-follow-up
     live_mutation: false
-    next_action: Await owner acceptance of committed D5-c; do not start D5-d.
+    next_action: Await owner acceptance of committed D5-d; do not start D5-e.
   D6:
     current_id: D6
     renumbered_from_provisional_id: D4
@@ -899,10 +950,10 @@ ledger_parity:
     - live-mutation state
     - rollback authority
     - next action
-  status: d2-owner-accepted-d3-pending-start-authorization
+  status: d5-d-implemented-verified-independent-review-passed-committed
 next_action:
-  task: D3 credential pinning re-audit start authorization
-  description: Present D3 scope and wait for explicit start authorization. Do not inspect credentials, write RED, implement code, or begin D4.
+  task: D5-d owner acceptance
+  description: Present the committed D5-d result and wait for explicit owner acceptance. Do not push or start D5-e.
   d1_classification_approved: true
   task5_source_fix_authorized: true
   task5_source_fix_verified: true
@@ -913,11 +964,11 @@ next_action:
   task6_status: owner-accepted
   task6_owner_acceptance: accepted
   task6_accepted_at: '2026-08-03T00:41:48+09:00'
-  next_d_item: D3
-  next_d_item_owner_direction: pending
-  d_item_implementation_authorized: false
-  authorized_d_item: null
-  commit_header: null
+  next_d_item: D5-d
+  next_d_item_owner_direction: committed-awaiting-owner-acceptance
+  d_item_implementation_authorized: true
+  authorized_d_item: D5-d
+  commit_header: D5
   d2_technical_status: implemented-verified-owner-accepted
   d2_owner_acceptance: accepted
   d2_accepted_at: '2026-08-03T01:14:44+09:00'

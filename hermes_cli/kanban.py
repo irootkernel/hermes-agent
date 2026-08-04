@@ -94,6 +94,16 @@ def _run_state_kwargs(args: argparse.Namespace) -> Optional[dict[str, str]]:
     return {"state_type": st, "state_name": sn}
 
 
+def _positive_int(value: str) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError) as exc:
+        raise argparse.ArgumentTypeError("must be a positive integer") from exc
+    if parsed <= 0:
+        raise argparse.ArgumentTypeError("must be a positive integer")
+    return parsed
+
+
 def _parse_workspace_flag(value: str) -> tuple[str, Optional[str]]:
     """Parse ``--workspace`` into ``(kind, path|None)``.
 
@@ -621,6 +631,17 @@ def build_parser(parent_subparsers: argparse._SubParsersAction) -> argparse.Argu
     p_submit_review.add_argument("--summary", default=None)
     p_submit_review.add_argument("--metadata", default=None, help="JSON object")
 
+    p_submit_result = sub.add_parser(
+        "submit-result",
+        help="Submit an owned implementation run to creator/acceptor review",
+    )
+    p_submit_result.add_argument("task_id")
+    p_submit_result.add_argument("--run-id", type=_positive_int, required=True)
+    p_submit_result.add_argument("--reviewer", default=None)
+    p_submit_result.add_argument("--summary", default=None)
+    p_submit_result.add_argument("--metadata", default=None, help="JSON object")
+    p_submit_result.add_argument("--json", action="store_true")
+
     p_request_changes = sub.add_parser(
         "request-changes", help="Return an owned native review run to same-card rework"
     )
@@ -1094,6 +1115,7 @@ def kanban_command(args: argparse.Namespace) -> int:
             "complete": _cmd_complete,
             "handoff": _cmd_handoff,
             "submit-review": _cmd_submit_review,
+            "submit-result": _cmd_submit_result,
             "request-changes": _cmd_request_changes,
             "edit":     _cmd_edit,
             "block":    _cmd_block,
@@ -1160,6 +1182,7 @@ _DELEGATED_CHILD_DENIED_ACTIONS: frozenset[str] = frozenset({
     "attach",
     "attach-rm",
     "complete",
+    "submit-result",
     "edit",
     "block",
     "schedule",
@@ -2216,6 +2239,43 @@ def _cmd_submit_review(args: argparse.Namespace) -> int:
         print(f"cannot submit {args.task_id} for review", file=sys.stderr)
         return 1
     print(f"Submitted {args.task_id} for review")
+    return 0
+
+
+def _cmd_submit_result(args: argparse.Namespace) -> int:
+    try:
+        metadata = _transition_metadata(args)
+    except (ValueError, json.JSONDecodeError) as exc:
+        print(f"kanban: --metadata: {exc}", file=sys.stderr)
+        return 2
+    with kb.connect_closing() as conn:
+        ok = kb.submit_task_result(
+            conn,
+            args.task_id,
+            reviewer=args.reviewer,
+            summary=args.summary,
+            metadata=metadata,
+            expected_run_id=args.run_id,
+        )
+        if not ok:
+            print(f"cannot submit result for {args.task_id}", file=sys.stderr)
+            return 1
+        task = kb.get_task(conn, args.task_id)
+        run = kb.get_run(conn, args.run_id)
+    payload = {
+        "task_id": args.task_id,
+        "run_id": args.run_id,
+        "status": task.status if task else None,
+        "assignee": task.assignee if task else None,
+        "outcome": run.outcome if run else None,
+    }
+    if args.json:
+        print(json.dumps(payload, sort_keys=True))
+    else:
+        print(
+            f"Submitted result for {args.task_id} to "
+            f"{payload['assignee']}"
+        )
     return 0
 
 

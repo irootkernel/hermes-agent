@@ -1366,6 +1366,116 @@ def test_submit_review_watch_rejects_ambiguous_partial_gateway_source(
         assert kb.list_notify_subs(conn, worker_env) == []
 
 
+def test_submit_result_routes_to_creator_and_attaches_exact_watch(
+    worker_env, monkeypatch
+):
+    from hermes_cli import kanban_db as kb
+    from hermes_cli import profiles
+    from tools import kanban_tools as kt
+
+    monkeypatch.setattr(profiles, "profile_exists", lambda _name: True)
+    for key in (
+        "HERMES_SESSION_THREAD_ID",
+        "HERMES_SESSION_USER_ID",
+        "HERMES_SESSION_CHAT_TYPE",
+        "HERMES_SESSION_MESSAGE_ID",
+    ):
+        monkeypatch.delenv(key, raising=False)
+    monkeypatch.setenv("HERMES_SESSION_PLATFORM", "discord")
+    monkeypatch.setenv("HERMES_SESSION_CHAT_ID", "channel-result-17")
+    with kb.connect() as conn:
+        conn.execute(
+            "UPDATE tasks SET created_by='creator' WHERE id=?",
+            (worker_env,),
+        )
+        conn.commit()
+
+    submitted = json.loads(
+        kt._handle_submit_result(
+            {
+                "summary": "implementation and tests complete",
+                "metadata": {"tests_run": 9},
+                "artifacts": ["report.txt"],
+            }
+        )
+    )
+
+    assert submitted["ok"] is True
+    assert submitted["task_id"] == worker_env
+    assert submitted["status"] == "review"
+    assert submitted["assignee"] == "creator"
+    assert submitted["outcome"] == "submitted_result"
+    assert submitted["transition"] == "submitted_result"
+    assert submitted["review_watch"] == {
+        "attached": True,
+        "platform": "discord",
+        "chat_id": "channel-result-17",
+        "profile": "test-worker",
+    }
+    with kb.connect() as conn:
+        task = kb.get_task(conn, worker_env)
+        events = kb.list_events(conn, worker_env)
+        result_event = [event for event in events if event.kind == "submitted_result"][-1]
+        subs = kb.list_notify_subs(conn, worker_env)
+        run = kb.latest_run(conn, worker_env)
+
+    assert task is not None
+    assert task.review_submission_event_id == result_event.id
+    assert result_event.payload is not None
+    assert result_event.payload["metadata"] == {
+        "artifacts": ["report.txt"],
+        "tests_run": 9,
+    }
+    assert len(subs) == 1
+    assert subs[0]["last_event_id"] == result_event.id
+    assert run is not None and run.id == submitted["run_id"]
+
+
+def test_result_acceptance_goal_mode_still_runs_completion_judge(
+    worker_env, monkeypatch
+):
+    from hermes_cli import kanban_db as kb
+    from hermes_cli import profiles
+    from tools import kanban_tools as kt
+
+    monkeypatch.setattr(profiles, "profile_exists", lambda _name: True)
+    with kb.connect() as conn:
+        conn.execute(
+            "UPDATE tasks SET created_by='creator', goal_mode=1 WHERE id=?",
+            (worker_env,),
+        )
+        conn.commit()
+    submitted = json.loads(
+        kt._handle_submit_result({"summary": "candidate result"})
+    )
+    assert submitted["ok"] is True
+
+    with kb.connect() as conn:
+        acceptor = kb.claim_review_task(conn, worker_env)
+        assert acceptor is not None
+    monkeypatch.setenv("HERMES_PROFILE", "creator")
+    monkeypatch.setenv("HERMES_KANBAN_RUN_ID", str(acceptor.current_run_id))
+    judge_calls = []
+    monkeypatch.setattr(kt, "_goal_judge_available", lambda: True)
+    monkeypatch.setattr(
+        kt,
+        "judge_goal",
+        lambda *args, **kwargs: judge_calls.append((args, kwargs))
+        or ("continue", "acceptance evidence is incomplete", False, None, False),
+    )
+
+    rejected = json.loads(
+        kt._handle_complete({"summary": "accept without enough evidence"})
+    )
+    assert "Goal completion rejected by judge" in rejected["error"]
+    assert len(judge_calls) == 1
+    with kb.connect() as conn:
+        unchanged = kb.get_task(conn, worker_env)
+    assert unchanged is not None
+    assert unchanged.status == "running"
+    assert unchanged.current_run_id == acceptor.current_run_id
+
+
 def test_worker_tools_run_same_card_review_loop_and_bypass_judge_only_for_review(
     worker_env, monkeypatch
 ):
@@ -1454,7 +1564,12 @@ def test_transition_tools_are_worker_only(worker_env, monkeypatch):
     from tools.registry import invalidate_check_fn_cache, registry
     from toolsets import resolve_toolset
 
-    names = {"kanban_reassign", "kanban_submit_review", "kanban_request_changes"}
+    names = {
+        "kanban_reassign",
+        "kanban_submit_review",
+        "kanban_submit_result",
+        "kanban_request_changes",
+    }
     invalidate_check_fn_cache()
     worker_defs = registry.get_definitions(
         set(resolve_toolset("hermes-cli")), quiet=True
@@ -1463,6 +1578,12 @@ def test_transition_tools_are_worker_only(worker_env, monkeypatch):
         item["function"]["name"] for item in worker_defs if "function" in item
     }
     assert names <= visible_to_worker
+    submit_result_def = next(
+        item["function"]
+        for item in worker_defs
+        if item.get("function", {}).get("name") == "kanban_submit_result"
+    )
+    assert "board" not in submit_result_def["parameters"]["properties"]
 
     monkeypatch.delenv("HERMES_KANBAN_TASK", raising=False)
     monkeypatch.delenv("HERMES_KANBAN_RUN_ID", raising=False)
@@ -1488,7 +1609,22 @@ def test_transition_tools_reject_delegated_child_and_foreign_task(
     with delegated_child_context():
         delegated = json.loads(kt._handle_reassign({"assignee": "peer"}))
         assert "delegate_task child" in delegated["error"]
+        delegated_result = json.loads(kt._handle_submit_result({"summary": "x"}))
+        assert "delegate_task child" in delegated_result["error"]
         assert kt._check_kanban_worker_mode() is False
+
+    board_override = json.loads(
+        kt._handle_submit_result({"summary": "x", "board": "other-board"})
+    )
+    assert "pinned board" in board_override["error"]
+
+    monkeypatch.delenv("HERMES_KANBAN_RUN_ID")
+    missing_run = json.loads(kt._handle_submit_result({"summary": "x"}))
+    assert "HERMES_KANBAN_RUN_ID" in missing_run["error"]
+    with kb.connect() as conn:
+        current = kb.get_task(conn, worker_env)
+        assert current is not None and current.current_run_id is not None
+    monkeypatch.setenv("HERMES_KANBAN_RUN_ID", str(current.current_run_id))
 
     with kb.connect() as conn:
         foreign_id = kb.create_task(conn, title="foreign", assignee="other")
@@ -1496,6 +1632,10 @@ def test_transition_tools_reject_delegated_child_and_foreign_task(
         kt._handle_reassign({"task_id": foreign_id, "assignee": "peer"})
     )
     assert f"scoped to task {worker_env}" in foreign["error"]
+    foreign_result = json.loads(
+        kt._handle_submit_result({"task_id": foreign_id, "summary": "x"})
+    )
+    assert f"scoped to task {worker_env}" in foreign_result["error"]
 
     with kb.connect() as conn:
         own = kb.get_task(conn, worker_env)

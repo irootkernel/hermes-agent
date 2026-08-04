@@ -134,7 +134,7 @@ These values are the completed planning baseline. Fleet values must be refreshed
 
 ## v0.19.1 active D items
 
-Inherited carry lineages remain `pending-re-audit` until their own gate starts. D1–D4 are owner-accepted. D5-a through D5-c are committed; D5-d through D5-f and D6–D7 remain blocked. A familiar v0.18.2 patch is not authority to replay it.
+Inherited carry lineages remain `pending-re-audit` until their own gate starts. D1–D4 are owner-accepted. D5-a through D5-d are committed; D5-e through D5-f and D6–D7 remain blocked. A familiar v0.18.2 patch is not authority to replay it.
 
 | Current ID | Work item | Previous release | Current status | Next action |
 |---|---|---|---|---|
@@ -142,7 +142,7 @@ Inherited carry lineages remain `pending-re-audit` until their own gate starts. 
 | D2 | Fail-closed skill write approval import boundary | New v0.19.1 defect discovered in Task 6 | `implemented-verified-owner-accepted` | Keep active until an exact upstream fail-closed replacement is behaviorally verified. |
 | D3 | OpenAI Codex credential pinning and labelled reauth | `v0.18.2/D8` | `implemented-verified-owner-accepted` | Keep active until an exact upstream replacement satisfies the retirement rule. |
 | D4 | Discord thread ownership and role-mention fail-close | `v0.18.2/D4` | `implemented-verified-owner-accepted` | Closed; preserve until an exact upstream replacement is verified. |
-| D5 | Kanban same-card review and workflow seams | `v0.18.2/D2` | `d5-c-implemented-verified-review-passed-committed` | Await owner acceptance; do not start D5-d. |
+| D5 | Kanban same-card review and workflow seams | `v0.18.2/D2` | `d5-d-implemented-verified-independent-review-passed-committed` | Await owner acceptance of committed D5-d; do not start D5-e. |
 | D6 | CLI return-code passthrough | `v0.18.2/D6` | `pending-re-audit` | Trace the v0.19.1 process boundary and reproduce exact integer/bool behavior. |
 | D7 | Doctor optional tool warning filter | `v0.18.2/D7` | `pending-re-audit` | Probe enabled versus disabled/default-off tool diagnostics without hiding new doctor checks. |
 
@@ -170,7 +170,19 @@ Inherited carry lineages remain `pending-re-audit` until their own gate starts. 
 - Rollback: pre-implementation archive SHA-256 `adf3e52e24768f270fc0a5f662a967466ff4c55b79d479db2f9fbbc31dded049`; disposable restore was clean and passed 89 baseline tests. Pre-D5-c code reopened a disposable D5-c-written DB, observed the anchored review outcome, then created and claimed another task successfully.
 - Independent review: first pass found two concrete races; both were reproduced and remediated. The read-only follow-up returned `PASS` with zero blockers and reran the two remediation tests successfully.
 - Evidence: `root-kernel/evidence/v0.19.1-D5-c-review-outcome-watcher.json`, SHA-256 `13e330a75729527ac14118670407a36de2902015fff1382e68f06c2afe5aa110` (local, Git-excluded evidence; publication is not authorized).
-- Boundary: no production board, dispatcher, gateway runtime, profile, registry, alias, token, skill, cron, or live ref was mutated. D5-c is committed in this self-recording commit; D5-d is separately approval-gated and has not started.
+- Boundary: no production board, dispatcher, gateway runtime, profile, registry, alias, token, skill, cron, or live ref was mutated. D5-c is committed in this self-recording commit; at D5-c closeout, D5-d remained separately approval-gated and had not started.
+
+### D5-d implementation result
+
+- Added native worker-only `kanban_submit_result` and `hermes kanban submit-result` surfaces. Submission requires the worker's exact active run, defaults the distinct spawnable acceptor to the creator, uses the existing exact `review_submission_event_id`, and adds no schema.
+- Result provenance now binds the `submitted_result` event to the exact released implementation run and submitter. Request-changes can return only to that submitter; creator/acceptor approval emits ordinary `completed`, never `review_accepted`, and goal-mode acceptance still runs the completion judge.
+- Declared scratch artifacts remain in-flight through submission and are copied only during successful final acceptance. Missing files, oversized files, symlink escapes, copy failures, transaction rollback, ambiguous COMMIT outcomes, post-COMMIT validation failures, and `BaseException` interrupts preserve a fail-closed DB/filesystem relationship without deleting durable references or leaving partial copies.
+- Reused D5-c's durable watcher and exact `submitted_result` cursor foundation without gateway or TUI product changes. Terminal and run-release tools suppress the worker stop nudge only after an actual `ok: true` result; failed calls continue the bounded retry nudge.
+- Verification: focused 8-file suite `213 passed, 1 skipped`; canonical file-isolated Kanban broad gate across 42 files `269 passed`, with zero failed files. `py_compile`, Ruff, `git diff --check`, added-line security scan, and Bandit delta comparison passed; Bandit matched HEAD at 54 findings with zero high severity and no added distribution.
+- Rollback: pre-implementation archive SHA-256 `2974e8fde1d3813861df15ba040935e5eebddabb94f733d430b6542b0674814e`; prompt-test supplement SHA-256 `a6477156e696e3f447ba94c0222efb9ebd44e489b73bfbfcc7d7f67d32b4d1ee`; disposable restore matched all 16 targets byte-for-byte against HEAD.
+- Independent review reproduced eight blockers across provenance, rework routing, acceptance reclaim, artifact durability, interrupt cleanup, and stop-guard success detection. Every finding was RED-tested and remediated; the final focused read-only follow-up returned `PASS` with zero blockers.
+- Evidence: `root-kernel/evidence/v0.19.1-D5-d-result-submission.json`, SHA-256 `aef2b114fd01215e023db82900f7bbed88fc4c99a214d48bc00382df674e239e` (local, Git-excluded evidence; publication is not authorized).
+- Boundary: no production board, dispatcher, gateway runtime, profile, registry, alias, token, skill, cron, or live ref was mutated. D5-d is committed in this self-recording commit; D5-e remains separately approval-gated and has not started.
 
 D1 retirement requires an exact later upstream target where CJK-enabled `hermes sessions recover` preserves canonical counts, reports `complete: true`, passes an equivalent CJK recovery regression, and leaves no Root Kernel-only behavior gap. A nearby CJK change, issue closure, or symbol match alone does not retire it.
 
