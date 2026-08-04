@@ -79,6 +79,7 @@ def _task_to_dict(t: kb.Task) -> dict[str, Any]:
         "model_override": t.model_override,
         "provider_override": t.provider_override,
         "session_id": t.session_id,
+        "mutex_key": t.mutex_key,
         "workflow_template_id": t.workflow_template_id,
         "current_step_key": t.current_step_key,
     }
@@ -359,6 +360,10 @@ def build_parser(parent_subparsers: argparse._SubParsersAction) -> argparse.Argu
     p_create.add_argument("--idempotency-key", default=None,
                           help="Dedup key. If a non-archived task with this key exists, "
                                "its id is returned instead of creating a duplicate.")
+    p_create.add_argument("--mutex-key", default=None,
+                          help="Serialize this task with other running tasks that use "
+                               "the same explicit board-local key. Trimmed only; "
+                               "schemes and case are preserved.")
     p_create.add_argument("--max-runtime", default=None,
                           help="Per-task runtime cap. Accepts seconds (300) or "
                                "durations (90s, 30m, 2h, 1d). When exceeded, "
@@ -1567,6 +1572,7 @@ def _cmd_create(args: argparse.Namespace) -> int:
             parents=tuple(args.parent or ()),
             triage=bool(getattr(args, "triage", False)),
             idempotency_key=getattr(args, "idempotency_key", None),
+            mutex_key=getattr(args, "mutex_key", None),
             max_runtime_seconds=max_runtime,
             skills=getattr(args, "skills", None) or None,
             max_retries=max_retries,
@@ -2677,6 +2683,10 @@ def _cmd_dispatch(args: argparse.Namespace) -> int:
                 {"task_id": tid, "assignee": who, "current": current}
                 for (tid, who, current) in res.skipped_per_profile_capped
             ],
+            "skipped_mutex_locked": [
+                {"task_id": tid, "mutex_key": key}
+                for (tid, key) in res.skipped_mutex_locked
+            ],
             "auto_assigned_default": res.auto_assigned_default,
         }, indent=2))
         return 0
@@ -2710,6 +2720,8 @@ def _cmd_dispatch(args: argparse.Namespace) -> int:
             print(
                 f"Deferred ({who} at per-profile cap, {current} running): {tid}"
             )
+    for tid, key in res.skipped_mutex_locked:
+        print(f"Deferred (mutex locked {key}): {tid}")
     if res.skipped_nonspawnable:
         print(
             f"Skipped (non-spawnable assignee — terminal lane, OK): "

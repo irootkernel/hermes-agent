@@ -57,6 +57,50 @@ def test_kanban_list_json_includes_session_id(kanban_home):
     )
 
 
+def test_run_slash_create_and_dispatch_json_expose_mutex_key(kanban_home, monkeypatch):
+    from hermes_cli import profiles
+
+    monkeypatch.setattr(profiles, "profile_exists", lambda _name: True)
+    first = json.loads(
+        kc.run_slash(
+            "create 'first mutex task' --assignee worker-a "
+            "--mutex-key ' repo:rk ' --json"
+        )
+    )
+    second = json.loads(
+        kc.run_slash(
+            "create 'second mutex task' --assignee worker-b "
+            "--mutex-key repo:rk --json"
+        )
+    )
+    assert first["mutex_key"] == "repo:rk"
+    assert second["mutex_key"] == "repo:rk"
+
+    dispatched = json.loads(kc.run_slash("dispatch --dry-run --max 10 --json"))
+    assert [row["task_id"] for row in dispatched["spawned"]] == [first["id"]]
+    assert dispatched["skipped_mutex_locked"] == [
+        {"task_id": second["id"], "mutex_key": "repo:rk"}
+    ]
+
+    human = kc.run_slash("dispatch --dry-run")
+    assert f"Deferred (mutex locked repo:rk): {second['id']}" in human
+
+
+def test_run_slash_create_json_has_no_mutex_length_cap(kanban_home):
+    long_key = "Repo://" + ("x" * 120_002)
+    created = json.loads(
+        kc.run_slash(
+            f"create 'long mutex task' --assignee worker "
+            f"--mutex-key {long_key} --json"
+        )
+    )
+    assert len(created["mutex_key"]) == 120_009
+    assert created["mutex_key"] == long_key
+    with kb.connect() as conn:
+        stored = kb.get_task(conn, created["id"])
+        assert stored is not None and stored.mutex_key == long_key
+
+
 def test_board_override_is_isolated_per_concurrent_call(kanban_home, monkeypatch):
     kb.create_board("alpha")
     kb.create_board("beta")

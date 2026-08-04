@@ -2,7 +2,7 @@ schema_version: 1
 ledger_kind: root-kernel-release-carry
 release:
   version: v0.19.1
-  status: d5-d-implemented-verified-independent-review-passed-committed
+  status: d5-e-implemented-verified-independent-review-passed-committed-owner-accepted
   tag_blocker: true
   scaffolded_at: '2026-08-02T17:24:26+09:00'
   candidate_branch: rk/v0.19.1
@@ -607,8 +607,8 @@ active_carries:
       version: v0.18.2
       entry_id: D2
       status: local_minimize_applied
-    status: d5-d-implemented-verified-independent-review-passed-committed
-    owner_direction: committed-awaiting-owner-acceptance
+    status: d5-e-implemented-verified-independent-review-passed-committed-owner-accepted
+    owner_direction: owner-accepted-awaiting-d5-f-investigation-authorization
     d5_b_investigation_started_at: '2026-08-03T16:39:16+09:00'
     d5_b_investigation_completed_at: '2026-08-03T17:07:28+09:00'
     d5_b_implementation_verified_at: '2026-08-03T18:38:22+09:00'
@@ -620,6 +620,14 @@ active_carries:
     d5_d_implementation_verified_at: '2026-08-04T12:45:23+09:00'
     d5_d_independent_review_passed_at: '2026-08-04T12:45:23+09:00'
     d5_d_commit_authorized_at: '2026-08-04T12:53:37+09:00'
+    d5_d_owner_accepted_at: '2026-08-04T13:08:11+09:00'
+    d5_e_investigation_started_at: '2026-08-04T13:08:11+09:00'
+    d5_e_investigation_completed_at: '2026-08-04T13:30:11+09:00'
+    d5_e_implementation_started_at: '2026-08-04T13:55:24+09:00'
+    d5_e_implementation_verified_at: '2026-08-04T15:19:43+09:00'
+    d5_e_independent_review_passed_at: '2026-08-04T15:19:43+09:00'
+    d5_e_commit_authorized_at: '2026-08-04T15:27:26+09:00'
+    d5_e_owner_accepted_at: '2026-08-04T15:27:26+09:00'
     audit_started_at: '2026-08-03T13:55:06+09:00'
     audit_completed_at: '2026-08-03T13:59:37+09:00'
     requirement: Preserve only still-missing same-card review, result, mutex, watcher, and closed workflow semantics.
@@ -666,8 +674,13 @@ active_carries:
       - Exact submitted_result event/run/submitter provenance with rework only to that submitter and ordinary completed acceptance.
       - Final-acceptance artifact preservation with rollback, ambiguous-COMMIT, symlink, and BaseException interrupt safety.
       - Existing D5-c watcher cursor reuse and success-only terminal/run-release stop-guard behavior.
+    resolved_in_d5_e:
+      - Explicit board-local mutex_key with trim-only normalization, blank-to-null, and preserved case/scheme.
+      - Atomic ready/review direct-claim serialization inside BEGIN IMMEDIATE with structured mutex_locked provenance.
+      - Partial-index-backed canonical exact owner lookup with dirty carried-row fallback and no stored-value rewrite.
+      - Same-tick ready/review dry/live dispatcher serialization, health suppression, and CLI/tool diagnostics.
+      - Running-only ownership release across completion, result/review, block, failure, reclaim, timeout, and crash exits.
     local_gaps:
-      - mutex_key serialization is absent.
       - Closed workflow_type banners are absent.
     red_evidence:
       - 'Disposable D5 gap probe: 7 failed, 1 native-foundation test passed.'
@@ -680,6 +693,10 @@ active_carries:
       - 'D5-d focused implementation suite: 213 passed, 1 skipped.'
       - 'D5-d canonical file-isolated Kanban broad gate: 42 files, 269 passed, 0 failed files.'
       - 'D5-d static, Bandit delta, added-line security, integrated smoke, and 16-target rollback gates passed.'
+      - 'D5-e focused implementation suite: 30 passed, 101 deselected.'
+      - 'D5-e product-adjacent three-file suite: 131 passed.'
+      - 'D5-e canonical file-isolated Kanban broad gate: 49 files, 349 passed, 1 skipped, 0 failed files.'
+      - 'D5-e independent review: two blocking logic findings RED-reproduced and remediated; final read-only follow-up passed with zero blockers.'
       - 'Static gates: py_compile, Ruff, and git diff --check passed.'
     integrated_smoke: passed-disposable-db-no-live-runtime
     evidence:
@@ -800,16 +817,113 @@ active_carries:
         timeout_runs_excluded_from_verdict: true
       implementation_authorized: true
       commit_authorized: true
-      d5_e_started: false
+      owner_accepted: true
+      owner_accepted_at: '2026-08-04T13:08:11+09:00'
+      d5_e_started: true
+    d5_e_analysis:
+      investigation_status: implementation-complete-verified-independent-review-passed-committed-owner-accepted
+      implementation_status: implemented-verified-independent-review-passed-committed-owner-accepted
+      historical_lineage: v0.18.2/D2-h
+      evidence:
+        path: root-kernel/evidence/v0.19.1-D5-e-mutex-key-investigation.json
+        sha256: 06a066ae2a2edd299563823b5162000a9ef01b58bff992c3a4b4d5dd83b3efa3
+        publication_authorized: false
+      historical_contract:
+        commit: 0361594452e9329bfe7d32be1e0a853cd4c810a2
+        tests: '12 passed in 1.27s'
+        concurrent_race: '20/20 exactly one claim, one running task, and one structured rejection event'
+        direct_replay: rejected-git-apply-check-failed-on-all-product-test-ledger-hunks
+      current_gap_probe: '9 failed: model, API, schema, direct ready/review claim, dry-run, health, CLI, and tool contracts'
+      native_foundation_verification: '55 passed across dispatch lock, write_txn retry, per-profile cap, tool, project, and worktree isolation suites'
+      implementation_design: retain-minimal-v0191-aware-write-txn-guard-with-nonunique-lookup-index
+      verification:
+        focused: '30 passed, 101 deselected'
+        product_adjacent_three_files: '131 passed'
+        broad_file_isolated: '49 files; 349 passed, 1 skipped, 0 failed files'
+        static: pycompile-ruff-diff-check-passed
+        bandit_delta: 'current 52, HEAD 52, high 0, new findings 0'
+        added_line_security: zero-findings
+        direct_ready_race: '50/50 exactly one claim, one running owner, one mutex_locked rejection'
+        review_race: passed
+        ready_review_cross_lane_dry_live: passed
+        partial_index_query_plan: idx_tasks_mutex_status-used
+        mixed_dirty_exact_owner_parity: canonical-exact-first-no-db-rewrite
+        long_cli_json_round_trip: '120009 characters passed'
+        lifecycle_release: complete-result-block-failure-manual-stale-timeout-crash-passed
+      option_verdicts:
+        application_guard: recommended-race-safe-api-compatible-additive
+        partial_unique_index: rejected-integrityerror-and-rollback-contract-change
+        separate_lock_table: rejected-duplicate-ownership-and-reclaim-state
+        dispatcher_only: rejected-direct-claim-gap
+      preserved_boundaries:
+        - Existing BEGIN IMMEDIATE write_txn remains the authoritative race boundary.
+        - Board-scoped dispatch lock, WAL fallback/checkpoint, per-profile cap, default routing, respawn guard, and circuit breaker remain intact.
+        - D5-b review, D5-c watcher, D5-d result, project/worktree isolation, and delegated-child denial remain intact.
+        - mutex_key is board-local, explicit, trim-only, case-preserving, and serializes running work without promising fairness or review-wait reservation.
+        - Normal exact owner lookup uses the non-unique index; a defensive normalized running-row fallback blocks whitespace-bearing carried/manual keys without rewriting the DB.
+        - Pre-existing duplicate same-key running rows are treated as legacy/manual corruption; D5-e blocks new claims but does not silently repair ownership.
+        - D5-f prompt and closed workflow context banners remain untouched and separately gated.
+      expected_product_files:
+        - hermes_cli/kanban_db.py
+        - hermes_cli/kanban.py
+        - tools/kanban_tools.py
+      expected_test_files:
+        - tests/hermes_cli/test_kanban_db.py
+        - tests/hermes_cli/test_kanban_cli.py
+        - tests/tools/test_kanban_tools.py
+      rollback:
+        investigation_backup_dir: /Users/draccoon/Workspace/Hermes/update-backups/20260804T040811Z-rk-v0191-d5e-investigation
+        investigation_archive_sha256: b6dce8a8a8c25b67a9bc78c0d5c3aa926edd107cd0d1b51813ddc43a8cc5f4d1
+        implementation_backup_dir: /Users/draccoon/Workspace/Hermes/update-backups/20260804T045524Z-rk-v0191-d5e-implementation
+        implementation_archive_sha256: 0390df209bdb445da4c484990d225e0e50c0bf07746c303e6ec76f566eb52b2d
+        secrets_included: false
+        archive_hash_verified: true
+        disposable_restore_suite: '102 passed'
+        forward_backward_db_compatibility: current-D5-e-db-pre-D5-e-open-create-claim-current-reopen-key-preservation-passed
+        precommit_backup_dir: /Users/draccoon/Workspace/Hermes/update-backups/20260804T062738Z-rk-v0191-d5e-precommit
+        precommit_archive_sha256: 7b44121e80aba8aa10b9427b4f14863493e9ce5a777237964f7000275a41ee0a
+        precommit_restore_byte_parity: passed
+        acceptance_correction_backup_dir: /Users/draccoon/Workspace/Hermes/update-backups/20260804T063404Z-rk-v0191-d5e-acceptance-correction
+        acceptance_correction_archive_sha256: 5f83cc1a08dd4d64532ec4134a972fad5a8d3ca7044dddac582b68590d4ec51c
+        acceptance_correction_restore_byte_parity: passed
+        pre_amend_commit_recoverable_from_reflog: 5f5f1e23097ec0d89e81889fdd583405197e7617
+        live_restore_performed: false
+      kscq:
+        query: mutex key serialization kanban concurrency
+        result: no-indexed-learning-note
+      supplementary_read_only_analyses:
+        historical_contract_review: completed-converged-and-added-test-boundaries
+        current_path_review: timeout-excluded-from-investigation-verdict
+        architecture_review: timeout-excluded-from-investigation-verdict
+      independent_implementation_review:
+        background_batch: changes-required-two-logic-blockers-and-missing-edge-regressions
+        blocker_red_confirmation: '2 failed, 1 passed'
+        remediated_findings:
+          - exact query now implies partial-index predicate and permanent EXPLAIN test proves idx_tasks_mutex_status use
+          - direct and snapshot owner selection now share canonical-exact-first then normalized-dirty fallback without DB rewrite
+          - permanent review-race, cross-lane dry/live, migration, long-key, lifecycle-release, and human-diagnostic regressions added
+        edge_green: '12 passed'
+        final_follow_up: passed-zero-security-zero-logic-zero-missing-tests
+        final_reviewer: Codex-CLI-read-only-blocker-follow-up
+        reviewer_modified_files: false
+      implementation_authorized: true
+      commit_authorized: true
+      commit_authorized_at: '2026-08-04T15:27:26+09:00'
+      commit_state: self-recording-commit
+      owner_accepted: true
+      owner_accepted_at: '2026-08-04T15:27:26+09:00'
+      acceptance_basis: explicit-commit-direction-counts-as-owner-acceptance
+      d5_f_started: false
     direction_scenario:
       A: Retain current D5-b through D5-f while preserving all verified new upstream behavior. Current D5-b bundles legacy D2-b through D2-e; current D5-c/d/e/f map to legacy D2-f/g/h/i. Recommended.
     independent_review:
-      status: passed
+      status: passed-after-findings-remediated
       security_concerns: 0
       logic_errors: 0
-      reviewer: Hermes-delegated-read-only-final-follow-up
+      missing_tests: 0
+      reviewer: Codex-CLI-read-only-blocker-follow-up
     live_mutation: false
-    next_action: Await owner acceptance of committed D5-d; do not start D5-e.
+    next_action: Await explicit D5-f investigation authorization; do not start implementation, push, or adjacent gates.
   D6:
     current_id: D6
     renumbered_from_provisional_id: D4
@@ -950,10 +1064,10 @@ ledger_parity:
     - live-mutation state
     - rollback authority
     - next action
-  status: d5-d-implemented-verified-independent-review-passed-committed
+  status: d5-e-implemented-verified-independent-review-passed-committed-owner-accepted
 next_action:
-  task: D5-d owner acceptance
-  description: Present the committed D5-d result and wait for explicit owner acceptance. Do not push or start D5-e.
+  task: D5-f investigation authorization
+  description: D5-e is committed and owner-accepted by the explicit commit direction. Await separate authorization to investigate D5-f; do not implement, push, or start adjacent gates.
   d1_classification_approved: true
   task5_source_fix_authorized: true
   task5_source_fix_verified: true
@@ -964,11 +1078,11 @@ next_action:
   task6_status: owner-accepted
   task6_owner_acceptance: accepted
   task6_accepted_at: '2026-08-03T00:41:48+09:00'
-  next_d_item: D5-d
-  next_d_item_owner_direction: committed-awaiting-owner-acceptance
-  d_item_implementation_authorized: true
-  authorized_d_item: D5-d
-  commit_header: D5
+  next_d_item: D5-f
+  next_d_item_owner_direction: investigation-authorization-pending
+  d_item_implementation_authorized: false
+  authorized_d_item: null
+  commit_header: null
   d2_technical_status: implemented-verified-owner-accepted
   d2_owner_acceptance: accepted
   d2_accepted_at: '2026-08-03T01:14:44+09:00'

@@ -8,6 +8,7 @@ import os
 import sqlite3
 import subprocess
 import sys
+import threading
 import time
 import types
 import unittest.mock
@@ -86,10 +87,11 @@ def test_connect_migrates_legacy_db_before_optional_column_indexes(tmp_path):
     migration adds those columns, or boards predating the column fail to
     open before migration can run.
 
-    Covers all four indexes that sit on additive columns:
+    Covers all five indexes that sit on additive columns:
     - ``tasks.session_id``       -> ``idx_tasks_session_id``    (#28447)
     - ``tasks.tenant``           -> ``idx_tasks_tenant``        (#16081)
     - ``tasks.idempotency_key``  -> ``idx_tasks_idempotency``   (#17805)
+    - ``tasks.mutex_key``        -> ``idx_tasks_mutex_status``  (D5-e)
     - ``task_events.run_id``     -> ``idx_events_run``          (#17805)
     """
     db_path = tmp_path / "legacy-kanban.db"
@@ -151,11 +153,13 @@ def test_connect_migrates_legacy_db_before_optional_column_indexes(tmp_path):
     assert "session_id" in task_columns
     assert "tenant" in task_columns
     assert "idempotency_key" in task_columns
+    assert "mutex_key" in task_columns
     assert "run_id" in event_columns
     # And their indexes — the regression scope of this test:
     assert "idx_tasks_session_id" in indexes
     assert "idx_tasks_tenant" in indexes
     assert "idx_tasks_idempotency" in indexes
+    assert "idx_tasks_mutex_status" in indexes
     assert "idx_events_run" in indexes
 
 
@@ -1078,6 +1082,7 @@ def test_migrate_add_optional_columns_tolerates_concurrent_migration(kanban_home
         CREATE TABLE tasks (
             id INTEGER PRIMARY KEY,
             title TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'ready',
             tenant TEXT,
             result TEXT,
             idempotency_key TEXT,
@@ -1092,7 +1097,8 @@ def test_migrate_add_optional_columns_tolerates_concurrent_migration(kanban_home
             current_step_key TEXT,
             skills TEXT,
             max_retries INTEGER,
-            session_id TEXT
+            session_id TEXT,
+            mutex_key TEXT
         )
         """
     )
@@ -2926,3 +2932,510 @@ def test_reclaimed_result_acceptance_cannot_complete_without_acceptor_run(
     assert workspace.exists()
     assert artifact.read_text(encoding="utf-8") == "keep pending"
     assert not any(event.kind == "completed" for event in events)
+
+
+# ---------------------------------------------------------------------------
+# D5-e mutex-key serialization
+# ---------------------------------------------------------------------------
+
+
+def test_create_task_persists_normalized_mutex_key_and_created_event(kanban_home):
+    with kb.connect() as conn:
+        task_id = kb.create_task(
+            conn,
+            title="serialized write",
+            assignee="worker",
+            mutex_key="  Repo:Shared  ",
+        )
+        task = kb.get_task(conn, task_id)
+        assert task is not None
+        assert task.mutex_key == "Repo:Shared"
+        created = next(e for e in kb.list_events(conn, task_id) if e.kind == "created")
+        assert created.payload["mutex_key"] == "Repo:Shared"
+
+
+def test_create_task_blank_mutex_key_becomes_none(kanban_home):
+    with kb.connect() as conn:
+        task_id = kb.create_task(conn, title="no lock", mutex_key="  \t ")
+        task = kb.get_task(conn, task_id)
+        assert task is not None
+        assert task.mutex_key is None
+
+
+def test_direct_claim_mutex_guard_is_atomic_across_two_connections(kanban_home):
+    with kb.connect() as conn:
+        first = kb.create_task(
+            conn, title="first", assignee="worker-a", mutex_key="repo:rk"
+        )
+        second = kb.create_task(
+            conn, title="second", assignee="worker-b", mutex_key="repo:rk"
+        )
+
+    barrier = threading.Barrier(2)
+
+    def claim(task_id: str, claimer: str):
+        with kb.connect() as conn:
+            barrier.wait(timeout=5)
+            return kb.claim_task(conn, task_id, claimer=claimer)
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+        claimed = list(
+            pool.map(
+                lambda item: claim(*item),
+                [(first, "worker:a"), (second, "worker:b")],
+            )
+        )
+
+    assert sum(task is not None for task in claimed) == 1
+    with kb.connect() as conn:
+        running = conn.execute(
+            "SELECT id FROM tasks WHERE status = 'running' AND mutex_key = 'repo:rk'"
+        ).fetchall()
+        assert len(running) == 1
+        rejected_id = second if running[0]["id"] == first else first
+        rejected = [
+            e for e in kb.list_events(conn, rejected_id) if e.kind == "claim_rejected"
+        ]
+        assert len(rejected) == 1
+        assert rejected[0].payload == {
+            "reason": "mutex_locked",
+            "mutex_key": "repo:rk",
+            "running_task_id": running[0]["id"],
+        }
+
+
+def test_direct_review_claim_mutex_guard_keeps_review_state(kanban_home):
+    with kb.connect() as conn:
+        owner = kb.create_task(
+            conn, title="owner", assignee="worker", mutex_key="repo:rk"
+        )
+        review = kb.create_task(
+            conn, title="review", assignee="reviewer", mutex_key="repo:rk"
+        )
+        assert kb.claim_task(conn, owner) is not None
+        conn.execute("UPDATE tasks SET status = 'review' WHERE id = ?", (review,))
+        conn.commit()
+
+        assert kb.claim_review_task(conn, review) is None
+        assert kb.get_task(conn, review).status == "review"
+        rejected = [
+            e for e in kb.list_events(conn, review) if e.kind == "claim_rejected"
+        ]
+        assert rejected[-1].payload["running_task_id"] == owner
+
+
+def test_review_claim_mutex_guard_is_atomic_across_two_connections(kanban_home):
+    with kb.connect() as conn:
+        first = kb.create_task(conn, title="review one", mutex_key="repo:rk")
+        second = kb.create_task(conn, title="review two", mutex_key="repo:rk")
+        conn.execute(
+            "UPDATE tasks SET status = 'review' WHERE id IN (?, ?)",
+            (first, second),
+        )
+        conn.commit()
+
+    barrier = threading.Barrier(2)
+
+    def claim(task_id: str, claimer: str):
+        with kb.connect() as conn:
+            barrier.wait(timeout=5)
+            return kb.claim_review_task(conn, task_id, claimer=claimer)
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+        claimed = list(
+            pool.map(
+                lambda item: claim(*item),
+                [(first, "reviewer:a"), (second, "reviewer:b")],
+            )
+        )
+
+    assert sum(task is not None for task in claimed) == 1
+    with kb.connect() as conn:
+        running = conn.execute(
+            "SELECT id FROM tasks WHERE status = 'running' AND mutex_key = 'repo:rk'"
+        ).fetchall()
+        assert len(running) == 1
+        rejected_id = second if running[0]["id"] == first else first
+        rejected = [
+            e for e in kb.list_events(conn, rejected_id)
+            if e.kind == "claim_rejected"
+            and e.payload.get("reason") == "mutex_locked"
+        ]
+        assert len(rejected) == 1
+
+
+def test_direct_claim_normalizes_dirty_carried_running_key(kanban_home):
+    with kb.connect() as conn:
+        owner = kb.create_task(
+            conn, title="owner", assignee="worker", mutex_key="repo:rk"
+        )
+        waiter = kb.create_task(
+            conn, title="waiter", assignee="worker", mutex_key="repo:rk"
+        )
+        assert kb.claim_task(conn, owner) is not None
+        conn.execute(
+            "UPDATE tasks SET mutex_key = '  repo:rk  ' WHERE id = ?", (owner,)
+        )
+        conn.commit()
+
+        assert kb.claim_task(conn, waiter) is None
+        stored = conn.execute(
+            "SELECT mutex_key FROM tasks WHERE id = ?", (owner,)
+        ).fetchone()
+        assert stored is not None and stored["mutex_key"] == "  repo:rk  "
+        rejected = [
+            e for e in kb.list_events(conn, waiter) if e.kind == "claim_rejected"
+        ]
+        assert rejected[-1].payload["running_task_id"] == owner
+
+
+def test_duplicate_running_mutex_owners_block_new_claim_without_repair(kanban_home):
+    with kb.connect() as conn:
+        first = kb.create_task(conn, title="oldest", mutex_key="repo:rk")
+        second = kb.create_task(conn, title="newer", mutex_key="repo:rk")
+        waiter = kb.create_task(conn, title="waiter", mutex_key="repo:rk")
+        conn.execute(
+            "UPDATE tasks SET status = 'running', started_at = 10 WHERE id = ?",
+            (first,),
+        )
+        conn.execute(
+            "UPDATE tasks SET status = 'running', started_at = 20 WHERE id = ?",
+            (second,),
+        )
+        conn.commit()
+
+        assert kb.claim_task(conn, waiter) is None
+        owners = conn.execute(
+            "SELECT id FROM tasks WHERE status = 'running' "
+            "AND mutex_key = 'repo:rk' ORDER BY started_at"
+        ).fetchall()
+        assert [row["id"] for row in owners] == [first, second]
+        rejected = [
+            e for e in kb.list_events(conn, waiter) if e.kind == "claim_rejected"
+        ]
+        assert rejected[-1].payload["running_task_id"] == first
+
+
+def test_mutex_exact_owner_query_uses_partial_lookup_index(kanban_home):
+    with kb.connect() as conn:
+        owner = kb.create_task(conn, title="owner", mutex_key="repo:rk")
+        conn.execute(
+            "UPDATE tasks SET status = 'running', started_at = 10 WHERE id = ?",
+            (owner,),
+        )
+        conn.commit()
+        statements: list[str] = []
+        conn.set_trace_callback(statements.append)
+        assert kb._running_mutex_owner(
+            conn, "repo:rk", exclude_task_id="candidate"
+        ) == owner
+        conn.set_trace_callback(None)
+        exact_sql = next(
+            statement
+            for statement in statements
+            if statement.startswith("SELECT id FROM tasks WHERE status = 'running'")
+        )
+        plan = conn.execute("EXPLAIN QUERY PLAN " + exact_sql).fetchall()
+        assert any("idx_tasks_mutex_status" in row["detail"] for row in plan)
+
+
+def test_mixed_dirty_and_exact_mutex_owners_use_one_deterministic_owner(kanban_home):
+    with kb.connect() as conn:
+        dirty = kb.create_task(conn, title="dirty older", mutex_key="Repo://Shared")
+        exact = kb.create_task(conn, title="exact newer", mutex_key="Repo://Shared")
+        waiter = kb.create_task(conn, title="waiter", mutex_key="Repo://Shared")
+        conn.execute(
+            "UPDATE tasks SET status = 'running', started_at = 10, "
+            "mutex_key = '  Repo://Shared  ' WHERE id = ?",
+            (dirty,),
+        )
+        conn.execute(
+            "UPDATE tasks SET status = 'running', started_at = 20 WHERE id = ?",
+            (exact,),
+        )
+        conn.commit()
+
+        assert kb._active_mutex_owners(conn)["Repo://Shared"] == exact
+        assert kb._running_mutex_owner(
+            conn, "Repo://Shared", exclude_task_id=waiter
+        ) == exact
+        assert kb.claim_task(conn, waiter) is None
+        rejected = [
+            e for e in kb.list_events(conn, waiter) if e.kind == "claim_rejected"
+        ]
+        assert rejected[-1].payload["running_task_id"] == exact
+        stored = {
+            row["id"]: row["mutex_key"]
+            for row in conn.execute(
+                "SELECT id, mutex_key FROM tasks WHERE id IN (?, ?)",
+                (dirty, exact),
+            )
+        }
+        assert stored == {dirty: "  Repo://Shared  ", exact: "Repo://Shared"}
+
+
+def test_mutex_migration_preserves_carried_values_and_duplicate_owners(
+    tmp_path, monkeypatch
+):
+    home = tmp_path / ".hermes"
+    home.mkdir()
+    monkeypatch.setenv("HERMES_HOME", str(home))
+    db_path = tmp_path / "carried-mutex.db"
+    with kb.connect(db_path=db_path) as conn:
+        dirty = kb.create_task(conn, title="dirty", mutex_key="Repo://Shared")
+        exact = kb.create_task(conn, title="exact", mutex_key="Repo://Shared")
+        conn.execute(
+            "UPDATE tasks SET status = 'running', mutex_key = '  Repo://Shared  ' "
+            "WHERE id = ?",
+            (dirty,),
+        )
+        conn.execute("UPDATE tasks SET status = 'running' WHERE id = ?", (exact,))
+        conn.execute("DROP INDEX idx_tasks_mutex_status")
+        conn.commit()
+        assert kb.get_task(conn, dirty).mutex_key == "  Repo://Shared  "
+
+    kb._INITIALIZED_PATHS.discard(str(db_path.resolve()))
+    kb.init_db(db_path=db_path)
+    with kb.connect(db_path=db_path) as conn:
+        rows = conn.execute(
+            "SELECT id, mutex_key, status FROM tasks WHERE id IN (?, ?)",
+            (dirty, exact),
+        ).fetchall()
+        assert {(row["id"], row["mutex_key"], row["status"]) for row in rows} == {
+            (dirty, "  Repo://Shared  ", "running"),
+            (exact, "Repo://Shared", "running"),
+        }
+        assert kb.get_task(conn, dirty).mutex_key == "  Repo://Shared  "
+        indexes = {
+            row["name"]: row for row in conn.execute("PRAGMA index_list(tasks)")
+        }
+        assert indexes["idx_tasks_mutex_status"]["unique"] == 0
+
+
+def test_mutex_unlocks_when_owner_completes(kanban_home):
+    with kb.connect() as conn:
+        owner = kb.create_task(conn, title="owner", mutex_key="repo:rk")
+        waiter = kb.create_task(conn, title="waiter", mutex_key="repo:rk")
+        claimed = kb.claim_task(conn, owner)
+        assert claimed is not None and claimed.current_run_id is not None
+        assert kb.complete_task(
+            conn, owner, expected_run_id=claimed.current_run_id
+        )
+        assert kb.claim_task(conn, waiter) is not None
+
+
+def test_dispatch_mutex_serializes_same_tick_dry_run_and_health(
+    kanban_home, monkeypatch
+):
+    from hermes_cli import profiles
+
+    monkeypatch.setattr(profiles, "profile_exists", lambda _name: True)
+    with kb.connect() as conn:
+        first = kb.create_task(
+            conn, title="first", assignee="worker-a", mutex_key="repo:rk"
+        )
+        second = kb.create_task(
+            conn, title="second", assignee="worker-b", mutex_key="repo:rk"
+        )
+
+        result = kb.dispatch_once(conn, dry_run=True, max_spawn=10)
+        assert [task_id for task_id, _who, _workspace in result.spawned] == [first]
+        assert result.skipped_mutex_locked == [(second, "repo:rk")]
+
+        claimed = kb.claim_task(conn, first)
+        assert claimed is not None
+        assert kb.has_spawnable_ready(conn) is False
+
+
+@pytest.mark.parametrize("dry_run", [True, False])
+def test_dispatch_mutex_shares_ready_review_same_tick_map(
+    kanban_home, monkeypatch, dry_run
+):
+    from hermes_cli import profiles
+
+    monkeypatch.setattr(profiles, "profile_exists", lambda _name: True)
+    with kb.connect() as conn:
+        ready = kb.create_task(
+            conn, title="ready", assignee="worker", mutex_key="repo:rk"
+        )
+        review = kb.create_task(
+            conn, title="review", assignee="reviewer", mutex_key="repo:rk"
+        )
+        conn.execute("UPDATE tasks SET status = 'review' WHERE id = ?", (review,))
+        conn.commit()
+        result = kb.dispatch_once(
+            conn,
+            dry_run=dry_run,
+            max_spawn=10,
+            spawn_fn=lambda _task, _workspace: os.getpid(),
+        )
+        assert [task_id for task_id, _who, _workspace in result.spawned] == [ready]
+        assert result.skipped_mutex_locked == [(review, "repo:rk")]
+        if not dry_run:
+            assert kb.get_task(conn, ready).status == "running"
+            assert kb.get_task(conn, review).status == "review"
+
+
+def test_different_case_and_blank_mutex_keys_do_not_interfere(kanban_home):
+    with kb.connect() as conn:
+        owner = kb.create_task(conn, title="owner", mutex_key="Repo:a")
+        case_variant = kb.create_task(
+            conn, title="case variant", mutex_key="repo:a"
+        )
+        different = kb.create_task(conn, title="different", mutex_key="repo:b")
+        blank = kb.create_task(conn, title="blank", mutex_key="   ")
+        assert kb.claim_task(conn, owner) is not None
+        assert kb.claim_task(conn, case_variant) is not None
+        assert kb.claim_task(conn, different) is not None
+        assert kb.claim_task(conn, blank) is not None
+
+
+def test_has_spawnable_review_false_when_only_mutex_locked_work(
+    kanban_home, monkeypatch
+):
+    from hermes_cli import profiles
+
+    monkeypatch.setattr(profiles, "profile_exists", lambda _name: True)
+    with kb.connect() as conn:
+        owner = kb.create_task(
+            conn, title="owner", assignee="worker", mutex_key="repo:rk"
+        )
+        review = kb.create_task(
+            conn, title="review", assignee="reviewer", mutex_key="repo:rk"
+        )
+        assert kb.claim_task(conn, owner) is not None
+        conn.execute("UPDATE tasks SET status = 'review' WHERE id = ?", (review,))
+        conn.commit()
+        assert kb.has_spawnable_review(conn) is False
+
+
+def test_dispatch_mutex_serializes_same_tick_live(kanban_home, monkeypatch):
+    from hermes_cli import profiles
+
+    monkeypatch.setattr(profiles, "profile_exists", lambda _name: True)
+    with kb.connect() as conn:
+        first = kb.create_task(
+            conn, title="first live", assignee="worker-a", mutex_key="repo:rk"
+        )
+        second = kb.create_task(
+            conn, title="second live", assignee="worker-b", mutex_key="repo:rk"
+        )
+        result = kb.dispatch_once(
+            conn,
+            dry_run=False,
+            max_spawn=10,
+            spawn_fn=lambda _task, _workspace: os.getpid(),
+        )
+        assert [task_id for task_id, _who, _workspace in result.spawned] == [first]
+        assert result.skipped_mutex_locked == [(second, "repo:rk")]
+        assert kb.get_task(conn, first).status == "running"
+        assert kb.get_task(conn, second).status == "ready"
+
+
+def test_mutex_unlocks_on_result_release(kanban_home, monkeypatch):
+    from hermes_cli import profiles
+
+    monkeypatch.setattr(profiles, "profile_exists", lambda _name: True)
+    with kb.connect() as conn:
+        owner = kb.create_task(
+            conn,
+            title="result owner",
+            assignee="worker",
+            created_by="creator",
+            mutex_key="repo:rk",
+        )
+        waiter = kb.create_task(
+            conn, title="waiter", assignee="other", mutex_key="repo:rk"
+        )
+        claimed = kb.claim_task(conn, owner)
+        assert claimed is not None and claimed.current_run_id is not None
+        assert kb.submit_task_result(
+            conn, owner, expected_run_id=claimed.current_run_id
+        )
+        assert kb.get_task(conn, owner).status == "review"
+        assert kb.claim_task(conn, waiter) is not None
+
+
+@pytest.mark.parametrize(
+    "release_path",
+    [
+        "block",
+        "manual_reclaim",
+        "stale_reclaim",
+        "spawn_failure",
+        "timeout",
+        "crash",
+    ],
+)
+def test_mutex_unlocks_on_other_running_exit_paths(
+    kanban_home, monkeypatch, release_path
+):
+    with kb.connect() as conn:
+        owner = kb.create_task(conn, title="owner", mutex_key="repo:rk")
+        waiter = kb.create_task(conn, title="waiter", mutex_key="repo:rk")
+        claimed = kb.claim_task(conn, owner)
+        assert claimed is not None and claimed.current_run_id is not None
+
+        if release_path == "block":
+            assert kb.block_task(
+                conn,
+                owner,
+                reason="needs operator",
+                kind="needs_input",
+                expected_run_id=claimed.current_run_id,
+            )
+        elif release_path == "manual_reclaim":
+            assert kb.reclaim_task(conn, owner, reason="operator test")
+        elif release_path == "stale_reclaim":
+            conn.execute(
+                "UPDATE tasks SET claim_lock = 'remote:dead', claim_expires = 0, "
+                "worker_pid = NULL WHERE id = ?",
+                (owner,),
+            )
+            conn.commit()
+            assert kb.release_stale_claims(conn) == 1
+        elif release_path == "spawn_failure":
+            assert kb._record_spawn_failure(
+                conn, owner, "spawn failed", failure_limit=3
+            ) is False
+        elif release_path == "timeout":
+            conn.execute(
+                "UPDATE tasks SET worker_pid = 999991, max_runtime_seconds = 1 "
+                "WHERE id = ?",
+                (owner,),
+            )
+            conn.execute(
+                "UPDATE task_runs SET started_at = 0 WHERE id = ?",
+                (claimed.current_run_id,),
+            )
+            conn.commit()
+            monkeypatch.setattr(kb, "_pid_alive", lambda _pid: False)
+            assert kb.enforce_max_runtime(
+                conn, signal_fn=lambda _pid, _signal: None
+            ) == [owner]
+        else:
+            conn.execute(
+                "UPDATE tasks SET worker_pid = 999992, started_at = 0 WHERE id = ?",
+                (owner,),
+            )
+            conn.commit()
+            monkeypatch.setattr(kb, "_pid_alive", lambda _pid: False)
+            assert kb.detect_crashed_workers(conn) == [owner]
+
+        assert kb.get_task(conn, owner).status != "running"
+        assert kb.claim_task(conn, waiter) is not None
+
+
+def test_same_mutex_key_is_isolated_by_board(tmp_path, monkeypatch):
+    home = tmp_path / ".hermes"
+    home.mkdir()
+    monkeypatch.setenv("HERMES_HOME", str(home))
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    kb.create_board("alpha")
+    kb.create_board("beta")
+    with kb.connect(board="alpha") as alpha:
+        alpha_id = kb.create_task(alpha, title="alpha", mutex_key="repo:rk")
+        assert kb.claim_task(alpha, alpha_id) is not None
+    with kb.connect(board="beta") as beta:
+        beta_id = kb.create_task(beta, title="beta", mutex_key="repo:rk")
+        assert kb.claim_task(beta, beta_id) is not None

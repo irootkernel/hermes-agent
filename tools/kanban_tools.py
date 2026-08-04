@@ -1684,6 +1684,7 @@ def _handle_create(args: dict, **kw) -> str:
     if bool_error:
         return tool_error(bool_error)
     idempotency_key = args.get("idempotency_key")
+    mutex_key = args.get("mutex_key")
     max_runtime_seconds = args.get("max_runtime_seconds")
     initial_status = args.get("initial_status") or "running"
     skills = args.get("skills")
@@ -1736,6 +1737,7 @@ def _handle_create(args: dict, **kw) -> str:
                 project_source_task_id=project_source_task_id,
                 triage=triage,
                 idempotency_key=idempotency_key,
+                mutex_key=mutex_key,
                 max_runtime_seconds=(
                     int(max_runtime_seconds)
                     if max_runtime_seconds is not None else None
@@ -1759,6 +1761,7 @@ def _handle_create(args: dict, **kw) -> str:
                 workspace_kind=new_task.workspace_kind if new_task else None,
                 workspace_path=new_task.workspace_path if new_task else None,
                 project_id=new_task.project_id if new_task else None,
+                mutex_key=new_task.mutex_key if new_task else None,
                 subscribed=subscribed,
             )
         finally:
@@ -2523,6 +2526,14 @@ KANBAN_CREATE_SCHEMA = {
                     "If a non-archived task with this key already "
                     "exists, return that task's id instead of creating "
                     "a duplicate. Useful for retry-safe automation."
+                ),
+            },
+            "mutex_key": {
+                "type": "string",
+                "description": (
+                    "Serialize this task with other running tasks that use "
+                    "the same explicit board-local key. Trimmed only; "
+                    "schemes and case are preserved."
                 ),
             },
             "max_runtime_seconds": {

@@ -2,7 +2,7 @@
 
 ## Release state
 
-- Status: `d5-b-investigation-complete-implementation-authorized`
+- Status: `d5-e-implemented-verified-independent-review-passed-committed-owner-accepted`
 - Candidate branch: `rk/v0.19.1`
 - Candidate worktree: `/Users/draccoon/Workspace/Hermes/17th-hermes-agent-worktree`
 - Tag blocker: `true`
@@ -18,6 +18,7 @@
 - D3 implementation, focused verification, independent review correction, typed rollback, and scoped commit completed at `2026-08-03T10:31:22+09:00`
 - D3 accepted by owner at `2026-08-03T11:38:26+09:00`
 - D4 read-only re-audit authorized and started at `2026-08-03T11:38:26+09:00`; overlap/gap evidence completed at `2026-08-03T11:56:43+09:00`; owner selected option A and authorized minimal v0.19.1-aware implementation
+- D5-e commit and owner acceptance were both explicitly conveyed by the owner's commit direction at `2026-08-04T15:27:26+09:00`; this is the self-recording `[D5]` commit
 - Tag, push, and remote-ref movement: not authorized
 - Scaffolded at: `2026-08-02T17:24:26+09:00`
 
@@ -134,7 +135,7 @@ These values are the completed planning baseline. Fleet values must be refreshed
 
 ## v0.19.1 active D items
 
-Inherited carry lineages remain `pending-re-audit` until their own gate starts. D1–D4 are owner-accepted. D5-a through D5-d are committed; D5-e through D5-f and D6–D7 remain blocked. A familiar v0.18.2 patch is not authority to replay it.
+Inherited carry lineages remain `pending-re-audit` until their own gate starts. D1–D4 and D5-e are owner-accepted. D5-a through D5-e are committed. D5-f and D6–D7 remain blocked pending their own explicit investigation directions. A familiar v0.18.2 patch is not authority to replay it.
 
 | Current ID | Work item | Previous release | Current status | Next action |
 |---|---|---|---|---|
@@ -142,7 +143,7 @@ Inherited carry lineages remain `pending-re-audit` until their own gate starts. 
 | D2 | Fail-closed skill write approval import boundary | New v0.19.1 defect discovered in Task 6 | `implemented-verified-owner-accepted` | Keep active until an exact upstream fail-closed replacement is behaviorally verified. |
 | D3 | OpenAI Codex credential pinning and labelled reauth | `v0.18.2/D8` | `implemented-verified-owner-accepted` | Keep active until an exact upstream replacement satisfies the retirement rule. |
 | D4 | Discord thread ownership and role-mention fail-close | `v0.18.2/D4` | `implemented-verified-owner-accepted` | Closed; preserve until an exact upstream replacement is verified. |
-| D5 | Kanban same-card review and workflow seams | `v0.18.2/D2` | `d5-d-implemented-verified-independent-review-passed-committed` | Await owner acceptance of committed D5-d; do not start D5-e. |
+| D5 | Kanban same-card review and workflow seams | `v0.18.2/D2` | `d5-e-implemented-verified-independent-review-passed-committed-owner-accepted` | Await separate D5-f investigation authorization; do not implement or push. |
 | D6 | CLI return-code passthrough | `v0.18.2/D6` | `pending-re-audit` | Trace the v0.19.1 process boundary and reproduce exact integer/bool behavior. |
 | D7 | Doctor optional tool warning filter | `v0.18.2/D7` | `pending-re-audit` | Probe enabled versus disabled/default-off tool diagnostics without hiding new doctor checks. |
 
@@ -183,6 +184,27 @@ Inherited carry lineages remain `pending-re-audit` until their own gate starts. 
 - Independent review reproduced eight blockers across provenance, rework routing, acceptance reclaim, artifact durability, interrupt cleanup, and stop-guard success detection. Every finding was RED-tested and remediated; the final focused read-only follow-up returned `PASS` with zero blockers.
 - Evidence: `root-kernel/evidence/v0.19.1-D5-d-result-submission.json`, SHA-256 `aef2b114fd01215e023db82900f7bbed88fc4c99a214d48bc00382df674e239e` (local, Git-excluded evidence; publication is not authorized).
 - Boundary: no production board, dispatcher, gateway runtime, profile, registry, alias, token, skill, cron, or live ref was mutated. D5-d is committed in this self-recording commit; D5-e remains separately approval-gated and has not started.
+- Owner acceptance: 주군 accepted committed D5-d by explicitly directing the next D5-e gate to start at `2026-08-04T13:08:11+09:00`.
+
+### D5-e investigation and implementation result
+
+- Historical contract: commit `0361594452e9329bfe7d32be1e0a853cd4c810a2` adds an explicit board-local `mutex_key`, trim/blank normalization, ready/review direct-claim guards, same-tick dispatch deferral, health suppression, CLI/tool create surfaces, and a non-unique lookup index. All `12` focused tests passed in `1.27s`; an added 20-trial multi-connection race probe produced exactly one claim, one running row, and one structured rejection every time.
+- Direct replay is rejected: `git apply --check` failed on every historical product, test, and ledger hunk because current v0.19.1 chokepoints changed.
+- Current gap: a disposable expected-contract probe failed all `9` contracts. After a test-only column was added, two same-key tasks both reached `running` through separate direct claim connections; ready and review claims both bypassed serialization; a same-tick dry run selected both; health still called the deferred queue spawnable; model/schema/CLI/tool surfaces are absent.
+- Native foundations preserved: board-scoped dispatch lock, hardened `BEGIN IMMEDIATE` transaction boundary, per-profile cap, tools, project links, and worktree isolation passed `55` current tests. The dispatch lock is only a partial foundation because terminal/external direct claims bypass it; `write_txn` is the correct authoritative race boundary.
+- Option comparison: a disposable application-guard prototype passed `20/20` simultaneous claim trials while preserving `Optional[Task]` and structured rejection semantics. A partial unique index failed closed but raised `IntegrityError`, produced no `claim_rejected` receipt, and changes rollback caller behavior. A separate lock table duplicates run/reclaim state; dispatcher-only filtering leaves direct claims open.
+- Recommended solution: retain a minimal v0.19.1-aware application guard. Add nullable `tasks.mutex_key`, a non-unique `(mutex_key, status)` lookup index, trim-only normalization, and ready/review owner checks inside the existing `write_txn`. Use indexed exact lookup normally, then defensively normalize remaining running-row keys so whitespace-bearing carried/manual values cannot bypass direct claims; do not rewrite existing DB values. Keep dispatcher owner-map filtering for same-tick scheduling and `skipped_mutex_locked` diagnostics, but keep the direct claim guard authoritative. The key is board-local and explicit, preserves case/schemes, and promises mutual exclusion only while work is `running`, not fairness or a reservation during review wait.
+- Surface scope: `hermes_cli/kanban_db.py`, `hermes_cli/kanban.py`, and `tools/kanban_tools.py`, plus their three existing test files and both ledgers. Exclude D5-f prompt/context banners. Dashboard task reads naturally gain the dataclass field through `asdict`; dashboard create UI/API expansion remains outside the inherited D2-h contract.
+- Required implementation evidence: fresh/legacy and existing-carried-column migration, normalization/event provenance, dirty whitespace-bearing stored-key consistency, documented no-length-cap behavior, CLI/tool parity, simultaneous ready/review claims, existing-owner and same-tick dry/live dispatch, health suppression, unlock through complete/block/review/result/failure/stale exits, unrelated/different-board behavior, pre-existing duplicate-owner characterization without silent repair, all current concurrency/worktree/D5-b/c/d regressions, and pre-D5-e code reopening and mutating a migrated disposable DB.
+- Rollback: non-secret ledger backup `/Users/draccoon/Workspace/Hermes/update-backups/20260804T040811Z-rk-v0191-d5e-investigation/d5e-ledgers-pre-investigation.tar.gz`, SHA-256 `b6dce8a8a8c25b67a9bc78c0d5c3aa926edd107cd0d1b51813ddc43a8cc5f4d1`; byte restore passed. A disposable additive-column/non-unique-index DB remained readable and writable by pre-D5-e code.
+- KSCQ: query `mutex key serialization kanban concurrency` returned no indexed learning note; repository source and executable probes determined the recommendation.
+- Implementation: added nullable board-local `mutex_key`, trim-only/blank normalization, additive migration, non-unique partial lookup index, atomic ready/review direct-claim guards, same-tick ready/review dry/live dispatcher serialization, mutex-aware health suppression, and CLI/tool create and diagnostic parity. Ownership exists only while a task is `running`; case and schemes remain distinct.
+- Carried/manual safety: the authoritative exact query now uses `idx_tasks_mutex_status`. Canonically stored exact owners deterministically precede whitespace-bearing dirty variants; dirty fallback still fails closed when no exact owner exists, and stored values are never rewritten. Existing duplicate running owners are not silently repaired and block new claims.
+- Verification: final focused suite `30 passed, 101 deselected`; product-adjacent three-file suite `131 passed`; canonical file-isolated Kanban broad gate across 49 files `349 passed, 1 skipped`, with zero failed files. A real two-connection ready race passed `50/50`; review race, ready/review cross-lane dry/live, 120,009-character CLI JSON round-trip, migration preservation, and complete/result/block/failure/manual/stale/timeout/crash release paths passed. `py_compile`, Ruff, `git diff --check`, added-line security, and Bandit delta passed; Bandit matched HEAD at 52 findings with zero high severity and no new findings.
+- Rollback: non-secret pre-implementation archive `/Users/draccoon/Workspace/Hermes/update-backups/20260804T045524Z-rk-v0191-d5e-implementation/d5e-pre-implementation.tar.gz`, SHA-256 `0390df209bdb445da4c484990d225e0e50c0bf07746c303e6ec76f566eb52b2d`; hash verification and restored `102 passed` suite succeeded. Current D5-e code created the disposable DB, restored pre-D5-e code reopened it and created/claimed a task, and current code reopened it again with key preservation. The owner-authorized pre-commit eight-file backup is `/Users/draccoon/Workspace/Hermes/update-backups/20260804T062738Z-rk-v0191-d5e-precommit/d5e-precommit-files.tar.gz`, SHA-256 `7b44121e80aba8aa10b9427b4f14863493e9ce5a777237964f7000275a41ee0a`; disposable byte restore passed. The acceptance-semantics amend backup is `/Users/draccoon/Workspace/Hermes/update-backups/20260804T063404Z-rk-v0191-d5e-acceptance-correction/d5e-ledgers-pre-acceptance-amend.tar.gz`, SHA-256 `5f83cc1a08dd4d64532ec4134a972fad5a8d3ca7044dddac582b68590d4ec51c`; byte restore passed and pre-amend commit `5f5f1e23097ec0d89e81889fdd583405197e7617` remains recoverable from reflog.
+- Independent review: two background read-only reviewers found the unused partial-index path, mixed dirty/exact owner-ID disagreement, and missing edge regressions. The two logic blockers were RED-reproduced, remediated, and permanently regression-tested. The final read-only Codex blocker follow-up returned `PASS` with zero security concerns, logic errors, or missing tests and modified no files.
+- Evidence: `root-kernel/evidence/v0.19.1-D5-e-mutex-key-investigation.json`, SHA-256 `06a066ae2a2edd299563823b5162000a9ef01b58bff992c3a4b4d5dd83b3efa3` (local, Git-excluded; publication is not authorized).
+- Boundary: D5-e is committed and owner-accepted by the same explicit commit direction. Push remains unauthorized. D5-f has not started and awaits separate investigation authorization. No production board, dispatcher, gateway runtime, profile, registry, alias, token, skill, cron, runtime, or live ref was read or mutated.
 
 D1 retirement requires an exact later upstream target where CJK-enabled `hermes sessions recover` preserves canonical counts, reports `complete: true`, passes an equivalent CJK recovery regression, and leaves no Root Kernel-only behavior gap. A nearby CJK change, issue closure, or symbol match alone does not retire it.
 

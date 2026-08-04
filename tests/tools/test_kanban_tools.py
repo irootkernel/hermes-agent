@@ -422,6 +422,35 @@ def test_create_happy_path(worker_env):
         conn.close()
 
 
+def test_create_schema_exposes_mutex_key():
+    from tools import kanban_tools as kt
+
+    prop = kt.KANBAN_CREATE_SCHEMA["parameters"]["properties"]["mutex_key"]
+    assert prop["type"] == "string"
+    assert "Trimmed only" in prop["description"]
+    assert "maxLength" not in prop
+
+
+def test_create_happy_path_persists_mutex_key(worker_env):
+    from tools import kanban_tools as kt
+
+    out = kt._handle_create({
+        "title": "serialized child",
+        "assignee": "peer",
+        "parents": [worker_env],
+        "mutex_key": "  repo:rk  ",
+    })
+    payload = json.loads(out)
+    assert payload["ok"] is True
+    assert payload["mutex_key"] == "repo:rk"
+
+    from hermes_cli import kanban_db as kb
+    with kb.connect() as conn:
+        child = kb.get_task(conn, payload["task_id"])
+        assert child is not None
+        assert child.mutex_key == "repo:rk"
+
+
 def test_link_happy_path(worker_env):
     from hermes_cli import kanban_db as kb
     conn = kb.connect()
