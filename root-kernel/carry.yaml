@@ -2,7 +2,7 @@ schema_version: 1
 ledger_kind: root-kernel-release-carry
 release:
   version: v0.19.1
-  status: d5-complete-owner-accepted-awaiting-d6-direction
+  status: d6-complete-owner-accepted-awaiting-d7-direction
   tag_blocker: true
   scaffolded_at: '2026-08-02T17:24:26+09:00'
   candidate_branch: rk/v0.19.1
@@ -1085,17 +1085,156 @@ active_carries:
       version: v0.18.2
       entry_id: D6
       status: local_keep_applied
-    status: pending-re-audit
-    owner_direction: pending
+      final_commit: aad49e9fccb0bb7160778460d1473808b5c0d9c0
+    status: implementation-complete-verified-self-recording-commit-owner-accepted
+    owner_direction: commit-authorized-owner-accepted
+    audit_started_at: '2026-08-04T18:20:56+09:00'
+    audit_completed_at: '2026-08-04T19:03:44+09:00'
+    implementation_authorized_at: '2026-08-04T19:16:59+09:00'
+    implementation_verified_at: '2026-08-04T19:33:45+09:00'
     requirement: Preserve shell-visible exact integer return codes while keeping bool and success behavior safe.
+    overlap:
+      verdict: partial-not-replacement
+      upstream_commit: 397e9fc1e46e594d9d021a9061095e1b109faabb
+      current_main_matches_upstream_tag_byte_for_byte: true
+      current_main_sha256: 13a826f08c3eb64c16b06d99e0b71274152c987bf87c26d948ec6ff09556ac63
+      native_behavior: nonzero isinstance-int values are propagated at the argparse process boundary.
+      retained_gap: bool is a subclass of int, so True currently becomes shell exit 1; the boundary is not exact-int.
+      historical_difference: v0.18.2/D6 used exact type matching and ignored True, False, and None.
+    historical_reexecution:
+      parent_with_final_tests: 3-failed-1-passed
+      final_focused: 4-passed
+      final_broad: 312-passed
+    current_probe:
+      expected_contract: 1-failed-9-passed
+      only_failure: handler-return-True-produced-rc-1-instead-of-0
+      actual_main_values:
+        return_none: 0
+        return_false: 0
+        return_true: 1
+        return_zero: 0
+        return_two: 2
+        return_negative_one: 255
+        return_text_two: 0
+      real_cli:
+        kanban_missing_task: 1
+        kanban_invalid_board_slug: 2
+        top_level_help: 0
+      native_egress_kanban_adjacent: 20-passed
+    docker_diagnostic:
+      result: 23-passed-1-failed-across-three-files
+      failure: pre-built-s6-image-returned-137-instead-of-inner-42
+      classification: not-a-D6-blocker-separate-container-lifecycle-regression
+      upstream_test_byte_identical: true
+    decision:
+      selected: retain-minimal-v0.19.1-aware-exact-int-helper
+      rejected:
+        retire_as_upstream_native: bool-safe exact-int gap remains.
+        verbatim_historical_replay: does not preserve the newer upstream nonzero dispatch shape minimally.
+        inline_one_line: acceptable but less explicit and less directly testable than a small helper.
+      proposal:
+        - Add a small internal helper that exits only when type(value) is int and value is nonzero.
+        - Replace the inline isinstance branch with that helper.
+        - Add permanent actual-main subprocess behavior contracts before product code under TDD.
+    design_spike:
+      path: /tmp/d6-design-spike
+      product_mutation: false
+      expected_contract: 10-passed
+      native_egress_kanban_adjacent: 20-passed
+      ruff: passed
+      py_compile: passed
+    implementation:
+      selected_design: retain-minimal-v0.19.1-aware-exact-int-helper
+      product_files:
+        - hermes_cli/main.py
+      test_files:
+        - tests/hermes_cli/test_main_return_codes.py
+      product_sha256: 6e7a8f0efb6d05ec642e01374814cb08b1119926d2abb87596201641ff4e4b54
+      test_sha256: 271a700bea66e6cb516a7e3adc41573d9382e12473681de316d104b92b663026
+      behavior:
+        - Exact nonzero int values reach sys.exit.
+        - Bool, None, strings, and int subclasses remain natural success.
+        - Existing egress, Kanban, argparse, help, plugin, and handler-raised SystemExit behavior is preserved.
+      tdd:
+        red: 11-passed-1-failed-True-return-only
+        green: 12-passed
+      bounded_adjacent: 239-passed-across-24-files
+      static:
+        ruff_check: passed
+        test_format: passed
+        py_compile: passed
+        diff_check: passed
+        added_line_security_scan: passed
+        ty: 32-errors-clean-head-and-current-with-zero-D6-path-mentions
+        main_format: baseline-red-on-clean-head-and-current
+      baseline_diagnostics:
+        update_eol_churn: 5-failed-4-passed-on-clean-head-and-current
+        docker_s6_exit: separate-upstream-identical-container-regression-from-audit
+      independent_review:
+        architecture_security:
+          session_id: 019fcc4f-76c6-7c93-a0e2-f9956e18fe8a
+          verdict: pass
+          blockers: 0
+        test_regression:
+          session_id: 019fcc52-14e3-7983-9365-fd4538d2a709
+          verdict: pass
+          blockers: 0
+    required_implementation_tests:
+      - Actual-main subprocess None, False, True, zero, and string returns remain rc=0.
+      - Exact int 2 becomes rc=2 and int -1 becomes POSIX rc=255.
+      - Disposable-HERMES_HOME egress failure is rc=1.
+      - Missing Kanban task is rc=1, invalid board or argparse misuse is rc=2, and help is rc=0.
+      - Tests assert behavior relationships, not source snapshots.
     likely_files:
       - hermes_cli/main.py
-      - hermes_cli/commands.py
-    red_evidence: pending
-    green_evidence: pending
-    integrated_smoke: pending
+      - tests/hermes_cli/test_main_return_codes.py
+    independent_review:
+      architecture:
+        session_id: 019fcc32-378b-7393-8117-806028ab4972
+        verdict: carry-narrow-hardening
+        blockers: 0
+      security_regression_test:
+        session_id: 019fcc33-ace9-7401-a9bf-69b4aff0fb4f
+        verdict: revise-proposal-test-plan
+        security_blockers: 0
+        logic_blockers: 1
+        disposition: required permanent actual-main and real CLI contracts incorporated into the implementation proposal; must be completed before implementation can pass review.
+    evidence:
+      path: root-kernel/evidence/v0.19.1-D6-cli-return-code-reaudit.json
+      sha256: 5a811b6c6bbb5de3f692493553685a0a6abd67508809e93bf45246ed7291361a
+      implementation_path: root-kernel/evidence/v0.19.1-D6-cli-return-code-implementation.json
+      implementation_sha256: 11ce00b87a572afa874dad7224e9d8ae5b8eedca15c675418e1c89b7bdfe8694
+      git_excluded: true
+    exclusions:
+      - Product and permanent test changes are limited to the recorded D6 files; no other product surface was modified.
+      - No D7, R gate, live runtime, profile, gateway, token, skill, plugin, cron, commit, tag, or push mutation.
+    rollback:
+      backup_dir: /Users/draccoon/Workspace/Hermes/update-backups/20260804T092056Z-rk-v0191-d6-audit
+      archive: d6-ledgers-pre-audit.tar.gz
+      archive_sha256: e0b6cf7944b207a9e71cf98b6731bacaf443d511ab156a3a3af5d43c4624e6b6
+      secrets_included: false
+      restore_byte_parity: passed
+      implementation_backup_dir: /Users/draccoon/Workspace/Hermes/update-backups/20260804T101659Z-rk-v0191-d6-implementation
+      implementation_archive: d6-pre-implementation.tar.gz
+      implementation_archive_sha256: bd0baa55ee7624948bf93bc011cbc6a44357d6db1f825ac421b50bfce0e2703f
+      implementation_restore_byte_parity: passed
+      implementation_test_file_preexisting: false
+      precommit_backup_dir: /Users/draccoon/Workspace/Hermes/update-backups/20260804T115221Z-rk-v0191-d6-precommit
+      precommit_archive: d6-precommit-files.tar.gz
+      precommit_archive_sha256: 8d6fe27e9afd79f48a36ebef720f317ca57ce526d469cade9afb8530ee65a688
+      precommit_restore_byte_parity: passed
+    red_evidence: permanent actual-main contract 11-passed-1-failed; True alone exited 1 instead of 0 before product change.
+    green_evidence: permanent focused contract 12-passed after the narrow helper.
+    integrated_smoke: 239-passed across 24 bounded egress, Kanban, main, and update files; baseline-only diagnostics remain separated.
+    implementation_authorized: true
+    commit_authorized: true
+    commit_authorized_at: '2026-08-04T20:52:21+09:00'
+    commit_state: self-recording-commit
+    owner_accepted: true
+    owner_accepted_at: '2026-08-04T20:52:21+09:00'
+    acceptance_basis: explicit-commit-direction-counts-as-owner-acceptance
     live_mutation: false
-    next_action: Trace the v0.19.1 process boundary and reproduce exact integer and bool behavior.
+    next_action: Create the authorized self-recording D6 commit; after it succeeds, await explicit D7 re-audit direction. Do not push or mutate live/profile/runtime state.
   D7:
     current_id: D7
     renumbered_from_provisional_id: D5
@@ -1190,7 +1329,7 @@ post_live_gates:
 activation:
   status: blocked
   blockers:
-    - D3 through D7 direction and verification pending
+    - D7 re-audit/implementation direction pending
     - integrated candidate smoke pending
     - typed non-secret activation backup and rollback rehearsal pending
     - root default messaging token ownership unresolved and activation unauthorized
@@ -1215,10 +1354,10 @@ ledger_parity:
     - live-mutation state
     - rollback authority
     - next action
-  status: d5-complete-owner-accepted-awaiting-d6-direction
+  status: d6-complete-owner-accepted-awaiting-d7-direction
 next_action:
-  task: D6 re-audit direction
-  description: D5-a through D5-f are complete, verified, committed in the current self-recording D5-f commit, and owner-accepted. Await explicit owner direction before starting the D6 read-only re-audit; do not push, start D7, or enter any R gate.
+  task: D7 re-audit direction
+  description: D6 implementation, verification, commit authorization, and owner acceptance are recorded in the current self-recording D6 commit. After commit creation, await explicit D7 re-audit direction; do not push or enter any R gate.
   d1_classification_approved: true
   task5_source_fix_authorized: true
   task5_source_fix_verified: true
@@ -1229,7 +1368,7 @@ next_action:
   task6_status: owner-accepted
   task6_owner_acceptance: accepted
   task6_accepted_at: '2026-08-03T00:41:48+09:00'
-  next_d_item: D6
+  next_d_item: D7
   next_d_item_owner_direction: pending
   d_item_implementation_authorized: false
   authorized_d_item: null

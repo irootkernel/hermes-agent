@@ -2,7 +2,7 @@
 
 ## Release state
 
-- Status: `d5-complete-owner-accepted-awaiting-d6-direction`
+- Status: `d6-complete-owner-accepted-awaiting-d7-direction`
 - Candidate branch: `rk/v0.19.1`
 - Candidate worktree: `/Users/draccoon/Workspace/Hermes/17th-hermes-agent-worktree`
 - Tag blocker: `true`
@@ -19,6 +19,7 @@
 - D3 accepted by owner at `2026-08-03T11:38:26+09:00`
 - D4 read-only re-audit authorized and started at `2026-08-03T11:38:26+09:00`; overlap/gap evidence completed at `2026-08-03T11:56:43+09:00`; owner selected option A and authorized minimal v0.19.1-aware implementation
 - D5-e commit and owner acceptance were both explicitly conveyed by the owner's commit direction at `2026-08-04T15:27:26+09:00`; this is the self-recording `[D5]` commit
+- D6 commit and owner acceptance were both explicitly conveyed by 주군의 commit direction at `2026-08-04T20:52:21+09:00`; this is the self-recording `[D6]` commit
 - Tag, push, and remote-ref movement: not authorized
 - Scaffolded at: `2026-08-02T17:24:26+09:00`
 
@@ -135,7 +136,7 @@ These values are the completed planning baseline. Fleet values must be refreshed
 
 ## v0.19.1 active D items
 
-Inherited carry lineages remain `pending-re-audit` until their own gate starts. D1–D5 are owner-accepted. D5-a through D5-e were already committed; D5-f product, tests, and both ledgers are committed together in this self-recording commit. D6–D7 remain blocked pending separate direction. A familiar v0.18.2 patch is not authority to replay it.
+Inherited carry lineages remain `pending-re-audit` until their own gate starts. D1–D6 are owner-accepted. D5-a through D5-f are committed, and D6 product, permanent tests, and both ledgers are recorded together in its authorized self-recording commit. D7 remains blocked pending separate direction. A familiar v0.18.2 patch is not authority to replay it.
 
 | Current ID | Work item | Previous release | Current status | Next action |
 |---|---|---|---|---|
@@ -143,8 +144,8 @@ Inherited carry lineages remain `pending-re-audit` until their own gate starts. 
 | D2 | Fail-closed skill write approval import boundary | New v0.19.1 defect discovered in Task 6 | `implemented-verified-owner-accepted` | Keep active until an exact upstream fail-closed replacement is behaviorally verified. |
 | D3 | OpenAI Codex credential pinning and labelled reauth | `v0.18.2/D8` | `implemented-verified-owner-accepted` | Keep active until an exact upstream replacement satisfies the retirement rule. |
 | D4 | Discord thread ownership and role-mention fail-close | `v0.18.2/D4` | `implemented-verified-owner-accepted` | Closed; preserve until an exact upstream replacement is verified. |
-| D5 | Kanban same-card review and workflow seams | `v0.18.2/D2` | `implemented-verified-self-recording-commit-owner-accepted` | Closed; await explicit D6 re-audit direction. |
-| D6 | CLI return-code passthrough | `v0.18.2/D6` | `pending-re-audit` | Trace the v0.19.1 process boundary and reproduce exact integer/bool behavior. |
+| D5 | Kanban same-card review and workflow seams | `v0.18.2/D2` | `implemented-verified-self-recording-commit-owner-accepted` | Closed; preserve while D7 awaits separate direction. |
+| D6 | CLI return-code passthrough | `v0.18.2/D6` | `implemented-verified-self-recording-commit-owner-accepted` | Closed in this authorized self-recording commit; await explicit D7 re-audit direction. |
 | D7 | Doctor optional tool warning filter | `v0.18.2/D7` | `pending-re-audit` | Probe enabled versus disabled/default-off tool diagnostics without hiding new doctor checks. |
 
 ### D5-b implementation result
@@ -243,7 +244,40 @@ Inherited carry lineages remain `pending-re-audit` until their own gate starts. 
 - Independent review: architecture/security final review `019fcbd7-2e76-7e70-9a22-9b227899f156` returned `PASS`. Test/migration first pass `019fcbdb-0933-74a0-b530-9fdcea900ce1` requested repository-anchored byte-stability and historical-index preservation coverage; these were resolved with the reversible relationship contract required by `AGENTS.md`, plus full creator-result acceptance coverage. Blocker follow-up `019fcbe7-454a-7992-be91-662934865f32` returned `PASS`. Precommit AGENTS review `019fcbfb-0bcd-7a40-84e8-da01b3068ee2` found only stale golden wording; after correction, follow-up `019fcc00-e1ba-7f82-8ddd-2f4befb75bdd` returned `PASS` with zero blockers. No reviewer modified files.
 - Evidence: `root-kernel/evidence/v0.19.1-D5-f-closed-workflow-context-implementation.json`, SHA-256 `62415d80420aca6e587a86c7662518060ce3e75557d8b871a84ff80c61d01d65` (local, Git-excluded; publication is not authorized).
 - Rollback: non-secret pre-implementation archive `/Users/draccoon/Workspace/Hermes/update-backups/20260804T073018Z-rk-v0191-d5f-implementation/d5f-pre-implementation.tar.gz`, SHA-256 `3204ce604459d95df101afee887ee74fe12290fb2c596e00b3b8995a44a3b669`; byte restore passed. The reviewed pre-authorization commit candidate archive is `/Users/draccoon/Workspace/Hermes/update-backups/20260804T090230Z-rk-v0191-d5f-precommit/d5f-precommit-files.tar.gz`, SHA-256 `77f1191d18a2c9e2916098c409a121ee5fefd6bec51d7654dee84be468ec0b51`; all nine product/test/ledger/evidence files restored byte-for-byte at that checkpoint. No live restore was performed.
-- Boundary and next action: no production board, dispatcher, gateway, token, runtime, profile, registry, alias, skill, plugin, or cron was mutated. 주군의 explicit commit direction authorizes and accepts this self-recording D5-f commit, which closes D5-a through D5-f. Push remains unauthorized; await separate D6 re-audit direction, and do not start D7 or any R gate.
+- Boundary and next action: no production board, dispatcher, gateway, token, runtime, profile, registry, alias, skill, plugin, or cron was mutated. 주군의 explicit commit direction authorizes and accepts this self-recording D5-f commit, which closes D5-a through D5-f. Push remains unauthorized; the later separately authorized D6 re-audit is recorded below, and D7 plus all R gates remain blocked.
+
+### D6 read-only re-audit result
+
+- Owner boundary: D6 read-only re-audit ran from `2026-08-04T18:20:56+09:00` to `2026-08-04T19:03:44+09:00`. Product implementation, permanent implementation tests, commit, push, D7, and all R gates remain unauthorized.
+- Historical authority: final `v0.18.2/D6` commit `aad49e9fccb0bb7160778460d1473808b5c0d9c0` changed the top-level argparse process boundary from ignoring handler return values to exact-int propagation while deliberately ignoring `bool`. Its parent with final tests reproduced `3 failed, 1 passed`; the final commit passed `4`, and the historical broad three-file gate passed `312`.
+- Upstream overlap: v0.19.1 commit `397e9fc1e46e594d9d021a9061095e1b109faabb` added nonzero int propagation for egress. Candidate `hermes_cli/main.py` is byte-identical to upstream tag commit `cc4cab2f592e60a197e796506de9168f74baf3ea`, SHA-256 `13a826f08c3eb64c16b06d99e0b71274152c987bf87c26d948ec6ff09556ac63`.
+- Remaining gap: the native predicate is `isinstance(rc, int) and rc != 0`. Actual-`main()` subprocess injection produced `None=0`, `False=0`, `True=1`, `0=0`, `2=2`, `-1=255`, and string `"2"=0`; the expected-contract probe was `1 failed, 9 passed`, with `True` the only failure. Native v0.19.1 is therefore partial, not a replacement for the bool-safe exact-int contract.
+- Real CLI smoke: missing Kanban task returned `1`, invalid board slug returned `2`, and top-level help returned `0`. Native egress and Kanban adjacent suites passed `20`.
+- Docker diagnostic: a wider three-file run passed `23` and failed one pre-built s6 harness check because the image returned `137` instead of inner `42` with shutdownd permission errors. The test is byte-identical to upstream and exercises container supervision, not Python argparse; both independent review and source tracing classify it as a separate non-D6 regression, not a D6 blocker.
+- Options: retiring D6 is rejected because the bool gap remains. Verbatim historical replay is rejected because it would not minimally extend the newer upstream nonzero shape. An inline `type(rc) is int` change is valid but less explicit and less directly testable. Recommended: `retain-minimal-v0.19.1-aware-exact-int-helper`.
+- Proposed implementation: add one small internal helper in `hermes_cli/main.py` that exits only for nonzero values whose exact type is `int`, replace the inline `isinstance` branch with the helper, and add `tests/hermes_cli/test_main_return_codes.py`. No parser, egress, plugin registry, command handler, update, gateway, profile, or runtime contract should otherwise change.
+- Required TDD contracts: permanent actual-`main()` subprocess checks for `None/False/True/0/string -> 0`, `2 -> 2`, and POSIX `-1 -> 255`; disposable-HERMES_HOME egress failure `1`; Kanban missing task `1`; invalid board or argparse misuse `2`; help `0`. Tests must assert behavior relationships, not source snapshots.
+- Disposable design spike: the proposed helper passed all `10` expected-contract checks, `20` native egress/Kanban checks, Ruff, and `py_compile`; no product or permanent test file was changed.
+- Independent review: architecture session `019fcc32-378b-7393-8117-806028ab4972` recommended narrow helper hardening with zero blockers. Security/test session `019fcc33-ace9-7401-a9bf-69b4aff0fb4f` found zero security blockers and required the permanent actual-main/real-CLI test matrix; that requirement is now part of the implementation proposal and must be completed before implementation can pass review.
+- Evidence: `root-kernel/evidence/v0.19.1-D6-cli-return-code-reaudit.json`, SHA-256 `5a811b6c6bbb5de3f692493553685a0a6abd67508809e93bf45246ed7291361a` (local, Git-excluded).
+- Rollback: non-secret pre-audit ledger archive `/Users/draccoon/Workspace/Hermes/update-backups/20260804T092056Z-rk-v0191-d6-audit/d6-ledgers-pre-audit.tar.gz`, SHA-256 `e0b6cf7944b207a9e71cf98b6731bacaf443d511ab156a3a3af5d43c4624e6b6`; both ledgers restored byte-for-byte.
+- Implementation direction: 주군 explicitly authorized D6 implementation at `2026-08-04T19:16:59+09:00`. This authorizes strict TDD changes only in `hermes_cli/main.py`, `tests/hermes_cli/test_main_return_codes.py`, the two ledgers, and Git-excluded D6 implementation evidence; commit, push, D7, and live/profile/runtime mutation remain unauthorized.
+- Implementation rollback: non-secret pre-implementation archive `/Users/draccoon/Workspace/Hermes/update-backups/20260804T101659Z-rk-v0191-d6-implementation/d6-pre-implementation.tar.gz`, SHA-256 `bd0baa55ee7624948bf93bc011cbc6a44357d6db1f825ac421b50bfce0e2703f`; product, ledgers, and audit evidence restored byte-for-byte, and the manifest records that the permanent test file did not exist beforehand.
+- Implementation execution: strict TDD implementation and verification completed at `2026-08-04T19:33:45+09:00`; detailed results are recorded below.
+
+### D6 implementation result
+
+- Scope: added `_exit_if_nonzero_exact_int` in `hermes_cli/main.py`, replaced only the existing inline `isinstance` branch, and added `tests/hermes_cli/test_main_return_codes.py`. No parser, egress, Kanban, plugin registry, command handler, update, gateway, profile, or runtime implementation changed.
+- Behavior: exact nonzero `int` values retain native `sys.exit` semantics. `True`, `False`, `None`, strings, and other non-exact-int returns remain process success. Handler-raised `SystemExit` remains untouched.
+- TDD: before product change the permanent actual-`main()` suite produced `11 passed, 1 failed`; only `True` incorrectly returned `1`. After the minimal helper the same suite passed all `12`.
+- Permanent subprocess contracts: actual `main()` injection covers `None/False/True/0/string -> 0`, `2 -> 2`, and POSIX `-1 -> 255`; disposable `HERMES_HOME` real CLI paths cover egress failure `1`, Kanban missing task `1`, invalid board `2`, argparse misuse `2`, and help `0`.
+- Bounded verification: `239 passed` across `24` egress, Kanban, main-model, and update-adjacent files. Ruff check, test-file format, `py_compile`, `git diff --check`, and added-line security scan passed.
+- Baseline diagnostics: `tests/hermes_cli/test_update_eol_churn.py` produced the same `5 failed, 4 passed` on clean HEAD and current. `ty` produced the same `32` errors on clean HEAD and current with zero D6 path mentions. Full `main.py` format remains baseline-red on both clean HEAD and current because upstream would be broadly reformatted. The audit's Docker s6 `137` versus `42` failure remains a separate upstream-identical container supervision regression.
+- Independent review: architecture/security session `019fcc4f-76c6-7c93-a0e2-f9956e18fe8a` returned `PASS`, blocker `0`; test/regression session `019fcc52-14e3-7983-9365-fd4538d2a709` returned `PASS`, blocker `0`. Neither reviewer modified files.
+- Product hashes: `hermes_cli/main.py` SHA-256 `6e7a8f0efb6d05ec642e01374814cb08b1119926d2abb87596201641ff4e4b54`; `tests/hermes_cli/test_main_return_codes.py` SHA-256 `271a700bea66e6cb516a7e3adc41573d9382e12473681de316d104b92b663026`.
+- Evidence: `root-kernel/evidence/v0.19.1-D6-cli-return-code-implementation.json`, SHA-256 `11ce00b87a572afa874dad7224e9d8ae5b8eedca15c675418e1c89b7bdfe8694` (local, Git-excluded).
+- Rollback: `/Users/draccoon/Workspace/Hermes/update-backups/20260804T101659Z-rk-v0191-d6-implementation/d6-pre-implementation.tar.gz`, SHA-256 `bd0baa55ee7624948bf93bc011cbc6a44357d6db1f825ac421b50bfce0e2703f`; restore byte parity passed and rollback removes the newly created test file. The reviewed precommit candidate archive is `/Users/draccoon/Workspace/Hermes/update-backups/20260804T115221Z-rk-v0191-d6-precommit/d6-precommit-files.tar.gz`, SHA-256 `8d6fe27e9afd79f48a36ebef720f317ca57ce526d469cade9afb8530ee65a688`; all five product/test/ledger/evidence files restored byte-for-byte at that checkpoint.
+- Boundary and next action: product and permanent tests are limited to the two recorded D6 files. 주군의 explicit commit direction authorizes and accepts this self-recording D6 commit. No live/profile/runtime, gateway, token, skill, plugin, cron, D7, R gate, tag, or push mutation occurred. After commit creation, await explicit D7 re-audit direction.
 
 D1 retirement requires an exact later upstream target where CJK-enabled `hermes sessions recover` preserves canonical counts, reports `complete: true`, passes an equivalent CJK recovery regression, and leaves no Root Kernel-only behavior gap. A nearby CJK change, issue closure, or symbol match alone does not retire it.
 
@@ -391,4 +425,4 @@ D5 read-only re-audit result:
 - evidence: `root-kernel/evidence/v0.19.1-D5-kanban-same-card-review.json`, SHA-256 `f7d341a6ba42306bfb51fa180b26dbbe4be0eda12ac2bb31ddbf5e93a51d97da`;
 - scenario A, recommended: retain current D5-b through D5-f at current chokepoints; current b is the bundled core same-card loop, while current c/d/e/f are watcher/result/mutex/banner; preserve every verified new upstream behavior.
 
-D1–D5 are owner-accepted. D5-a through D5-f are implemented, verified, and committed, with D5-f product, tests, and ledgers recorded by this self-recording commit. D6–D7, fleet re-seed, live mutation, tag, push, and remote-ref movement remain unauthorized pending separate direction.
+D1–D6 are owner-accepted. D5-a through D5-f and D6 are implemented, verified, and committed through their respective self-recording commits. D7, fleet re-seed, live mutation, tag, push, and remote-ref movement remain unauthorized pending separate direction.

@@ -11028,6 +11028,12 @@ def cmd_claw(args):
     claw_command(args)
 
 
+def _exit_if_nonzero_exact_int(value: object) -> None:
+    """Propagate shell-style codes without treating bool as an integer code."""
+    if type(value) is int and value != 0:
+        sys.exit(value)
+
+
 def main():
     """Main entry point for hermes CLI."""
     # Cosmetic: make the process show up as 'hermes' instead of 'python3.11'
@@ -12410,8 +12416,7 @@ def main():
     # None are treated as success (exit 0).
     if hasattr(args, "func"):
         rc = args.func(args)
-        if isinstance(rc, int) and rc != 0:
-            sys.exit(rc)
+        _exit_if_nonzero_exact_int(rc)
     else:
         parser.print_help()
 
