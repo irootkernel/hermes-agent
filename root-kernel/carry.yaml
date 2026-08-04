@@ -2,7 +2,7 @@ schema_version: 1
 ledger_kind: root-kernel-release-carry
 release:
   version: v0.19.1
-  status: d5-e-implemented-verified-independent-review-passed-committed-owner-accepted
+  status: d5-complete-owner-accepted-awaiting-d6-direction
   tag_blocker: true
   scaffolded_at: '2026-08-02T17:24:26+09:00'
   candidate_branch: rk/v0.19.1
@@ -607,8 +607,8 @@ active_carries:
       version: v0.18.2
       entry_id: D2
       status: local_minimize_applied
-    status: d5-e-implemented-verified-independent-review-passed-committed-owner-accepted
-    owner_direction: owner-accepted-awaiting-d5-f-investigation-authorization
+    status: d5-complete-owner-accepted-awaiting-d6-direction
+    owner_direction: d5-f-commit-authorized-owner-accepted
     d5_b_investigation_started_at: '2026-08-03T16:39:16+09:00'
     d5_b_investigation_completed_at: '2026-08-03T17:07:28+09:00'
     d5_b_implementation_verified_at: '2026-08-03T18:38:22+09:00'
@@ -628,6 +628,13 @@ active_carries:
     d5_e_independent_review_passed_at: '2026-08-04T15:19:43+09:00'
     d5_e_commit_authorized_at: '2026-08-04T15:27:26+09:00'
     d5_e_owner_accepted_at: '2026-08-04T15:27:26+09:00'
+    d5_f_investigation_started_at: '2026-08-04T15:41:39+09:00'
+    d5_f_investigation_completed_at: '2026-08-04T16:11:25+09:00'
+    d5_f_implementation_authorized_at: '2026-08-04T16:30:18+09:00'
+    d5_f_implementation_verified_at: '2026-08-04T17:35:07+09:00'
+    d5_f_independent_review_passed_at: '2026-08-04T18:02:08+09:00'
+    d5_f_commit_authorized_at: '2026-08-04T17:50:41+09:00'
+    d5_f_owner_accepted_at: '2026-08-04T17:50:41+09:00'
     audit_started_at: '2026-08-03T13:55:06+09:00'
     audit_completed_at: '2026-08-03T13:59:37+09:00'
     requirement: Preserve only still-missing same-card review, result, mutex, watcher, and closed workflow semantics.
@@ -913,7 +920,150 @@ active_carries:
       owner_accepted: true
       owner_accepted_at: '2026-08-04T15:27:26+09:00'
       acceptance_basis: explicit-commit-direction-counts-as-owner-acceptance
-      d5_f_started: false
+      d5_f_not_started_at_d5_e_closeout: true
+    d5_f_analysis:
+      investigation_status: investigation-complete-solution-proposed
+      implementation_status: implementation-complete-verified-independent-review-passed-self-recording-commit-owner-accepted
+      historical_lineage: v0.18.2/D2-i
+      historical_final_commit: bc757256037e6ab0d5004e26c21b0b376597a3a3
+      title: closed workflow context banners
+      completed_at: '2026-08-04T16:11:25+09:00'
+      implementation_completed_at: '2026-08-04T17:35:07+09:00'
+      evidence:
+        path: root-kernel/evidence/v0.19.1-D5-f-closed-workflow-context-investigation.json
+        sha256: 05175e9e52710af037f68e9b15d3cb76aee0b60b8a7f3c4592c22446f6b0627c
+        publication_authorized: false
+      implementation_evidence:
+        path: root-kernel/evidence/v0.19.1-D5-f-closed-workflow-context-implementation.json
+        sha256: 62415d80420aca6e587a86c7662518060ce3e75557d8b871a84ff80c61d01d65
+        publication_authorized: false
+      native_overlap:
+        verdict: partial-not-replacement
+        generic_guidance: KANBAN_GUIDANCE documents current lifecycle tools but no persistent per-card protocol or role constraints.
+        workflow_template_id: future-v2 routing identity with current list-filter use; not closed prompt authority.
+        current_step_key: future-v2 step identity with run snapshot use; not closed prompt authority.
+      historical_verification:
+        focused_rerun: 10-passed-410-deselected
+        broad_rerun: 597-passed-1-skipped
+      current_probes:
+        gap_red: 7-failed
+        native_guidance_focused: 2-passed-26-deselected
+        historical_current_historical_db_compatibility: passed-with-workflow-type-bytes-preserved
+        design_spike: passed-seven-values-eight-strict-invalid-cases-five-typed-sqlite-rows
+      option_decision:
+        retire: rejected-generic-guidance-is-not-per-card-context
+        verbatim_replay: rejected-stale-validation-index-and-review-tool-copy
+        native_metadata_reuse: rejected-prompt-authority-and-future-v2-collision
+        lifecycle_inference: rejected-lossy-and-ambiguous
+        selected: retain-minimal-v0.19.1-aware-closed-workflow-context
+      recommendation:
+        storage_and_user_surface: Preserve workflow_type and --workflow-type for v0.18.2 DB/user compatibility while documenting separation from native routing metadata.
+        closed_value_count: 7
+        create_validation: None allowed; non-string, blank, and unknown values fail before idempotency lookup or writes.
+        persisted_sanitization: Non-coercing known-string-only; invalid values become null and never render or leak.
+        context_location: build_worker_context before Body; leave global KANBAN_GUIDANCE byte-stable.
+        required_copy_fix: creator_adjudicated_review reviewers use kanban_request_changes for rejection or kanban_complete for acceptance, never kanban_submit_review.
+        schema: additive nullable workflow_type TEXT; preserve existing column/bytes; no workflow_type index.
+        native_preservation: Never derive from, overwrite, alias, sanitize, or advance workflow_template_id/current_step_key.
+      required_product_files:
+        - hermes_cli/kanban_db.py
+        - hermes_cli/kanban.py
+        - tools/kanban_tools.py
+      required_tests:
+        - All seven banners and exact before-Body ordering.
+        - Strict invalid create types with no row/event write, including idempotency ordering.
+        - Persisted hostile text, numeric, and BLOB sanitization across context and all JSON surfaces.
+        - Fresh/additive/repeated migration, carried-byte preservation, and no dead index.
+        - No-key context byte parity and D5 transition/native-metadata preservation.
+        - Focused, product-adjacent, broad, static, security, and rollback compatibility gates.
+      implementation:
+        design: retain-minimal-v0.19.1-aware-closed-workflow-context
+        product_files: 3
+        test_files: 3
+        closed_values: 7
+        strict_validation_before_idempotency_and_writes: true
+        hostile_persisted_value_sanitization: passed
+        static_context_before_body: passed
+        global_kanban_guidance_unchanged: true
+        native_workflow_metadata_preserved: true
+        new_workflow_index_created: false
+        historical_workflow_index_preserved: true
+      verification:
+        focused_ci_parity: 153-passed-0-failed
+        kanban_broad_ci_parity: 337-passed-0-failed-across-41-files
+        ruff: passed
+        compileall: passed
+        git_diff_check: passed
+        ty_product_new_diagnostics: 0
+        ty_changed_file_baseline_diagnostics: 121
+        ty_changed_file_current_diagnostics: 83
+      compatibility:
+        historical_d2i_current_historical_roundtrip: passed
+        no_workflow_context_byte_parity: passed
+        no_workflow_context_sha256: 54c7b3ca193010724a2ca23dd44bf3fb37d83d3167522ba66d74ec7ec9f64541
+      independent_review:
+        architecture:
+          session_id: 019fcb91-78d5-70f0-8aed-e097d3efc081
+          verdict: retain-via-minimal-v0.19.1-aware-redesign
+        security_regression:
+          session_id: 019fcb97-b5f1-7441-a508-0f32c65542a1
+          verdict: revise
+          security_blockers: 0
+          logic_blockers: 1
+          blocker: Historical creator_adjudicated_review used the wrong current reviewer tool.
+          disposition: corrected-in-proposed-copy-and-passed-design-spike
+        implementation_architecture_security:
+          session_id: 019fcbd7-2e76-7e70-9a22-9b227899f156
+          verdict: pass
+          blockers: 0
+        implementation_test_migration_first_pass:
+          session_id: 019fcbdb-0933-74a0-b530-9fdcea900ce1
+          verdict: revise
+          blockers: 2
+          disposition: reversible-context-relation-and-historical-index-preservation-tests-added
+        implementation_blocker_followup:
+          session_id: 019fcbe7-454a-7992-be91-662934865f32
+          verdict: pass
+          blockers: 0
+        agents_behavior_contract_precommit:
+          session_id: 019fcbfb-0bcd-7a40-84e8-da01b3068ee2
+          verdict: revise
+          blockers: 1
+          disposition: stale-exact-golden-claims-replaced-with-reversible-relationship-wording
+        agents_wording_followup:
+          session_id: 019fcc00-e1ba-7f82-8ddd-2f4befb75bdd
+          verdict: pass
+          blockers: 0
+      scope:
+        - Historical contract, final code, tests, and limitations recovered.
+        - Upstream/current context, guidance, lifecycle, and metadata paths traced.
+        - Current gap reproduced and redesign validated in disposable probes.
+      exclusions:
+        - No commit, push, D6, D7, or R gate.
+        - No production board, dispatcher, gateway, token, runtime, profile, registry, alias, skill, plugin, or cron mutation.
+      rollback:
+        backup_dir: /Users/draccoon/Workspace/Hermes/update-backups/20260804T064139Z-rk-v0191-d5f-investigation
+        archive_sha256: 641269997f8349aa24e815fd038de53f2cfd9d170bbf6b42102b298489367e5a
+        secrets_included: false
+        restore_byte_parity: passed
+        implementation_backup_dir: /Users/draccoon/Workspace/Hermes/update-backups/20260804T073018Z-rk-v0191-d5f-implementation
+        implementation_archive_sha256: 3204ce604459d95df101afee887ee74fe12290fb2c596e00b3b8995a44a3b669
+        implementation_restore_byte_parity: passed
+        precommit_backup_dir: /Users/draccoon/Workspace/Hermes/update-backups/20260804T090230Z-rk-v0191-d5f-precommit
+        precommit_archive_sha256: 77f1191d18a2c9e2916098c409a121ee5fefd6bec51d7654dee84be468ec0b51
+        precommit_restore_byte_parity: passed
+      kscq:
+        query: closed workflow context banner kanban prompt workflow_type
+        result: no-indexed-learning-note
+      investigation_authorized: true
+      implementation_authorized: true
+      implementation_authorized_at: '2026-08-04T16:30:18+09:00'
+      commit_authorized: true
+      commit_authorized_at: '2026-08-04T17:50:41+09:00'
+      commit_state: self-recording-commit
+      owner_accepted: true
+      owner_accepted_at: '2026-08-04T17:50:41+09:00'
+      acceptance_basis: explicit-commit-direction-counts-as-owner-acceptance
     direction_scenario:
       A: Retain current D5-b through D5-f while preserving all verified new upstream behavior. Current D5-b bundles legacy D2-b through D2-e; current D5-c/d/e/f map to legacy D2-f/g/h/i. Recommended.
     independent_review:
@@ -921,9 +1071,10 @@ active_carries:
       security_concerns: 0
       logic_errors: 0
       missing_tests: 0
-      reviewer: Codex-CLI-read-only-blocker-follow-up
+      reviewer: Codex-CLI-read-only-D5-f-AGENTS-wording-follow-up
+      session_id: 019fcc00-e1ba-7f82-8ddd-2f4befb75bdd
     live_mutation: false
-    next_action: Await explicit D5-f investigation authorization; do not start implementation, push, or adjacent gates.
+    next_action: D5 is complete and owner-accepted in this self-recording commit; await explicit D6 re-audit direction.
   D6:
     current_id: D6
     renumbered_from_provisional_id: D4
@@ -1064,10 +1215,10 @@ ledger_parity:
     - live-mutation state
     - rollback authority
     - next action
-  status: d5-e-implemented-verified-independent-review-passed-committed-owner-accepted
+  status: d5-complete-owner-accepted-awaiting-d6-direction
 next_action:
-  task: D5-f investigation authorization
-  description: D5-e is committed and owner-accepted by the explicit commit direction. Await separate authorization to investigate D5-f; do not implement, push, or start adjacent gates.
+  task: D6 re-audit direction
+  description: D5-a through D5-f are complete, verified, committed in the current self-recording D5-f commit, and owner-accepted. Await explicit owner direction before starting the D6 read-only re-audit; do not push, start D7, or enter any R gate.
   d1_classification_approved: true
   task5_source_fix_authorized: true
   task5_source_fix_verified: true
@@ -1078,8 +1229,8 @@ next_action:
   task6_status: owner-accepted
   task6_owner_acceptance: accepted
   task6_accepted_at: '2026-08-03T00:41:48+09:00'
-  next_d_item: D5-f
-  next_d_item_owner_direction: investigation-authorization-pending
+  next_d_item: D6
+  next_d_item_owner_direction: pending
   d_item_implementation_authorized: false
   authorized_d_item: null
   commit_header: null

@@ -310,6 +310,114 @@ _CTX_MAX_FIELD_BYTES    = 4 * 1024   # 4 KB per summary/error/metadata/result
 _CTX_MAX_BODY_BYTES     = 8 * 1024   # 8 KB per task.body (opening post)
 _CTX_MAX_COMMENT_BYTES  = 2 * 1024   # 2 KB per comment
 
+# D5-f per-card workflow context. Values and rendered instructions are closed,
+# code-owned data: arbitrary task metadata must never become worker guidance.
+# This field is intentionally separate from the native future-v2
+# workflow_template_id/current_step_key routing metadata.
+WORKFLOW_CONTEXT_BANNERS: dict[str, tuple[str, ...]] = {
+    "creator_adjudicated_review": (
+        "This is a creator-adjudicated review loop.",
+        (
+            "Review the same card and return an explicit verdict: call "
+            "kanban_request_changes for rejection or kanban_complete for acceptance."
+        ),
+        (
+            "Do not mutate the reviewed artifact unless the task explicitly "
+            "assigns you implementation work."
+        ),
+    ),
+    "creator_accepted_work": (
+        "This is a creator-accepted work loop.",
+        (
+            "Do the assigned work, record concrete evidence, then use "
+            "kanban_submit_result to route the same card to its creator or acceptor."
+        ),
+        (
+            "Do not mark the card done unless the creator or acceptor role is "
+            "explicitly yours."
+        ),
+    ),
+    "parallel_color_review": (
+        "This is a parallel color review loop.",
+        (
+            "Treat this lane as read-only review unless the task explicitly says "
+            "otherwise; deliver an independent verdict with evidence."
+        ),
+        (
+            "Serialized mutation and synthesis belong to the designated owner "
+            "lane, not parallel reviewers."
+        ),
+    ),
+    "round_based_color_consensus": (
+        "This is a round-based color consensus loop.",
+        (
+            "Answer the current round with role-specific rationale, options, and "
+            "risks; wait for fan-in before assuming consensus."
+        ),
+        (
+            "Do not flatten other roles' authority or mutate shared artifacts "
+            "outside the round's explicit scope."
+        ),
+    ),
+    "fanout_fanin": (
+        "This is a fan-out/fan-in workflow.",
+        (
+            "Complete your independent shard with concise evidence and structured "
+            "metadata for the downstream synthesizer."
+        ),
+        (
+            "Do not wait on sibling shards unless the task body explicitly "
+            "declares a dependency."
+        ),
+    ),
+    "serial_dependency_chain": (
+        "This is a serial dependency chain.",
+        (
+            "Consume parent-task handoffs first, then produce the next stage's "
+            "handoff with enough evidence for its child task."
+        ),
+        (
+            "If a required parent output is missing or invalid, block or comment "
+            "instead of guessing."
+        ),
+    ),
+    "single_card_baton": (
+        "This is a single-card iterative baton pass.",
+        (
+            "Keep discussion, handoff, and evidence on this card; use "
+            "kanban_reassign to pass ownership instead of creating a duplicate."
+        ),
+        (
+            "Stop after a successful reassignment and preserve traceability by "
+            "summarizing exactly what changed."
+        ),
+    ),
+}
+VALID_WORKFLOW_TYPES = frozenset(WORKFLOW_CONTEXT_BANNERS)
+
+
+def safe_workflow_type(value: object) -> Optional[str]:
+    """Return a canonical known persisted value without coercing hostile types."""
+    if not isinstance(value, str):
+        return None
+    workflow_type = value.strip()
+    return workflow_type if workflow_type in VALID_WORKFLOW_TYPES else None
+
+
+def _normalize_workflow_type(value: object) -> Optional[str]:
+    """Validate a create-time workflow type before idempotency or writes."""
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ValueError("workflow_type must be a string or null")
+    workflow_type = safe_workflow_type(value)
+    if workflow_type is None:
+        raise ValueError(
+            "workflow_type must be one of "
+            f"{sorted(VALID_WORKFLOW_TYPES)}, got {value.strip()!r}"
+        )
+    return workflow_type
+
 
 def _relative_age(ts: Optional[int], now: Optional[int] = None) -> str:
     """Render the age of an epoch-seconds timestamp as a coarse, human-
@@ -946,6 +1054,9 @@ class Task:
     # Explicit board-local serialization key. While this task is ``running``,
     # other cards with the same non-empty key cannot be claimed.
     mutex_key: Optional[str] = None
+    # Closed per-card operating context. Unknown persisted values are sanitized
+    # in from_row and never become prompt instructions or output metadata.
+    workflow_type: Optional[str] = None
     # Typed block reason (one of VALID_BLOCK_KINDS) or None for legacy/un-typed
     # blocks. Set by ``block_task``; preserved across unblock so a re-block for
     # the same kind is recognisable as an unblock↔re-block loop.
@@ -1041,6 +1152,10 @@ class Task:
             ),
             mutex_key=(
                 row["mutex_key"] if "mutex_key" in keys else None
+            ),
+            workflow_type=(
+                safe_workflow_type(row["workflow_type"])
+                if "workflow_type" in keys else None
             ),
             block_kind=(
                 row["block_kind"] if "block_kind" in keys and row["block_kind"] else None
@@ -1226,6 +1341,9 @@ CREATE TABLE IF NOT EXISTS tasks (
     -- Explicit board-local mutual-exclusion key. Ownership exists only while
     -- this task is status='running'; the value remains on the card afterward.
     mutex_key            TEXT,
+    -- Closed per-card workflow context key. Distinct from future-v2 routing
+    -- metadata; only code-owned known values may render into worker context.
+    workflow_type        TEXT,
     -- Typed block reason set by ``block_task`` (one of VALID_BLOCK_KINDS, or
     -- NULL for legacy/un-typed blocks). Drives routing: ``dependency`` never
     -- sits in ``blocked`` (goes to ``todo`` for parent-gating); the others go
@@ -2426,6 +2544,11 @@ def _migrate_add_optional_columns(conn: sqlite3.Connection) -> None:
     if "mutex_key" not in cols:
         _add_column_if_missing(conn, "tasks", "mutex_key", "mutex_key TEXT")
 
+    if "workflow_type" not in cols:
+        # Existing rows default to NULL. Boards previously carrying D2-i already
+        # have this column, so their exact stored bytes remain untouched.
+        _add_column_if_missing(conn, "tasks", "workflow_type", "workflow_type TEXT")
+
     if "block_kind" not in cols:
         # Typed block reason (VALID_BLOCK_KINDS) or NULL for legacy/un-typed
         # blocks. Existing blocked rows get NULL, which is treated as a
@@ -2884,6 +3007,7 @@ def create_task(
     initial_status: str = "running",
     session_id: Optional[str] = None,
     mutex_key: Optional[str] = None,
+    workflow_type: Optional[str] = None,
     board: Optional[str] = None,
     project_id: Optional[str] = None,
     project_source_task_id: Optional[str] = None,
@@ -2928,6 +3052,7 @@ def create_task(
         raise ValueError("provider_override requires a model_override")
     assignee = _canonical_assignee(assignee)
     mutex_key = _normalize_mutex_key(mutex_key)
+    workflow_type = _normalize_workflow_type(workflow_type)
     if not title or not title.strip():
         raise ValueError("title is required")
     if initial_status not in VALID_INITIAL_STATUSES:
@@ -3180,8 +3305,9 @@ def create_task(
                         branch_name, project_id, tenant, idempotency_key,
                         max_runtime_seconds,
                         skills, max_retries, model_override, provider_override,
-                        goal_mode, goal_max_turns, session_id, mutex_key
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        goal_mode, goal_max_turns, session_id, mutex_key,
+                        workflow_type
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         task_id,
@@ -3207,6 +3333,7 @@ def create_task(
                         int(goal_max_turns) if goal_max_turns is not None else None,
                         session_id,
                         mutex_key,
+                        workflow_type,
                     ),
                 )
                 for pid in parents:
@@ -3232,6 +3359,7 @@ def create_task(
                         "model_override": model_override,
                         "provider_override": provider_override,
                         "mutex_key": mutex_key,
+                        "workflow_type": workflow_type,
                     },
                 )
                 _inherit_notify_subs(conn, task_id, parents, created_at=now)
@@ -10126,6 +10254,14 @@ def build_worker_context(conn: sqlite3.Connection, task_id: str) -> str:
     if task.branch_name:
         lines.append(f"Branch:   {task.branch_name}")
     lines.append("")
+
+    if task.workflow_type:
+        banner = WORKFLOW_CONTEXT_BANNERS.get(task.workflow_type)
+        if banner:
+            lines.append("## Workflow context")
+            lines.append(f"Workflow type: {task.workflow_type}")
+            lines.extend(f"- {item}" for item in banner)
+            lines.append("")
 
     if task.body and task.body.strip():
         lines.append("## Body")

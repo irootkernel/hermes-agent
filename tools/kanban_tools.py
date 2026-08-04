@@ -47,6 +47,15 @@ logger = logging.getLogger(__name__)
 
 KANBAN_LIST_DEFAULT_LIMIT = 50
 KANBAN_LIST_MAX_LIMIT = 200
+KANBAN_WORKFLOW_TYPES = (
+    "creator_accepted_work",
+    "creator_adjudicated_review",
+    "fanout_fanin",
+    "parallel_color_review",
+    "round_based_color_consensus",
+    "serial_dependency_chain",
+    "single_card_baton",
+)
 
 
 def _profile_has_kanban_toolset() -> bool:
@@ -394,6 +403,7 @@ def _task_summary_dict(kb, conn, task) -> dict[str, Any]:
         "current_run_id": task.current_run_id,
         "model_override": task.model_override,
         "provider_override": task.provider_override,
+        "workflow_type": task.workflow_type,
         "parents": parents,
         "children": children,
         "parent_count": len(parents),
@@ -440,6 +450,7 @@ def _handle_show(args: dict, **kw) -> str:
                     "current_run_id": t.current_run_id,
                     "model_override": t.model_override,
                     "provider_override": t.provider_override,
+                    "workflow_type": t.workflow_type,
                 }
 
             def _run_dict(r):
@@ -1685,6 +1696,7 @@ def _handle_create(args: dict, **kw) -> str:
         return tool_error(bool_error)
     idempotency_key = args.get("idempotency_key")
     mutex_key = args.get("mutex_key")
+    workflow_type = args.get("workflow_type")
     max_runtime_seconds = args.get("max_runtime_seconds")
     initial_status = args.get("initial_status") or "running"
     skills = args.get("skills")
@@ -1738,6 +1750,7 @@ def _handle_create(args: dict, **kw) -> str:
                 triage=triage,
                 idempotency_key=idempotency_key,
                 mutex_key=mutex_key,
+                workflow_type=workflow_type,
                 max_runtime_seconds=(
                     int(max_runtime_seconds)
                     if max_runtime_seconds is not None else None
@@ -1762,6 +1775,7 @@ def _handle_create(args: dict, **kw) -> str:
                 workspace_path=new_task.workspace_path if new_task else None,
                 project_id=new_task.project_id if new_task else None,
                 mutex_key=new_task.mutex_key if new_task else None,
+                workflow_type=new_task.workflow_type if new_task else None,
                 subscribed=subscribed,
             )
         finally:
@@ -2534,6 +2548,15 @@ KANBAN_CREATE_SCHEMA = {
                     "Serialize this task with other running tasks that use "
                     "the same explicit board-local key. Trimmed only; "
                     "schemes and case are preserved."
+                ),
+            },
+            "workflow_type": {
+                "type": "string",
+                "enum": list(KANBAN_WORKFLOW_TYPES),
+                "description": (
+                    "Closed per-card operating protocol rendered as static "
+                    "worker context. Distinct from future-v2 workflow routing "
+                    "metadata; arbitrary values are rejected."
                 ),
             },
             "max_runtime_seconds": {
