@@ -2,11 +2,11 @@
 
 ## Release state
 
-- Status: `task14-owner-accepted-ledger-commit-created`
+- Status: `task15-owner-accepted-ledger-commit-created`
 - Candidate branch: `rk/v0.19.1`
 - Candidate worktree: `/Users/draccoon/Workspace/Hermes/17th-hermes-agent-worktree`
 - Tag blocker: `true`
-- Live activation: not started
+- Live activation: v0.19.1 active at `413ee1d4bf9f83e636b937dac76a41368fe343c3`; technical pass and owner acceptance complete
 - Previous Task 2 commit: `509ae0f6d1c5ea9f7dfb9a77a965614dd91b16ff`
 - Task 3 ledger commit: `53e6060682a8dc98df6a30ef671b2ecb53c2384e`
 - Current D1 commit: this ledger commit; exact SHA is recorded in Git and the excluded D1 evidence
@@ -23,6 +23,7 @@
 - D7 owner acceptance was recorded at `2026-08-05T01:20:28+09:00`; commit direction followed at `2026-08-05T01:38:42+09:00` and execution consent was reconfirmed at `2026-08-05T02:05:57+09:00`; this is the self-recording `[D7]` commit
 - Task 13 integrated candidate smoke was authorized at `2026-08-05T02:19:30+09:00`; initial review blocked incomplete evidence, all corrections completed, and final independent technical verification passed at `2026-08-05T03:05:12+09:00`; 주군 accepted Task 13 at `2026-08-05T10:57:58+09:00`
 - Task 14 activation backup and rollback rehearsal passed technically at `2026-08-05T12:03:10+09:00`; 주군 accepted Task 14 and authorized its two-ledger commit at `2026-08-05T12:26:25+09:00`
+- Task 15 production activation passed technically at `2026-08-05T16:16:57+09:00`; 주군 accepted Task 15 and authorized its two-ledger commit at `2026-08-05T16:28:42+09:00`. Task 16, tag, push, and remote-ref movement remain separately pending
 - Tag, push, and remote-ref movement: not authorized
 - Scaffolded at: `2026-08-02T17:24:26+09:00`
 
@@ -139,7 +140,7 @@ These values are the completed planning baseline. Fleet values must be refreshed
 
 ## v0.19.1 active D items
 
-Inherited carry lineages remain `pending-re-audit` until their own gate starts. D1–D7 and Tasks 13–14 are owner-accepted and committed. Task 15 and live mutation remain unauthorized. A familiar v0.18.2 patch is not authority to replay it.
+Inherited carry lineages remain `pending-re-audit` until their own gate starts. D1–D7 and Tasks 13–15 are owner-accepted and committed. A familiar v0.18.2 patch is not authority to replay it.
 
 | Current ID | Work item | Previous release | Current status | Next action |
 |---|---|---|---|---|
@@ -350,7 +351,7 @@ Inherited carry lineages remain `pending-re-audit` until their own gate starts. 
 - Independent review: the first review returned `BLOCKED` and found the tag-ref, lineage, command-auditability, warning-classification, and duplicate-count defects. After correction, a fresh read-only Codex audit returned `VERDICT: PASS`, `TASK13_BLOCKERS: NONE`, and `FILES_MODIFIED: NONE`.
 - Evidence: `root-kernel/evidence/v0.19.1-task13-integrated-candidate-smoke.json`, SHA-256 `7578a4f5a0a9f2759f8f296cdd1edf4f39a699e17b24916259f4f7fc26cc8de5` (local, Git-excluded). Logs and executable evidence scripts are under `/Users/draccoon/Workspace/Hermes/update-backups/20260804T172349Z-rk-v0191-task13/`.
 - Rollback: the Task 13 start-ledger archive SHA-256 is `9bd94bdb39f5f15149f3072f9231b183450806f9368c3d36de11fe80387e8e44`. The pre-review-correction archive SHA-256 is `f183c6f6eb5f07366e0ccf46a10190cf6db5a94a4ad0f87aa20101e8e337ae90`. The pre-owner-acceptance archive SHA-256 is `c3f0992f4d1dc201b9ae8bb6ec977d674a3fc9d5d61e9546a0b7612f9f49b132`. The precommit archive is `/Users/draccoon/Workspace/Hermes/update-backups/20260805T021230Z-rk-v0191-task13-precommit/task13-precommit-files.tar.gz`, SHA-256 `fd1bfb741a8cb6b60827affe2ea218ab2ad4547a642bac9af4f19b07021f8a1d`; byte restore passed and no secrets are included.
-- Next gate: the authorized two-ledger `[INT]` self-recording commit is created. Task 14 has now passed technically and awaits explicit owner acceptance; Task 15 remains unauthorized.
+- Historical next gate at Task 13 closeout: the authorized two-ledger `[INT]` self-recording commit was created, Task 14 awaited acceptance, and Task 15 was unauthorized. Tasks 14–15 have since been owner-accepted.
 
 ### Task 14 activation backup and rollback rehearsal
 
@@ -364,7 +365,22 @@ Inherited carry lineages remain `pending-re-audit` until their own gate starts. 
 - Review: deterministic closeout audit passed every Task 14 requirement. Optional Codex and Claude independent CLI reviews were unavailable due authentication and produced no verdict; the plan does not require an independent LLM review.
 - Evidence: `root-kernel/evidence/v0.19.1-task14-activation-rollback.json`, SHA-256 `d501562673429a104b246bce7c9dddf0d946e1a2bc4b6b4f9ea19bf32bf4e048` (local, Git-excluded).
 - Acceptance commit rollback: `/Users/draccoon/Workspace/Hermes/update-backups/20260805T032625Z-rk-v0191-task14-acceptance-precommit/task14-acceptance-precommit.tar.gz`, SHA-256 `e17056feaac1dda5ebb1825159e4f9485cf82eb4ca73d73883569f416529b2b0`; restore parity passed and no secrets are included.
-- Next gate: the authorized Task 14 two-ledger `[INT]` self-recording commit is created. Await separate Task 15 direction; production state backup, gateway stop/restart, `rk/live` movement, venv/profile/launcher mutation, tag, push, and remote refs remain unauthorized.
+- Historical next gate at Task 14 closeout: the authorized two-ledger `[INT]` commit was created and Task 15 remained separately gated. Task 15 has since activated v0.19.1 and been owner-accepted; tag, push, and remote refs remain unauthorized.
+
+### Task 15 production activation
+
+- Technical verdict: `accepted-ledger-commit-created`; v0.19.1 is active on local `rk/live` at candidate head `413ee1d4bf9f83e636b937dac76a41368fe343c3`. 주군 accepted Task 15 and authorized its two-ledger commit at `2026-08-05T16:28:42+09:00`. No push, tag, or remote-ref movement occurred.
+- First attempt: the system-Python SQLite 3.51.0 read-only integrity check failed before the first DB copy. Automatic rollback restored v0.18.2, all 13 approved processes, schema 19, and a clean live worktree. The corrected controller retained read-only source access and switched only to the prepared managed SQLite 3.53.1 runtime.
+- Restricted backup and migration: 12/12 schema-19 DB backups passed integrity, count parity, FTS readability, directory mode `0700`, and file mode `0600`; all 12 live DBs then migrated to schema 23. Default counts are 1,071 sessions and 84,410 messages/FTS rows; the other 11 DBs were empty before and remain empty after migration.
+- Runtime: Python 3.11.15, SQLite 3.53.1, Hermes v0.19.1, 13 fresh approved PIDs, 12 gateway profiles, dashboard health pass, 12/12 cron-status commands pass, and PATH launcher target `/Users/draccoon/.hermes/hermes-agent/venv/bin/python`.
+- Activation smoke: 49/49 profile config checks passed with zero writes; Discord and Telegram visible smoke passed; no credential fallback or reuse was detected.
+- Post-live rollback-trigger regression: D1, D4, D5, D6, D7, and CJK FTS focused scope passed 397/397 across 14 files under disposable test isolation.
+- Rollback authority: `rk/rollback/pre-v0.19.1-20260805T130458`, preserved `venv.rollback-v0.18.2`, and the restricted 12-DB snapshot remain available. The automatic rollback path was exercised successfully by the first attempt.
+- Evidence: `root-kernel/evidence/v0.19.1-task15-production-activation.json`, SHA-256 `8780c14b6db179171dbd5fc4afb709cec7f29bf89144a05d4639e6a6ff8dc74d` (local, Git-excluded). Controller receipt SHA-256 `6712e97619c248b63c4f6f431b7791f899c8a774d379f4946ed11d24db5c83f3`; restricted backup receipt SHA-256 `718f461cba8ffa8259a8ce98b8fd77be53abf81710148a944b2c9d9a1ebed2e8`.
+- One-shot cleanup: the completed activation LaunchAgent is unloaded and removed from `~/Library/LaunchAgents`; its mode-0600 plist is archived in the Task 15 controller package, preventing stale login-time reruns.
+- Closeout rollback: `/Users/draccoon/Workspace/Hermes/update-backups/20260805T071516Z-rk-v0191-task15-closeout/task15-closeout-preledger.tar.gz`, SHA-256 `c09356d15281b1cd8c2a60e514a20605b4988f6093cede6354ab47c90a037eec`; no secrets included.
+- Acceptance precommit rollback: `/Users/draccoon/Workspace/Hermes/update-backups/20260805T072842Z-rk-v0191-task15-acceptance-precommit/task15-acceptance-precommit.tar.gz`, SHA-256 `8fbafcfc585260b3afab6d24b0031a4f073db4bcad8ca745e5a896dee871d56c`; three-file byte restore parity passed and no secrets are included.
+- Next gate: Task 15 is owner-accepted and its two-ledger commit is created. Await a separate Task 16 R1 start direction; do not push, tag, or move remote refs.
 
 D1 retirement requires an exact later upstream target where CJK-enabled `hermes sessions recover` preserves canonical counts, reports `complete: true`, passes an equivalent CJK recovery regression, and leaves no Root Kernel-only behavior gap. A nearby CJK change, issue closure, or symbol match alone does not retire it.
 
@@ -391,7 +407,7 @@ Current v0.19.1 IDs identify execution order and may differ from identically num
 
 ## Post-live R gates
 
-R gates are not candidate-construction tasks. All are reset to `pending` and remain blocked until `rk/live` activation.
+R gates are not candidate-construction tasks. `rk/live` activation and Task 15 owner acceptance are complete, but all R gates remain `pending` until a separate R1 start direction.
 
 | Gate | Scope | Status | Acceptance |
 |---|---|---|---|
@@ -405,7 +421,7 @@ Only one R gate may be active at a time. Technical success is not acceptance.
 
 ## Activation and rollback boundaries
 
-Activation remains blocked until all of the following pass:
+Task 15 activation is technically passed and owner-accepted. The activation prerequisites below are satisfied:
 
 - D1–D7 each have an explicit owner direction and current evidence.
 - Candidate-focused, state, skill, automation, gateway, and rollback smokes pass.
@@ -413,6 +429,8 @@ Activation remains blocked until all of the following pass:
 - A typed, non-secret rollback package is created and restored in a disposable path.
 - Any real state database backup/canary has separate sensitive-data approval.
 - External control is ready for the root no-self-restart boundary.
+
+The local live runtime is v0.19.1. The tag blocker remains true because R1–R5 are pending.
 
 No `.env`, `auth.json`, token, credential pool, private key, or real state database may be copied into this repository or ordinary evidence.
 

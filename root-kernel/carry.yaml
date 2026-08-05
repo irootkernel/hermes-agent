@@ -1541,7 +1541,114 @@ task14:
     launchd_load_or_unload: false
     launcher_write: false
     push_tag_or_remote_ref_move: false
-  next_action: Task 14 is owner-accepted and committed. Await separate Task 15 direction; all activation mutations remain separately unauthorized.
+  next_action: At Task 14 closeout, Task 15 direction and all activation mutations remained separately unauthorized. Task 15 has since activated v0.19.1 and been owner-accepted; push, tag, and remote refs remain unauthorized.
+task15_activation:
+  status: owner-accepted-ledger-commit-created
+  technical_verdict: pass
+  owner_acceptance: accepted
+  accepted_at: '2026-08-05T16:28:42+09:00'
+  commit_authorized: true
+  completed_at: '2026-08-05T16:16:57+09:00'
+  candidate_head: 413ee1d4bf9f83e636b937dac76a41368fe343c3
+  previous_live_head: 75a1faf0eb49b6bd465d80c02775b024afa521e8
+  live:
+    branch: rk/live
+    head: 413ee1d4bf9f83e636b937dac76a41368fe343c3
+    clean: true
+    version: v0.19.1
+    python: 3.11.15
+    sqlite: 3.53.1
+    schema: 23
+  first_attempt:
+    status: failed-before-first-database-copy-then-automatic-rollback-passed
+    database_files_copied: 0
+    migration_performed: false
+    recovered_runtime: v0.18.2
+    recovered_roster: 13
+    cause: system SQLite 3.51.0 read-only integrity check failed on the large production snapshot
+  repair:
+    source_open_mode: read-only-preserved
+    controller_interpreter: managed Python 3.11.15 with SQLite 3.53.1
+    large_snapshot_regression: passed
+    disposable_backup_restore: passed
+    launchd_large_snapshot: passed
+    retry_authorization_guard: passed
+  state_backup:
+    approved: true
+    directory: /Users/draccoon/Workspace/Hermes/update-backups/20260805T040458Z-rk-v0191-task15/sensitive-state-backup
+    directory_mode: '0700'
+    database_count: 12
+    database_mode: '0600'
+    source_schema: 19
+    integrity: ok
+    count_parity: true
+    fts_readable: true
+    receipt_sha256: 718f461cba8ffa8259a8ce98b8fd77be53abf81710148a944b2c9d9a1ebed2e8
+  migration:
+    database_count: 12
+    target_schema: 23
+    count_parity: true
+    default_sessions: 1071
+    default_messages: 84410
+    default_fts_rows: 84410
+    other_profile_databases_empty_before_after: 11
+  config:
+    profiles_checked: 49
+    failures: 0
+    writes: 0
+  runtime:
+    approved_processes: 13
+    fresh_pids: 13
+    gateway_profiles: 12
+    dashboard_health: passed
+    cron_status_profiles: 12
+    cron_status_failures: 0
+    launcher: /Users/draccoon/.local/bin/hermes-python
+    launcher_target: /Users/draccoon/.hermes/hermes-agent/venv/bin/python
+  visible_smoke:
+    discord: passed
+    telegram: passed
+    credential_fallback_or_reuse_detected: false
+  post_live_carry_regressions:
+    scope:
+      - D1
+      - D4
+      - D5
+      - D6
+      - D7
+      - CJK FTS
+    test_files: 14
+    passed: 397
+    failed: 0
+    log_sha256: 72cfcb3d10e265728a8940a3eb85c32cd71205d09cb900cddc693112ca41d7db
+  rollback:
+    ref: rk/rollback/pre-v0.19.1-20260805T130458
+    old_venv: /Users/draccoon/.hermes/hermes-agent/venv.rollback-v0.18.2
+    automatic_path_exercised: true
+    automatic_path_result: passed
+  evidence:
+    path: root-kernel/evidence/v0.19.1-task15-production-activation.json
+    sha256: 8780c14b6db179171dbd5fc4afb709cec7f29bf89144a05d4639e6a6ff8dc74d
+    git_excluded: true
+    controller_receipt_sha256: 6712e97619c248b63c4f6f431b7791f899c8a774d379f4946ed11d24db5c83f3
+  one_shot_cleanup:
+    loaded: false
+    installed_launch_agent: false
+    archived_plist: /Users/draccoon/Workspace/Hermes/update-backups/20260805T040458Z-rk-v0191-task15/controller/ai.rootkernel.task15-activation-20260805.completed.plist
+    stale_rerun_prevented: true
+  closeout_backup:
+    archive: /Users/draccoon/Workspace/Hermes/update-backups/20260805T071516Z-rk-v0191-task15-closeout/task15-closeout-preledger.tar.gz
+    sha256: c09356d15281b1cd8c2a60e514a20605b4988f6093cede6354ab47c90a037eec
+    secrets_included: false
+  acceptance_precommit_backup:
+    archive: /Users/draccoon/Workspace/Hermes/update-backups/20260805T072842Z-rk-v0191-task15-acceptance-precommit/task15-acceptance-precommit.tar.gz
+    sha256: 8fbafcfc585260b3afab6d24b0031a4f073db4bcad8ca745e5a896dee871d56c
+    restore_parity: passed
+    secrets_included: false
+  blocking_findings: []
+  push_tag_or_remote_ref_move: false
+  task16_started: false
+  next_action: Task 15 is owner-accepted and its two-ledger commit is created. Await separate Task 16 R1 direction.
 post_live_gates:
   execution_boundary: Run only after rk/live activation, one gate at a time.
   technical_pass_is_acceptance: false
@@ -1598,15 +1705,13 @@ post_live_gates:
     tag_blocker: true
     operator_acceptance: pending
 activation:
-  status: blocked
+  status: owner-accepted
   blockers:
-    - Task 15 activation not authorized
-    - separate restricted production state backup approval and capture pending
-    - external root-gateway control not yet executed
-    - root default messaging token ownership unresolved and activation unauthorized
+    - R1 through R5 pending before tag closeout
   root_self_restart_allowed: false
   external_control_required: true
   sensitive_state_backup_requires_separate_approval: true
+  sensitive_state_backup_approved_and_captured: true
   secret_exclusions:
     - .env
     - auth.json
@@ -1625,10 +1730,10 @@ ledger_parity:
     - live-mutation state
     - rollback authority
     - next action
-  status: task14-owner-accepted-ledger-commit-created
+  status: task15-owner-accepted-ledger-commit-created
 next_action:
-  task: Task 15 direction
-  description: Task 14 rollback readiness is technically passed, owner-accepted, and committed. Await separate Task 15 direction. Sensitive production state backup, gateway control, rk/live movement, push, tag, and live/profile/runtime mutation remain separately unauthorized.
+  task: Task 16 R1 direction
+  description: Task 15 activation is technically passed, owner-accepted, and committed. Await a separate Task 16 R1 start direction. Push, tag, and remote-ref movement remain unauthorized.
   d1_classification_approved: true
   task5_source_fix_authorized: true
   task5_source_fix_verified: true
@@ -1649,6 +1754,12 @@ next_action:
   task14_owner_acceptance: accepted
   task14_accepted_at: '2026-08-05T12:26:25+09:00'
   task14_commit_authorized: true
+  task15_authorized: true
+  task15_status: owner-accepted-ledger-commit-created
+  task15_technical_verdict: pass
+  task15_owner_acceptance: accepted
+  task15_accepted_at: '2026-08-05T16:28:42+09:00'
+  task15_commit_authorized: true
   next_d_item: null
   next_d_item_owner_direction: all-current-d-items-owner-accepted-and-committed
   d_item_implementation_authorized: false
