@@ -2,7 +2,7 @@ schema_version: 1
 ledger_kind: root-kernel-release-carry
 release:
   version: v0.19.1
-  status: d7-implementation-complete-verified-self-recording-commit-owner-accepted
+  status: task13-owner-accepted-ledger-commit-created
   tag_blocker: true
   scaffolded_at: '2026-08-02T17:24:26+09:00'
   candidate_branch: rk/v0.19.1
@@ -424,7 +424,7 @@ active_carries:
       static_security_scan: passed
       candidate_cli_import: passed
       independent_review: passed
-      full_candidate_smoke: pending-task13
+      full_candidate_smoke: passed-task13-awaiting-owner-acceptance
     activation_impact: task5-owner-acceptance-and-activation-blocker
     rollback: Revert only candidate D1 code and tests before activation; no live, profile, gateway, ref, tag, remote, or real-state rollback is involved.
     retirement:
@@ -1334,9 +1334,9 @@ active_carries:
     acceptance_basis: explicit-owner-approval-without-commit-direction
     red_evidence: permanent vertical RED contracts reproduced; review blocker reproduced as 2 failed plus 1 failed contracts
     green_evidence: final doctor file 53 passed; Task 12 target 66 passed; static and security gates passed
-    integrated_smoke: five disposable doctor profiles passed; Task 13 not started
+    integrated_smoke: Task 13 integrated candidate smoke passed; owner acceptance pending
     live_mutation: false
-    next_action: Self-recording D7 commit created; await separate Task 13 direction for final candidate smoke. Do not push or mutate live/profile/runtime state.
+    next_action: Preserve D7 while Task 13 awaits owner acceptance. Do not push or mutate live/profile/runtime state.
 historical_retired:
   v0.18.2/D1:
     title: Tool Search pair
@@ -1353,6 +1353,101 @@ historical_retired:
     status: historical-retired
     replay_allowed: false
     rule: A new current consumer and independent owner decision are required.
+task13:
+  title: Integrated candidate smoke
+  status: accepted-ledger-commit-created
+  technical_verdict: pass
+  commit_authorized: true
+  commit_authorized_at: '2026-08-05T11:12:30+09:00'
+  commit_message: '[INT] Record Task 13 candidate smoke acceptance'
+  commit_state: self-recording-commit-created
+  final_commit_sha_authority: Git HEAD after ledger-only closeout amend
+  authorized: true
+  authorized_at: '2026-08-05T02:19:30+09:00'
+  verified_at: '2026-08-05T03:05:12+09:00'
+  owner_acceptance: accepted
+  owner_accepted_at: '2026-08-05T10:57:58+09:00'
+  candidate:
+    branch: rk/v0.19.1
+    head: 4ca7afa4f7d2afddea0e765b47e645e0765dc012
+    upstream_tag: v2026.7.30
+    tag_object: d25e2dbdbc40b49808c0a0e9cfed21cc90cffab3
+    upstream_commit: cc4cab2f592e60a197e796506de9168f74baf3ea
+    local_tag_ref: present
+    upstream_tag_ref: present
+    carry_commits: 16
+    worktree_clean: true
+  carry_lineage_origin:
+    D1: current-release Task 5 discovery
+    D2: current-release Task 6 discovery
+    D3: v0.18.2/D8
+    D4: v0.18.2/D4
+    D5: v0.18.2/D2
+    D6: v0.18.2/D6
+    D7: v0.18.2/D7
+  evidence:
+    path: root-kernel/evidence/v0.19.1-task13-integrated-candidate-smoke.json
+    sha256: 7578a4f5a0a9f2759f8f296cdd1edf4f39a699e17b24916259f4f7fc26cc8de5
+    git_excluded: true
+    external_log_dir: /Users/draccoon/Workspace/Hermes/update-backups/20260804T172349Z-rk-v0191-task13
+  verification:
+    unique_test_files: 54
+    unique_python_tests_passed: 1339
+    unique_python_tests_failed: 0
+    focused_group_executions_passed: 1428
+    focused_group_executions_failed: 0
+    d1_d7_focused: passed
+    state_schema_korean_fts_wal_fallback: passed
+    compression_lock_context_preservation: passed
+    skill_sync_provenance_tool_disclosure: passed
+    cron_workdir_ownership_execution_ledger_oneshot: passed
+    gateway_lifecycle_reconnect_telegram_discord: passed
+    dashboard_source_tests: 12 passed
+    dashboard_build_files: 51
+    dashboard_build_sha256: 15e8ff94af4dbec3e10f7d85333db569735622916d3fbdafd0b79e99aaba5e5c
+    dashboard_exact_command_recorded: true
+    docker_readonly_candidate: passed
+    docker_exact_command_recorded: true
+    docker_bind_mount_count: 1
+    docker_network: none
+    docker_sqlite: 3.53.4
+    tag_signature_fingerprint: SHA256:x9xNOpeJhoEAY2gWhmWHZROC3QF3VjOEbmNo9vQ8y2A
+  warnings:
+    - local shared candidate venv links SQLite 3.50.4 and uses verified DELETE-mode fallback; activation rebuild must re-verify fixed SQLite
+    - source banner upstream annotation follows local main and is not release-base evidence
+    - blank disposable home intentionally lacks config, credentials, launcher, initialized Skills Hub, optional tools, and a complete sessions state schema
+    - one auxiliary timeout first attempt exceeded its threshold by 3.8 ms; retry passed, exact tag and candidate each passed 3 of 3 clean-env comparisons, and candidate passed 5 of 5 normal-env repeats
+    - Task 14 rollback rehearsal remains an activation blocker and is not authorized by Task 13
+  blocking_findings: []
+  isolation:
+    live_path_mounted: false
+    credentials_read: false
+    real_state_database_read: false
+    profiles_mutated: false
+    runtime_mutated: false
+    gateway_mutated: false
+    candidate_product_mutated: false
+  rollback:
+    backup_dir: /Users/draccoon/Workspace/Hermes/update-backups/20260804T172349Z-rk-v0191-task13
+    archive: task13-start-ledgers.tar.gz
+    archive_sha256: 9bd94bdb39f5f15149f3072f9231b183450806f9368c3d36de11fe80387e8e44
+    restore_byte_parity: passed
+    secret_included: false
+    correction_backup_dir: /Users/draccoon/Workspace/Hermes/update-backups/20260804T175152Z-rk-v0191-task13-review-correction
+    correction_backup_sha256: f183c6f6eb5f07366e0ccf46a10190cf6db5a94a4ad0f87aa20101e8e337ae90
+    owner_acceptance_backup_dir: /Users/draccoon/Workspace/Hermes/update-backups/20260805T015758Z-rk-v0191-task13-owner-acceptance
+    owner_acceptance_backup_sha256: c3f0992f4d1dc201b9ae8bb6ec977d674a3fc9d5d61e9546a0b7612f9f49b132
+    precommit_backup_dir: /Users/draccoon/Workspace/Hermes/update-backups/20260805T021230Z-rk-v0191-task13-precommit
+    precommit_backup_sha256: fd1bfb741a8cb6b60827affe2ea218ab2ad4547a642bac9af4f19b07021f8a1d
+  independent_review:
+    initial_verdict: blocked
+    corrections_completed: true
+    final_verdict: passed
+    task13_blockers: []
+    files_modified_by_reviewer: []
+    log: /Users/draccoon/Workspace/Hermes/update-backups/20260804T172349Z-rk-v0191-task13/08-independent-correction-reaudit.log
+  task14_authorized: false
+  next_action: Task 13 is owner-accepted. Await separate Task 14 direction; do not mutate rk/live, profiles, runtime, refs, tags, or remotes.
 post_live_gates:
   execution_boundary: Run only after rk/live activation, one gate at a time.
   technical_pass_is_acceptance: false
@@ -1411,7 +1506,6 @@ post_live_gates:
 activation:
   status: blocked
   blockers:
-    - integrated candidate smoke pending
     - typed non-secret activation backup and rollback rehearsal pending
     - root default messaging token ownership unresolved and activation unauthorized
   root_self_restart_allowed: false
@@ -1435,10 +1529,10 @@ ledger_parity:
     - live-mutation state
     - rollback authority
     - next action
-  status: d7-implementation-complete-verified-self-recording-commit-owner-accepted
+  status: task13-owner-accepted-ledger-commit-created
 next_action:
-  task: Task 13 direction
-  description: All current D items are implemented, verified, owner-accepted, and committed. Await separate Task 13 direction for final candidate smoke. Push, Task 13, live/profile/runtime mutation, tag, and remote-ref movement remain unauthorized.
+  task: Task 14 direction
+  description: Task 13 is technically passed, independently re-audited, owner-accepted, and its two-ledger self-recording commit is created. Await separate Task 14 direction. rk/live movement, push, tag, and live/profile/runtime mutation remain unauthorized.
   d1_classification_approved: true
   task5_source_fix_authorized: true
   task5_source_fix_verified: true
@@ -1449,6 +1543,11 @@ next_action:
   task6_status: owner-accepted
   task6_owner_acceptance: accepted
   task6_accepted_at: '2026-08-03T00:41:48+09:00'
+  task13_authorized: true
+  task13_status: accepted
+  task13_owner_acceptance: accepted
+  task13_accepted_at: '2026-08-05T10:57:58+09:00'
+  task14_authorized: false
   next_d_item: null
   next_d_item_owner_direction: all-current-d-items-owner-accepted-and-committed
   d_item_implementation_authorized: false

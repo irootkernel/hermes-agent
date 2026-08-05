@@ -2,7 +2,7 @@
 
 ## Release state
 
-- Status: `d7-implementation-complete-verified-self-recording-commit-owner-accepted`
+- Status: `task13-owner-accepted-ledger-commit-created`
 - Candidate branch: `rk/v0.19.1`
 - Candidate worktree: `/Users/draccoon/Workspace/Hermes/17th-hermes-agent-worktree`
 - Tag blocker: `true`
@@ -21,6 +21,7 @@
 - D5-e commit and owner acceptance were both explicitly conveyed by the owner's commit direction at `2026-08-04T15:27:26+09:00`; this is the self-recording `[D5]` commit
 - D6 commit and owner acceptance were both explicitly conveyed by 주군의 commit direction at `2026-08-04T20:52:21+09:00`; this is the self-recording `[D6]` commit
 - D7 owner acceptance was recorded at `2026-08-05T01:20:28+09:00`; commit direction followed at `2026-08-05T01:38:42+09:00` and execution consent was reconfirmed at `2026-08-05T02:05:57+09:00`; this is the self-recording `[D7]` commit
+- Task 13 integrated candidate smoke was authorized at `2026-08-05T02:19:30+09:00`; initial review blocked incomplete evidence, all corrections completed, and final independent technical verification passed at `2026-08-05T03:05:12+09:00`; 주군 accepted Task 13 at `2026-08-05T10:57:58+09:00`
 - Tag, push, and remote-ref movement: not authorized
 - Scaffolded at: `2026-08-02T17:24:26+09:00`
 
@@ -137,7 +138,7 @@ These values are the completed planning baseline. Fleet values must be refreshed
 
 ## v0.19.1 active D items
 
-Inherited carry lineages remain `pending-re-audit` until their own gate starts. D1–D7 are owner-accepted. D5-a through D5-f and D6 are committed through their authorized self-recording commits, and D7 product, permanent tests, and both ledgers are recorded together in this authorized self-recording commit. Task 13 and live mutation remain unauthorized. A familiar v0.18.2 patch is not authority to replay it.
+Inherited carry lineages remain `pending-re-audit` until their own gate starts. D1–D7 are owner-accepted and committed. Task 13 integrated candidate smoke is technically passed, independently re-audited, owner-accepted, and recorded in its authorized two-ledger self-recording `[INT]` commit. Task 14 and live mutation remain unauthorized. A familiar v0.18.2 patch is not authority to replay it.
 
 | Current ID | Work item | Previous release | Current status | Next action |
 |---|---|---|---|---|
@@ -145,9 +146,9 @@ Inherited carry lineages remain `pending-re-audit` until their own gate starts. 
 | D2 | Fail-closed skill write approval import boundary | New v0.19.1 defect discovered in Task 6 | `implemented-verified-owner-accepted` | Keep active until an exact upstream fail-closed replacement is behaviorally verified. |
 | D3 | OpenAI Codex credential pinning and labelled reauth | `v0.18.2/D8` | `implemented-verified-owner-accepted` | Keep active until an exact upstream replacement satisfies the retirement rule. |
 | D4 | Discord thread ownership and role-mention fail-close | `v0.18.2/D4` | `implemented-verified-owner-accepted` | Closed; preserve until an exact upstream replacement is verified. |
-| D5 | Kanban same-card review and workflow seams | `v0.18.2/D2` | `implemented-verified-self-recording-commit-owner-accepted` | Closed; preserve while Task 13 remains separately unauthorized. |
-| D6 | CLI return-code passthrough | `v0.18.2/D6` | `implemented-verified-self-recording-commit-owner-accepted` | Closed; preserve while Task 13 remains separately unauthorized. |
-| D7 | Doctor optional tool warning filter | `v0.18.2/D7` | `implementation-complete-verified-self-recording-commit-owner-accepted` | Closed in this authorized self-recording commit; await separate Task 13 direction. |
+| D5 | Kanban same-card review and workflow seams | `v0.18.2/D2` | `implemented-verified-self-recording-commit-owner-accepted` | Closed; preserved in Task 13 passing candidate. |
+| D6 | CLI return-code passthrough | `v0.18.2/D6` | `implemented-verified-self-recording-commit-owner-accepted` | Closed; preserved in Task 13 passing candidate. |
+| D7 | Doctor optional tool warning filter | `v0.18.2/D7` | `implementation-complete-verified-self-recording-commit-owner-accepted` | Closed; preserved in Task 13 passing candidate. |
 
 ### D5-b implementation result
 
@@ -319,11 +320,11 @@ Inherited carry lineages remain `pending-re-audit` until their own gate starts. 
 - Fail-open boundary: scope exceptions preserve all rows. Missing, empty, non-list, non-string, or blank `tools` metadata remains visible. Non-dict rows pass through overrides/filtering, render a fixed generic warning without raw-value disclosure, and are excluded safely from the API-key summary.
 - TDD: five initial behavior contracts each reproduced RED before their minimum GREEN. The first independent implementation reviews then found one shared malformed-row blocker; permanent regressions reproduced it as two failed contracts plus one failed summary contract, and all three passed after remediation.
 - Verification: final doctor file `53 passed`; full Task 12 target `66 passed, 0 failed`; Ruff, `py_compile`, `git diff --check`, and added-line security scan passed.
-- Real smoke: all five disposable profiles returned `0`, preserved config bytes, hid default-off/disabled warnings, retained explicit `web`, `x_search`, Discord, `browser-cdp`, and runtime Kanban diagnostics, and matched implementation-before output byte-for-byte outside `Tool Availability` in `5/5` cases. Task 13 was not started.
+- Real smoke: all five disposable profiles returned `0`, preserved config bytes, hid default-off/disabled warnings, retained explicit `web`, `x_search`, Discord, `browser-cdp`, and runtime Kanban diagnostics, and matched implementation-before output byte-for-byte outside `Tool Availability` in `5/5` cases. Task 13 later preserved D7 in the passing integrated candidate.
 - Independent review: initial specification and security reviews returned `REVISE` on the same malformed-row fail-open blocker. After RED-driven remediation, fresh final reviews returned `PASS` with blocker `0`, security concern `0`, logic error `0`, and suggestion `0`; no reviewer modified files.
 - Evidence: `root-kernel/evidence/v0.19.1-D7-doctor-warning-filter-reaudit.json`, SHA-256 `0cc19782f6672b5b83776e302a23a778ef588159afe8fbf98c27240df3b53836` (local, Git-excluded).
 - Rollback: `/Users/draccoon/Workspace/Hermes/update-backups/20260804T133712Z-rk-v0191-d7-implementation/d7-pre-implementation.tar.gz`, SHA-256 `6aca8810e894d44cf7e488c7770dd53601c2ecd9f81b9bce484ffbb4ac0eacb2`; disposable byte restore passed and no secrets are included.
-- Boundary: D7 is technically complete and owner-accepted. 주군의 explicit commit direction authorizes this self-recording `[D7]` commit; push, Task 13, live/profile/runtime mutation, tag, and remote-ref movement remain unauthorized.
+- Boundary: D7 is technically complete, owner-accepted, committed, and preserved by Task 13. Push, Task 14, live/profile/runtime mutation, tag, and remote-ref movement remain unauthorized.
 
 ### D7 owner acceptance and commit direction
 
@@ -331,7 +332,24 @@ Inherited carry lineages remain `pending-re-audit` until their own gate starts. 
 - Commit direction: 주군 explicitly authorized the D7 commit at `2026-08-05T01:38:42+09:00`; execution consent was reconfirmed at `2026-08-05T02:05:57+09:00`. This authorizes one self-recording `[D7]` commit only.
 - Acceptance rollback: `/Users/draccoon/Workspace/Hermes/update-backups/20260804T162028Z-rk-v0191-d7-owner-acceptance/d7-pre-owner-acceptance.tar.gz`, SHA-256 `b553146737994d12bb3b12489a566b99d9a39fc68dfa48a0c9d5f2f5e9deb29d`; both ledgers and Git-excluded evidence restored byte-for-byte, with no secrets included.
 - Precommit rollback: `/Users/draccoon/Workspace/Hermes/update-backups/20260804T163842Z-rk-v0191-d7-precommit/d7-precommit-files.tar.gz`, SHA-256 `38417cd38cdf84789e2b5aea9650bb3ccb5dd512a99a4537dfd6d4860fd1ccce`; product, permanent test, both ledgers, and Git-excluded evidence restored byte-for-byte, with no secrets included.
-- Next gate: the authorized self-recording commit is created; await separate Task 13 direction. Push, Task 13, live/profile/runtime mutation, tag, and remote-ref movement remain unauthorized.
+- Next gate: Task 13 is owner-accepted. Its two ledger changes await separate commit direction; Task 14, push, live/profile/runtime mutation, tag, and remote-ref movement remain unauthorized.
+
+### Task 13 integrated candidate smoke
+
+- Authorization and boundary: 주군 authorized Task 13 at `2026-08-05T02:19:30+09:00`. Only candidate smoke was authorized; Task 14, `rk/live`, profiles, live runtime, gateways, refs, tags, push, and remote-ref movement remained outside scope.
+- Technical verdict: `accepted-ledger-commit-created`; corrected verification and independent re-audit completed at `2026-08-05T03:05:12+09:00`, 주군 accepted Task 13 at `2026-08-05T10:57:58+09:00`, and authorized the two-ledger commit at `2026-08-05T11:12:30+09:00`. Final commit identity is the Git HEAD after the ledger-only closeout amend.
+- Exact candidate: `rk/v0.19.1` at `4ca7afa4f7d2afddea0e765b47e645e0765dc012`, 16 carry commits above local and upstream annotated tag `v2026.7.30`, object `d25e2dbdbc40b49808c0a0e9cfed21cc90cffab3`, which peels exactly to release commit `cc4cab2f592e60a197e796506de9168f74baf3ea`. The SSH signature verified with ED25519 fingerprint `SHA256:x9xNOpeJhoEAY2gWhmWHZROC3QF3VjOEbmNo9vQ8y2A`.
+- Carry origins: D1 is a current-release Task 5 discovery; D2 is a current-release Task 6 discovery; D3 through D7 retain lineages `v0.18.2/D8`, `v0.18.2/D4`, `v0.18.2/D2`, `v0.18.2/D6`, and `v0.18.2/D7` respectively.
+- Disposable CLI: core imports, `--version`, `--help`, `config check`, and `doctor` all returned `0` under clean no-credential `HERMES_HOME`; the disposable home was removed.
+- Python verification: a single canonical run over 54 de-duplicated test files passed `1,339`, failed `0`. The 13 carry/surface group runs passed `1,428` executions with `0` failures; that second number intentionally includes repeated files and is not a unique-test count.
+- Dashboard: R3 remains in the activation roster, so the conditional source/build smoke ran. Source tests passed `12/12`; the final auditable exact-lock tmpfs build produced 51 files with SHA-256 `15e8ff94af4dbec3e10f7d85333db569735622916d3fbdafd0b79e99aaba5e5c`.
+- Docker and dashboard isolation: exact executable scripts and full host commands are preserved. Each final run used one candidate-only read-only bind mount, read-only container root, nonroot user, tmpfs, `--network none`, no host credential/database mount, and explicit inner-command exit codes. Docker imported `/candidate/hermes_cli/main.py`, returned `0` for imports/version/config/doctor/SQLite FTS, and linked SQLite `3.53.4`.
+- Nonblocking warnings: the host shared candidate venv links SQLite `3.50.4` and uses verified DELETE-mode fallback; activation rebuild must re-verify fixed SQLite. The source banner local-main annotation is not release-base evidence. Blank-home missing config/auth/launcher, partial sessions schema, Skills Hub, and optional-tool warnings are expected and isolated. One auxiliary timeout first attempt exceeded its threshold by 3.8 ms and passed retry; exact tag and candidate each passed `3/3` clean-env comparisons, and candidate passed `5/5` normal-env repeats.
+- Scope boundary: Task 14's typed runtime/launcher/gateway rollback rehearsal remains an activation blocker under plan line 699. It is separately unauthorized and is not a Task 13 candidate-only check.
+- Independent review: the first review returned `BLOCKED` and found the tag-ref, lineage, command-auditability, warning-classification, and duplicate-count defects. After correction, a fresh read-only Codex audit returned `VERDICT: PASS`, `TASK13_BLOCKERS: NONE`, and `FILES_MODIFIED: NONE`.
+- Evidence: `root-kernel/evidence/v0.19.1-task13-integrated-candidate-smoke.json`, SHA-256 `7578a4f5a0a9f2759f8f296cdd1edf4f39a699e17b24916259f4f7fc26cc8de5` (local, Git-excluded). Logs and executable evidence scripts are under `/Users/draccoon/Workspace/Hermes/update-backups/20260804T172349Z-rk-v0191-task13/`.
+- Rollback: the Task 13 start-ledger archive SHA-256 is `9bd94bdb39f5f15149f3072f9231b183450806f9368c3d36de11fe80387e8e44`. The pre-review-correction archive SHA-256 is `f183c6f6eb5f07366e0ccf46a10190cf6db5a94a4ad0f87aa20101e8e337ae90`. The pre-owner-acceptance archive SHA-256 is `c3f0992f4d1dc201b9ae8bb6ec977d674a3fc9d5d61e9546a0b7612f9f49b132`. The precommit archive is `/Users/draccoon/Workspace/Hermes/update-backups/20260805T021230Z-rk-v0191-task13-precommit/task13-precommit-files.tar.gz`, SHA-256 `fd1bfb741a8cb6b60827affe2ea218ab2ad4547a642bac9af4f19b07021f8a1d`; byte restore passed and no secrets are included.
+- Next gate: the authorized two-ledger `[INT]` self-recording commit is created. Await separate Task 14 direction; Task 14 remains unauthorized until then.
 
 D1 retirement requires an exact later upstream target where CJK-enabled `hermes sessions recover` preserves canonical counts, reports `complete: true`, passes an equivalent CJK recovery regression, and leaves no Root Kernel-only behavior gap. A nearby CJK change, issue closure, or symbol match alone does not retire it.
 
@@ -479,4 +497,4 @@ D5 read-only re-audit result:
 - evidence: `root-kernel/evidence/v0.19.1-D5-kanban-same-card-review.json`, SHA-256 `f7d341a6ba42306bfb51fa180b26dbbe4be0eda12ac2bb31ddbf5e93a51d97da`;
 - scenario A, recommended: retain current D5-b through D5-f at current chokepoints; current b is the bundled core same-card loop, while current c/d/e/f are watcher/result/mutex/banner; preserve every verified new upstream behavior.
 
-D1–D7 are owner-accepted. D5-a through D5-f and D6 are implemented, verified, and committed through their respective self-recording commits. D7 option C is implemented and technically verified and is recorded in this authorized self-recording `[D7]` commit. Task 13, fleet re-seed, live mutation, tag, push, and remote-ref movement remain unauthorized pending separate direction.
+D1–D7 and Task 13 are owner-accepted and committed. Task 14, fleet re-seed, live mutation, tag, push, and remote-ref movement remain unauthorized pending separate direction.
