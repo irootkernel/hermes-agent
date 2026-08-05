@@ -2,7 +2,7 @@
 
 ## Release state
 
-- Status: `task13-owner-accepted-ledger-commit-created`
+- Status: `task14-owner-accepted-ledger-commit-created`
 - Candidate branch: `rk/v0.19.1`
 - Candidate worktree: `/Users/draccoon/Workspace/Hermes/17th-hermes-agent-worktree`
 - Tag blocker: `true`
@@ -22,6 +22,7 @@
 - D6 commit and owner acceptance were both explicitly conveyed by 주군의 commit direction at `2026-08-04T20:52:21+09:00`; this is the self-recording `[D6]` commit
 - D7 owner acceptance was recorded at `2026-08-05T01:20:28+09:00`; commit direction followed at `2026-08-05T01:38:42+09:00` and execution consent was reconfirmed at `2026-08-05T02:05:57+09:00`; this is the self-recording `[D7]` commit
 - Task 13 integrated candidate smoke was authorized at `2026-08-05T02:19:30+09:00`; initial review blocked incomplete evidence, all corrections completed, and final independent technical verification passed at `2026-08-05T03:05:12+09:00`; 주군 accepted Task 13 at `2026-08-05T10:57:58+09:00`
+- Task 14 activation backup and rollback rehearsal passed technically at `2026-08-05T12:03:10+09:00`; 주군 accepted Task 14 and authorized its two-ledger commit at `2026-08-05T12:26:25+09:00`
 - Tag, push, and remote-ref movement: not authorized
 - Scaffolded at: `2026-08-02T17:24:26+09:00`
 
@@ -138,7 +139,7 @@ These values are the completed planning baseline. Fleet values must be refreshed
 
 ## v0.19.1 active D items
 
-Inherited carry lineages remain `pending-re-audit` until their own gate starts. D1–D7 are owner-accepted and committed. Task 13 integrated candidate smoke is technically passed, independently re-audited, owner-accepted, and recorded in its authorized two-ledger self-recording `[INT]` commit. Task 14 and live mutation remain unauthorized. A familiar v0.18.2 patch is not authority to replay it.
+Inherited carry lineages remain `pending-re-audit` until their own gate starts. D1–D7 and Tasks 13–14 are owner-accepted and committed. Task 15 and live mutation remain unauthorized. A familiar v0.18.2 patch is not authority to replay it.
 
 | Current ID | Work item | Previous release | Current status | Next action |
 |---|---|---|---|---|
@@ -332,7 +333,7 @@ Inherited carry lineages remain `pending-re-audit` until their own gate starts. 
 - Commit direction: 주군 explicitly authorized the D7 commit at `2026-08-05T01:38:42+09:00`; execution consent was reconfirmed at `2026-08-05T02:05:57+09:00`. This authorizes one self-recording `[D7]` commit only.
 - Acceptance rollback: `/Users/draccoon/Workspace/Hermes/update-backups/20260804T162028Z-rk-v0191-d7-owner-acceptance/d7-pre-owner-acceptance.tar.gz`, SHA-256 `b553146737994d12bb3b12489a566b99d9a39fc68dfa48a0c9d5f2f5e9deb29d`; both ledgers and Git-excluded evidence restored byte-for-byte, with no secrets included.
 - Precommit rollback: `/Users/draccoon/Workspace/Hermes/update-backups/20260804T163842Z-rk-v0191-d7-precommit/d7-precommit-files.tar.gz`, SHA-256 `38417cd38cdf84789e2b5aea9650bb3ccb5dd512a99a4537dfd6d4860fd1ccce`; product, permanent test, both ledgers, and Git-excluded evidence restored byte-for-byte, with no secrets included.
-- Next gate: Task 13 is owner-accepted. Its two ledger changes await separate commit direction; Task 14, push, live/profile/runtime mutation, tag, and remote-ref movement remain unauthorized.
+- Next gate: Task 13 was subsequently owner-accepted and committed; Task 14 is now owner-accepted and its two-ledger commit is authorized. Task 15, push, live/profile/runtime mutation, tag, and remote-ref movement remain unauthorized.
 
 ### Task 13 integrated candidate smoke
 
@@ -345,11 +346,25 @@ Inherited carry lineages remain `pending-re-audit` until their own gate starts. 
 - Dashboard: R3 remains in the activation roster, so the conditional source/build smoke ran. Source tests passed `12/12`; the final auditable exact-lock tmpfs build produced 51 files with SHA-256 `15e8ff94af4dbec3e10f7d85333db569735622916d3fbdafd0b79e99aaba5e5c`.
 - Docker and dashboard isolation: exact executable scripts and full host commands are preserved. Each final run used one candidate-only read-only bind mount, read-only container root, nonroot user, tmpfs, `--network none`, no host credential/database mount, and explicit inner-command exit codes. Docker imported `/candidate/hermes_cli/main.py`, returned `0` for imports/version/config/doctor/SQLite FTS, and linked SQLite `3.53.4`.
 - Nonblocking warnings: the host shared candidate venv links SQLite `3.50.4` and uses verified DELETE-mode fallback; activation rebuild must re-verify fixed SQLite. The source banner local-main annotation is not release-base evidence. Blank-home missing config/auth/launcher, partial sessions schema, Skills Hub, and optional-tool warnings are expected and isolated. One auxiliary timeout first attempt exceeded its threshold by 3.8 ms and passed retry; exact tag and candidate each passed `3/3` clean-env comparisons, and candidate passed `5/5` normal-env repeats.
-- Scope boundary: Task 14's typed runtime/launcher/gateway rollback rehearsal remains an activation blocker under plan line 699. It is separately unauthorized and is not a Task 13 candidate-only check.
+- Scope boundary: Task 14's typed runtime/launcher/gateway rollback rehearsal was not part of Task 13. It subsequently passed and is now owner-accepted with its two-ledger commit authorized.
 - Independent review: the first review returned `BLOCKED` and found the tag-ref, lineage, command-auditability, warning-classification, and duplicate-count defects. After correction, a fresh read-only Codex audit returned `VERDICT: PASS`, `TASK13_BLOCKERS: NONE`, and `FILES_MODIFIED: NONE`.
 - Evidence: `root-kernel/evidence/v0.19.1-task13-integrated-candidate-smoke.json`, SHA-256 `7578a4f5a0a9f2759f8f296cdd1edf4f39a699e17b24916259f4f7fc26cc8de5` (local, Git-excluded). Logs and executable evidence scripts are under `/Users/draccoon/Workspace/Hermes/update-backups/20260804T172349Z-rk-v0191-task13/`.
 - Rollback: the Task 13 start-ledger archive SHA-256 is `9bd94bdb39f5f15149f3072f9231b183450806f9368c3d36de11fe80387e8e44`. The pre-review-correction archive SHA-256 is `f183c6f6eb5f07366e0ccf46a10190cf6db5a94a4ad0f87aa20101e8e337ae90`. The pre-owner-acceptance archive SHA-256 is `c3f0992f4d1dc201b9ae8bb6ec977d674a3fc9d5d61e9546a0b7612f9f49b132`. The precommit archive is `/Users/draccoon/Workspace/Hermes/update-backups/20260805T021230Z-rk-v0191-task13-precommit/task13-precommit-files.tar.gz`, SHA-256 `fd1bfb741a8cb6b60827affe2ea218ab2ad4547a642bac9af4f19b07021f8a1d`; byte restore passed and no secrets are included.
-- Next gate: the authorized two-ledger `[INT]` self-recording commit is created. Await separate Task 14 direction; Task 14 remains unauthorized until then.
+- Next gate: the authorized two-ledger `[INT]` self-recording commit is created. Task 14 has now passed technically and awaits explicit owner acceptance; Task 15 remains unauthorized.
+
+### Task 14 activation backup and rollback rehearsal
+
+- Purpose: make v0.19.1 activation reversible before any live change.
+- Technical verdict: `accepted-ledger-commit-created`; technical verification passed at `2026-08-05T12:03:10+09:00`, and 주군 accepted Task 14 and authorized its two-ledger commit at `2026-08-05T12:26:25+09:00`. Final commit identity is the Git HEAD after the ledger-only closeout amend.
+- Package: `/Users/draccoon/Workspace/Hermes/update-backups/20260805T025041Z-rk-v0191-activation/activation-rollback-package.tar.gz`, SHA-256 `b5f76771b6165282aaf4a51f7e47f0eb732d0d5ba70791bb49f85ba85f53d5cb`, mode `0600`. It records both repositories' local and remote-tracking heads, live checkout/venv/launcher paths, 49 typed config targets, 12 gateways plus dashboard, 17 launchd definitions, 13 activation definitions, and skill/cron/script manifests.
+- Exclusions: no `.env`, `auth.json`, token, key, credential pool, complete profile config, venv contents, secret-bearing log, or production state DB byte is archived. Structured secret and archive restore byte/mode checks passed.
+- Rehearsal: restored 27 package files; live v0.18.2 import, version, config check, and session-state commands returned `0`; disposable state schema 19 passed integrity; 13 definitions reconstructed without launch; live PIDs and both Git heads were unchanged.
+- Sensitive state boundary: metadata for 12 production DBs was recorded without reading or copying bytes. Restricted backup remains separately approval-gated before Task 15.
+- Activation boundary: preserve the current v0.18.2 venv before rebuilding; normalize and roll back the PATH launcher; control the current root gateway only from an external shell; do not reuse or fall back to another profile's credentials.
+- Review: deterministic closeout audit passed every Task 14 requirement. Optional Codex and Claude independent CLI reviews were unavailable due authentication and produced no verdict; the plan does not require an independent LLM review.
+- Evidence: `root-kernel/evidence/v0.19.1-task14-activation-rollback.json`, SHA-256 `d501562673429a104b246bce7c9dddf0d946e1a2bc4b6b4f9ea19bf32bf4e048` (local, Git-excluded).
+- Acceptance commit rollback: `/Users/draccoon/Workspace/Hermes/update-backups/20260805T032625Z-rk-v0191-task14-acceptance-precommit/task14-acceptance-precommit.tar.gz`, SHA-256 `e17056feaac1dda5ebb1825159e4f9485cf82eb4ca73d73883569f416529b2b0`; restore parity passed and no secrets are included.
+- Next gate: the authorized Task 14 two-ledger `[INT]` self-recording commit is created. Await separate Task 15 direction; production state backup, gateway stop/restart, `rk/live` movement, venv/profile/launcher mutation, tag, push, and remote refs remain unauthorized.
 
 D1 retirement requires an exact later upstream target where CJK-enabled `hermes sessions recover` preserves canonical counts, reports `complete: true`, passes an equivalent CJK recovery regression, and leaves no Root Kernel-only behavior gap. A nearby CJK change, issue closure, or symbol match alone does not retire it.
 
@@ -497,4 +512,4 @@ D5 read-only re-audit result:
 - evidence: `root-kernel/evidence/v0.19.1-D5-kanban-same-card-review.json`, SHA-256 `f7d341a6ba42306bfb51fa180b26dbbe4be0eda12ac2bb31ddbf5e93a51d97da`;
 - scenario A, recommended: retain current D5-b through D5-f at current chokepoints; current b is the bundled core same-card loop, while current c/d/e/f are watcher/result/mutex/banner; preserve every verified new upstream behavior.
 
-D1–D7 and Task 13 are owner-accepted and committed. Task 14, fleet re-seed, live mutation, tag, push, and remote-ref movement remain unauthorized pending separate direction.
+D1–D7 and Tasks 13–14 are owner-accepted and committed. Task 15, sensitive production state backup, fleet re-seed, live mutation, tag, push, and remote-ref movement remain unauthorized.

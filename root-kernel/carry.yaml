@@ -2,7 +2,7 @@ schema_version: 1
 ledger_kind: root-kernel-release-carry
 release:
   version: v0.19.1
-  status: task13-owner-accepted-ledger-commit-created
+  status: task14-owner-accepted-ledger-commit-created
   tag_blocker: true
   scaffolded_at: '2026-08-02T17:24:26+09:00'
   candidate_branch: rk/v0.19.1
@@ -1446,8 +1446,102 @@ task13:
     task13_blockers: []
     files_modified_by_reviewer: []
     log: /Users/draccoon/Workspace/Hermes/update-backups/20260804T172349Z-rk-v0191-task13/08-independent-correction-reaudit.log
-  task14_authorized: false
-  next_action: Task 13 is owner-accepted. Await separate Task 14 direction; do not mutate rk/live, profiles, runtime, refs, tags, or remotes.
+  task14_authorized: true
+  task14_started_at: '2026-08-05T11:50:41+09:00'
+  next_action: Task 14 passed technically and awaits explicit owner acceptance. Do not copy production state or mutate rk/live, profiles, runtime, gateways, refs, tags, or remotes.
+task14:
+  title: Prepare activation backup and rollback rehearsal
+  status: accepted-ledger-commit-created
+  technical_verdict: pass
+  authorized: true
+  started_at: '2026-08-05T11:50:41+09:00'
+  verified_at: '2026-08-05T12:03:10+09:00'
+  owner_acceptance: accepted
+  owner_accepted_at: '2026-08-05T12:26:25+09:00'
+  commit_authorized: true
+  commit_authorized_at: '2026-08-05T12:26:25+09:00'
+  commit_message: '[INT] Record Task 14 rollback readiness acceptance'
+  commit_state: self-recording-commit-created
+  final_commit_sha_authority: Git HEAD after ledger-only closeout amend
+  baseline:
+    candidate_branch: rk/v0.19.1
+    candidate_head: 37e78d2c92193ee344a072c813aa605f77cd2f73
+    live_branch: rk/live
+    live_head: 75a1faf0eb49b6bd465d80c02775b024afa521e8
+    live_version: v0.18.2
+    live_checkout: /Users/draccoon/.hermes/hermes-agent
+    live_venv: /Users/draccoon/.hermes/hermes-agent/venv
+    path_launcher_target: /Users/draccoon/Workspace/Hermes/17th-hermes-agent-worktree/.venv/bin/hermes
+  package:
+    root: /Users/draccoon/Workspace/Hermes/update-backups/20260805T025041Z-rk-v0191-activation
+    archive: activation-rollback-package.tar.gz
+    archive_sha256: b5f76771b6165282aaf4a51f7e47f0eb732d0d5ba70791bb49f85ba85f53d5cb
+    archive_mode: '0600'
+    package_files: 27
+    secret_exclusion_scan: passed
+    archive_restore_byte_mode_parity: passed
+    preledger_sha256: de16166c99fc5b15d37f9c4231b12ead64d7cca4909f7414b36ea1e809921991
+  inventory:
+    profiles: 49
+    gateways: 12
+    dashboard_processes: 1
+    launchd_definitions: 17
+    activation_definitions: 13
+    production_state_databases: 12
+    production_state_contents_read: false
+    production_state_contents_copied: false
+  rehearsal:
+    status: passed
+    restored_package_files: 27
+    old_runtime_version: v0.18.2
+    old_runtime_exit_codes:
+      - 0
+      - 0
+      - 0
+      - 0
+    disposable_state_schema: 19
+    disposable_state_integrity: ok
+    roster_reconstructed_without_start: true
+    live_processes_unchanged: true
+    live_head_unchanged: true
+    candidate_head_unchanged: true
+    receipt: /Users/draccoon/Workspace/Hermes/update-backups/20260805T025041Z-rk-v0191-activation/rehearsal/receipt.json
+    receipt_sha256: 2090a0da3e614573e0164def52cecc6f6171417fe5afb8ee2458f005b9a420a6
+    deterministic_closeout_audit: passed
+    closeout_audit_sha256: 133b2e6c21599610a8bb71b7b704b9054ab7bf76175f4752f93a6ecc27605195
+  review:
+    independent_llm_required_by_plan: false
+    independent_llm_result: unavailable
+    codex_cli: authentication 401; no verdict used
+    claude_cli: not logged in; no verdict used
+    deterministic_closeout_verdict: passed
+  evidence:
+    path: root-kernel/evidence/v0.19.1-task14-activation-rollback.json
+    sha256: d501562673429a104b246bce7c9dddf0d946e1a2bc4b6b4f9ea19bf32bf4e048
+    git_excluded: true
+  task14_blocking_findings: []
+  activation_boundaries:
+    - Task 15 activation not authorized
+    - separate restricted production state backup approval pending
+    - root gateway external control required
+    - root default messaging credential ownership unresolved; no credential reuse or fallback authorized
+    - PATH launcher normalization and rollback required during Task 15
+  acceptance_commit_rollback:
+    archive: /Users/draccoon/Workspace/Hermes/update-backups/20260805T032625Z-rk-v0191-task14-acceptance-precommit/task14-acceptance-precommit.tar.gz
+    sha256: e17056feaac1dda5ebb1825159e4f9485cf82eb4ca73d73883569f416529b2b0
+    restore_parity: passed
+    secrets_included: false
+  live_mutation:
+    gateway_stop_or_restart: false
+    live_ref_move: false
+    live_checkout_write: false
+    venv_write: false
+    profile_config_write: false
+    production_state_open_or_copy: false
+    launchd_load_or_unload: false
+    launcher_write: false
+    push_tag_or_remote_ref_move: false
+  next_action: Task 14 is owner-accepted and committed. Await separate Task 15 direction; all activation mutations remain separately unauthorized.
 post_live_gates:
   execution_boundary: Run only after rk/live activation, one gate at a time.
   technical_pass_is_acceptance: false
@@ -1506,7 +1600,9 @@ post_live_gates:
 activation:
   status: blocked
   blockers:
-    - typed non-secret activation backup and rollback rehearsal pending
+    - Task 15 activation not authorized
+    - separate restricted production state backup approval and capture pending
+    - external root-gateway control not yet executed
     - root default messaging token ownership unresolved and activation unauthorized
   root_self_restart_allowed: false
   external_control_required: true
@@ -1529,10 +1625,10 @@ ledger_parity:
     - live-mutation state
     - rollback authority
     - next action
-  status: task13-owner-accepted-ledger-commit-created
+  status: task14-owner-accepted-ledger-commit-created
 next_action:
-  task: Task 14 direction
-  description: Task 13 is technically passed, independently re-audited, owner-accepted, and its two-ledger self-recording commit is created. Await separate Task 14 direction. rk/live movement, push, tag, and live/profile/runtime mutation remain unauthorized.
+  task: Task 15 direction
+  description: Task 14 rollback readiness is technically passed, owner-accepted, and committed. Await separate Task 15 direction. Sensitive production state backup, gateway control, rk/live movement, push, tag, and live/profile/runtime mutation remain separately unauthorized.
   d1_classification_approved: true
   task5_source_fix_authorized: true
   task5_source_fix_verified: true
@@ -1547,7 +1643,12 @@ next_action:
   task13_status: accepted
   task13_owner_acceptance: accepted
   task13_accepted_at: '2026-08-05T10:57:58+09:00'
-  task14_authorized: false
+  task14_authorized: true
+  task14_status: owner-accepted-ledger-commit-created
+  task14_technical_verdict: pass
+  task14_owner_acceptance: accepted
+  task14_accepted_at: '2026-08-05T12:26:25+09:00'
+  task14_commit_authorized: true
   next_d_item: null
   next_d_item_owner_direction: all-current-d-items-owner-accepted-and-committed
   d_item_implementation_authorized: false
