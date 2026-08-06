@@ -2,7 +2,7 @@
 
 ## Release state
 
-- Status: `task15-owner-accepted-ledger-commit-created`
+- Status: `task16-r4-owner-accepted`
 - Candidate branch: `rk/v0.19.1`
 - Candidate worktree: `/Users/draccoon/Workspace/Hermes/17th-hermes-agent-worktree`
 - Tag blocker: `true`
@@ -24,7 +24,11 @@
 - Task 13 integrated candidate smoke was authorized at `2026-08-05T02:19:30+09:00`; initial review blocked incomplete evidence, all corrections completed, and final independent technical verification passed at `2026-08-05T03:05:12+09:00`; 주군 accepted Task 13 at `2026-08-05T10:57:58+09:00`
 - Task 14 activation backup and rollback rehearsal passed technically at `2026-08-05T12:03:10+09:00`; 주군 accepted Task 14 and authorized its two-ledger commit at `2026-08-05T12:26:25+09:00`
 - Task 15 production activation passed technically at `2026-08-05T16:16:57+09:00`; 주군 accepted Task 15 and authorized its two-ledger commit at `2026-08-05T16:28:42+09:00`. Task 16, tag, push, and remote-ref movement remain separately pending
-- Tag, push, and remote-ref movement: not authorized
+- Task 16 R1 read-only verification found canonical identity/model drift; 주군 then authorized the minimum repair. Repair and full verification passed at `2026-08-05T21:31:06+09:00`, and 주군 explicitly accepted R1 at `2026-08-05T21:57:25+09:00`
+- Task 16 R2 was authorized at `2026-08-05T22:26:29+09:00`. The 49-profile target passed; the separately approved controlled root gateway refresh changed PID `9980`→`30334`, cleared KAN from the resumed session catalog, and preserved ATN. 주군 explicitly accepted R2 at `2026-08-06T00:01:21+09:00`
+- Task 16 R3 was authorized after R2 acceptance. Initial verification found stale Dashboard frontend parity. 주군 then directed that Dashboard will not be used and authorized removal of its active build and runtime disablement. The service, automatic-start definitions, inactive Tailscale proxy definition, and active `web_dist` were removed with verified rollback; 주군 explicitly accepted R3 at `2026-08-06T01:29:31+09:00`
+- Task 16 R4 was authorized after R3 acceptance. All 49 cron scopes contain zero jobs and current custom launchd/source parity passes. 주군 approved retaining broad `git add .` backup behavior while excluding secret data, then authorized the bounded security apply. Google Workspace retirement, credential removal, exact 63-commit history rewrite, remote/original-clone verification, and launchd resume passed technically. 주군 explicitly accepted R4 at `2026-08-06T16:07:23+09:00`
+- Release-candidate commit, tag, push, and remote-ref movement: not authorized
 - Scaffolded at: `2026-08-02T17:24:26+09:00`
 
 This document is the human-readable release ledger. `root-kernel/carry.yaml` is the machine-readable operational ledger. Both must be updated together after every approved D-item direction or verified result.
@@ -134,9 +138,9 @@ These values are the completed planning baseline. Fleet values must be refreshed
 
 - v0.19.1 bundled source contains exactly 70 `SKILL.md` files; the exact path, frontmatter, SKILL.md, and package hashes are recorded in `root-kernel/evidence/v0.19.1-skill-delta.json` (`4791ad338be5f017f42d13ff9ff9240d8a8137fa9e1f6f3a4a5c32e3843d1de3`) and summarized in `root-kernel/evidence/v0.19.1-skill-provenance.md` (`2a0c413ef67e129ba79a26fb1ad222b6367989651af3eac49c9e2517e6091bf3`).
 - Task 6 reconciled 72→70 bundled, 102→111 official optional, and 88→95 plugin manifests. The accepted optional retention baseline remains zero.
-- All 49 homes still contain 72 byte-exact v0.18.2 bundled skills with zero extra roots, archives, or no-bundled markers. No skill tree was installed, reseeded, removed, or changed in Task 6.
-- The closed allowlist target is 70 exact bundled per profile, managed fleet 5, default-only admin 10, optional 0, local custom 0, and no retired plugin skills. Actual re-seeding remains post-live R2 work.
-- Curator protection must set `curator.prune_builtins: false` and require zero `.curator_suppressed` files during R2. `skills.write_approval: true` alone does not intercept deterministic curator pruning and can also fail open if its approval helper cannot import; the latter is current D2.
+- R2 reseeded all 49 homes to the exact live v0.19.1 set of 70 bundled skills. Package-content parity is 49/49 after excluding only runtime metadata; archives, no-bundled markers, and curator suppression files are zero.
+- The applied allowlist is 70 exact bundled per profile, managed fleet 5, default-only admin 10, optional 0, local custom 0, plus the two explicitly retained default Orca skill symlinks. The 13 ATN and one Orca plugin entries remain byte-exact to their accepted manifests; Kkachi/KAN is absent from config and disk.
+- Curator protection is `curator.prune_builtins: false` on 49/49. D2 remains the fail-closed write-approval carry; R2 added no candidate code.
 
 ## v0.19.1 active D items
 
@@ -407,17 +411,66 @@ Current v0.19.1 IDs identify execution order and may differ from identically num
 
 ## Post-live R gates
 
-R gates are not candidate-construction tasks. `rk/live` activation and Task 15 owner acceptance are complete, but all R gates remain `pending` until a separate R1 start direction.
+R gates are not candidate-construction tasks. `rk/live` activation and Task 15 owner acceptance are complete. R1–R4 are owner-accepted. R5 remains pending and must not start without separate direction.
 
 | Gate | Scope | Status | Acceptance |
 |---|---|---|---|
-| R1 | Config/profile activation policy | `pending` | Separate owner acceptance required |
-| R2 | Skill provenance, overrides, and compatibility | `pending` | Separate owner acceptance required |
-| R3 | Dashboard and Desktop | `pending` | Separate owner acceptance required |
-| R4 | Cron, local scripts, watchers, and automation | `pending` | Separate owner acceptance required |
+| R1 | Config/profile activation policy | `owner-accepted` | Accepted by owner at `2026-08-05T21:57:25+09:00` |
+| R2 | Skill provenance, overrides, and compatibility | `owner-accepted` | Accepted by owner at `2026-08-06T00:01:21+09:00` |
+| R3 | Dashboard and Desktop | `owner-accepted` | Dashboard intentionally disabled; accepted by owner at `2026-08-06T01:29:31+09:00` |
+| R4 | Cron, local scripts, watchers, and automation | `owner-accepted` | Security apply passed; accepted by owner at `2026-08-06T16:07:23+09:00` |
 | R5 | Profile-owned local asset optimization | `pending` | Separate owner acceptance required |
 
 Only one R gate may be active at a time. Technical success is not acceptance.
+
+### Task 16 R1 config/profile activation policy
+
+- Technical verdict: `pass`; owner acceptance: `accepted` at `2026-08-05T21:57:25+09:00`. The initial findings were pre-existing source-of-truth drift, not a v0.19.1 runtime regression.
+- Owner-authorized identity repair: the canonical default member, alias, and executable now resolve as `Munang` / `munang` / `문앙`; `/Users/draccoon/.local/bin/munang` launches the default config, and the legacy `heuktaeja` executable and active source-of-truth terms are absent.
+- Owner-authorized model repair: 25 inactive profile configs moved from `openai-codex/gpt-5.5` to `openai-codex/gpt-5.6-sol`. Non-target semantics and file modes are unchanged. Fleet distribution is now 46 `gpt-5.6-sol` and 3 intentionally retained `glm-5.2`, with zero registry model/provider mismatch.
+- Canary: the public config CLI applied the target but rewrote YAML formatting. The already-approved Task 4 canonical serializer restored exact formatting; exact target-only forward, exact rollback, and `config check` passed before fleet use.
+- Final verification: 49/49 `config check`, 0 verification writes, 49/49 approved typed policy, zero canonical identity/model/provider mismatch, 12 unchanged gateway PIDs with no restart, 12 schema-23 state databases, and clean live `413ee1d4`.
+- Nonblocking inherited observation: `ijeok` and `yuyeop` have no Korean alias entry and duplicate their English name in `SOUL.md`; canonical registry identity is exact and R1 did not alter them.
+- Evidence: `root-kernel/evidence/v0.19.1-task16-r1-config-profile-policy.json`, SHA-256 `18e6d621a7c9a0e4a1408d068d049512b87a12a2688d70cfe2cf7903ec2627cf` (local, Git-excluded).
+- Repair rollback: `/Users/draccoon/Workspace/Hermes/update-backups/20260805T211508+0900-rk-v0191-task16-r1-repair/`; typed rollback dry-run and archive extraction canary passed, no secret files are included.
+- At R1 closeout, no gateway restart, state database write, token/auth write, commit, tag, push, or remote ref movement had occurred, and R2 still required separate direction. That R2 direction was subsequently granted.
+
+### Task 16 R2 skill provenance, overrides, and compatibility
+
+- Technical verdict: `pass`; owner acceptance: `accepted` at `2026-08-06T00:01:21+09:00`. The controlled external refresh changed root gateway PID `9980`→`30334` on the live v0.19.1 venv; the resumed session catalog now contains zero KAN tools.
+- Applied target: 49/49 profiles contain the exact 70 v0.19.1 bundled packages, `curator.prune_builtins: false`, zero no-bundled/suppression/archive state, managed governance 15 skills across 49 profiles with zero violations, and 49/49 passing `config check` and fresh resolver checks.
+- Plugin result: 13 ATN plus one Orca entry remain byte-exact; `orca-cli` and `orchestration` remain as the explicitly retained default Orca skill symlinks. Kkachi/KAN is absent from default config, disk, fresh skill disclosure, and fresh tool disclosure.
+- Canary and rollback: inactive `biui` passed exact 72→70 forward, config check, exact config rollback, and exact skill-tree rollback. The secret-excluded rollback package is `/Users/draccoon/Workspace/Hermes/update-backups/20260805T223716+0900-rk-v0191-task16-r2/`.
+- Verification: skill/curator/cron suite `189 passed`; plugin discovery and compatibility suite `137 passed`; 12 gateways are running, and root uses the live v0.19.1 venv. Telegram and Discord reconnected as expected, with Discord identity `문앙#5587`.
+- Resolved finding `R2-RUNTIME-KAN-001`: KAN is absent from disk, config, fresh disclosure, and the resumed session catalog; ATN remains in 13 profile plugin entries and all four required skill disclosures. The controller's initial `failed` receipt was a false negative from comparing Discord's correct 74 autocomplete registrations with the resolver's 76 enabled skills; independent post-refresh verification passed, and the corrected controller is preserved in the rollback package.
+- Evidence: `root-kernel/evidence/v0.19.1-task16-r2-skill-provenance.json`, SHA-256 `da8f53037b650d37173f413bed57481c1e9ed954bc706a810dfc43686ef73988` (local, Git-excluded).
+- No state database, credential, token, auth file, candidate code, commit, tag, push, or remote ref was changed.
+
+### Task 16 R3 Dashboard and Desktop
+
+- Technical verdict: `passed`; owner acceptance: `accepted` at `2026-08-06T01:29:31+09:00`. 주군 superseded the unused-frontend repair with an explicit Dashboard retirement policy and accepted the resulting state.
+- Applied scope: unloaded `ai.hermes.dashboard` PID `9887`; removed canonical and installed Dashboard launchd definitions; removed the inactive canonical `ai.hermes.dashboard.tailscale-proxy` definition; removed live `hermes_cli/web_dist` 30-file build. Hermes source and the `dashboard` CLI command remain installed but no service, automatic-start definition, listener, process, or active frontend build remains.
+- Verification: Dashboard labels are unloaded, port `9119` is closed, health returns connection refusal, active and candidate `web_dist` are absent, and config check passes. Root gateway PID `30334` remained running with Discord and Telegram connected; Desktop remains intentionally inactive.
+- Resolved finding `R3-DASHBOARD-001`: stale frontend parity is no longer applicable because the owner-directed supported state is Dashboard disabled, not Dashboard refreshed. `R3-DASHBOARD-002` is superseded by the same retirement while the root gateway remains independently healthy.
+- Rollback: exact definitions, prior 30-file frontend build, and pre-change R3 ledgers are preserved without secrets under `/Users/draccoon/Workspace/Hermes/update-backups/20260806T011838+0900-rk-v0191-task16-r3-dashboard-disable/`; extraction canary, script syntax, and all package checksums pass.
+- Evidence: `root-kernel/evidence/v0.19.1-task16-r3-dashboard-desktop.json`, SHA-256 `849ac9570bc93f5ff7880232231b9a9393ed421ca17487b07c799cbadf50c054` (local, Git-excluded).
+- Next action: R3 is owner-accepted; R4 is now also owner-accepted. R5 remains pending.
+
+### Task 16 R4 Cron, local scripts, watchers, and automation
+
+- Technical verdict: `passed`; owner acceptance: `accepted` at `2026-08-06T16:07:23+09:00`.
+- Cron and scheduler inventory: all 49 profile scopes were parsed; 14 store files exist, every scope has zero jobs, parse errors are zero, and no dormant enabled job exists. Twelve gateway schedulers are running, but there is no cron work to schedule.
+- Script governance: current audit exits `0` with zero reported governance violations; 18 runtime files and one reachable transitive dependency were checked. Python and shell syntax checks pass. Focused candidate and expanded external automation-contract suites pass `89`, fail `0`.
+- Custom launchd: four automation labels retain exact canonical/install byte parity and existing targets. The Workspace backup label resumed enabled and loaded with `RunAtLoad=false`; one bounded launchd run completed with exit `0`.
+- Resolved finding `R4-AUTOMATION-001`: broad `git add .` behavior is retained for non-secret data. The Workspace repository has 28 synchronized secret-only patterns and the backup fails closed if any matching path is tracked or if its pattern file is absent.
+- Resolved finding `R4-REMOTE-TIP-001`: the repaired broad backup had already advanced local and remote `main` together while excluding the credential from the remote tip.
+- Resolved finding `R4-HISTORY-001`: `google-workspace` is disabled in `default` and `wolong`; both prior tokens fail live refresh as revoked or invalid; all profile client/token files and the Workspace OAuth credential file were removed without a secret backup. The old `th-earth` OAuth client deletion is owner-confirmed.
+- Git security apply: `git-filter-repo 2.47.0` rewrote exactly 63 commits from first exposure through `main` and moved only remote `main` with force-with-lease, from `d1ada06aed69aacc8ba12c80bb81fa3b8a247b20` to `2026a231fbc10e913fae32acf05d35c6f8e88c55`. A rejected full rewrite was never pushed because it would have stripped an earlier GitHub merge signature and changed 102 commits; the accepted partial rewrite preserves that signed commit byte-for-byte. Fresh remote fetch across the sole branch, zero tags, and one unaffected pull ref is clean; the old head is unreachable; the original clone reflogs and objects were pruned.
+- Nonblocking R5 inputs: 15 unconsumed profile wrappers, two generated watcher copies for terminal task `t_4b987a3b`, two unloaded Wolong Dashboard source plists, and the now-unconsumed Dashboard proxy source were classified but not removed. Root `kanban_task_watcher.py` remains a canonical compatibility entrypoint used by the Wolyeong generator.
+- Verification: previous fail-closed secret canaries remain passed. After the rewrite, Workspace local, origin, and remote `main` match; the repository is clean; a direct backup smoke made no commit; the canonical launchd label is enabled and loaded, and one bounded run completed with exit `0`. Both Hermes gateways retained their PIDs and were not restarted.
+- Rollback: the non-secret security package is `/Users/draccoon/Workspace/Hermes/update-backups/20260806T044956+0900-rk-v0191-task16-r4-security-apply/`; checksums pass. Config and launchd rollback remain available. Historical rollback is intentionally unavailable after verified cleanup because it would reintroduce the exposed credential history.
+- Evidence: `root-kernel/evidence/v0.19.1-task16-r4-automation.json`, SHA-256 `4df1e6f59b8c7c64a0a3beff130e72217293b2398f8f29601f41e8f73f312d85`; impact assessment `root-kernel/evidence/v0.19.1-task16-r4-security-impact.json`, SHA-256 `48eeddf79004823fb4d34c62b96bd40b03490973077775d4819de9eb3de52bd4`; apply receipt `root-kernel/evidence/v0.19.1-task16-r4-security-apply.json`, SHA-256 `8920884e489d8727bae4274f49d328d50bb1b5d4ac0fd7d5185653f62e1ef1ae` (local, Git-excluded).
+- Next action: R4 is owner-accepted. R5 remains pending and must not start without separate direction.
 
 ## Activation and rollback boundaries
 
@@ -430,7 +483,7 @@ Task 15 activation is technically passed and owner-accepted. The activation prer
 - Any real state database backup/canary has separate sensitive-data approval.
 - External control is ready for the root no-self-restart boundary.
 
-The local live runtime is v0.19.1. The tag blocker remains true because R1–R5 are pending.
+The local live backend runtime is v0.19.1. The tag blocker remains true because R5 is pending.
 
 No `.env`, `auth.json`, token, credential pool, private key, or real state database may be copied into this repository or ordinary evidence.
 
@@ -530,4 +583,4 @@ D5 read-only re-audit result:
 - evidence: `root-kernel/evidence/v0.19.1-D5-kanban-same-card-review.json`, SHA-256 `f7d341a6ba42306bfb51fa180b26dbbe4be0eda12ac2bb31ddbf5e93a51d97da`;
 - scenario A, recommended: retain current D5-b through D5-f at current chokepoints; current b is the bundled core same-card loop, while current c/d/e/f are watcher/result/mutex/banner; preserve every verified new upstream behavior.
 
-D1–D7 and Tasks 13–14 are owner-accepted and committed. Task 15, sensitive production state backup, fleet re-seed, live mutation, tag, push, and remote-ref movement remain unauthorized.
+D1–D7 and Tasks 13–15 are owner-accepted and committed. R1–R4 are owner-accepted. R5, release-candidate commit, tag, push, and release-ref movement remain unauthorized.

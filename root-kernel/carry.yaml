@@ -2,7 +2,7 @@ schema_version: 1
 ledger_kind: root-kernel-release-carry
 release:
   version: v0.19.1
-  status: task14-owner-accepted-ledger-commit-created
+  status: task16-r4-owner-accepted
   tag_blocker: true
   scaffolded_at: '2026-08-02T17:24:26+09:00'
   candidate_branch: rk/v0.19.1
@@ -129,8 +129,8 @@ candidate_boundary:
   profiles_changed: true
   configs_changed: true
   state_databases_changed: false
-  skills_changed: false
-  plugins_changed: false
+  skills_changed: true
+  plugins_changed: true
   cron_changed: false
   gateways_changed: false
   credentials_changed: false
@@ -171,6 +171,8 @@ evidence:
   d1_cjk_recovery: root-kernel/evidence/v0.19.1-d1-cjk-recovery.json
   task6_skill_delta: root-kernel/evidence/v0.19.1-skill-delta.json
   task6_skill_provenance: root-kernel/evidence/v0.19.1-skill-provenance.md
+  task16_r2_skill_provenance: root-kernel/evidence/v0.19.1-task16-r2-skill-provenance.json
+  task16_r3_dashboard_desktop: root-kernel/evidence/v0.19.1-task16-r3-dashboard-desktop.json
   d2_skill_write_approval: root-kernel/evidence/v0.19.1-D2-skill-write-approval.json
   sha256:
     release-note-v2026.7.20.md: 3918977363dfb7ce5dca016e62da2f19a3fac446b1392e1bae849079b8251124
@@ -186,6 +188,11 @@ evidence:
     v0.19.1-d1-cjk-recovery.json: 45b6ecb282b227fb8bc91c898f4f780d9f9e534dac3c2c093d17bd27db33351a
     v0.19.1-skill-delta.json: 4791ad338be5f017f42d13ff9ff9240d8a8137fa9e1f6f3a4a5c32e3843d1de3
     v0.19.1-skill-provenance.md: 2a0c413ef67e129ba79a26fb1ad222b6367989651af3eac49c9e2517e6091bf3
+    v0.19.1-task16-r2-skill-provenance.json: da8f53037b650d37173f413bed57481c1e9ed954bc706a810dfc43686ef73988
+    v0.19.1-task16-r3-dashboard-desktop.json: 849ac9570bc93f5ff7880232231b9a9393ed421ca17487b07c799cbadf50c054
+    v0.19.1-task16-r4-automation.json: 4df1e6f59b8c7c64a0a3beff130e72217293b2398f8f29601f41e8f73f312d85
+    v0.19.1-task16-r4-security-impact.json: 48eeddf79004823fb4d34c62b96bd40b03490973077775d4819de9eb3de52bd4
+    v0.19.1-task16-r4-security-apply.json: 8920884e489d8727bae4274f49d328d50bb1b5d4ac0fd7d5185653f62e1ef1ae
     v0.19.1-D2-skill-write-approval.json: 0d6b1de44322fc7f37e66149008c0d30bf6359767e2c029a98d7f92c6f6a29d6
 signals:
   provenance: completed planning baseline; refresh in dedicated read-only tasks
@@ -1647,26 +1654,108 @@ task15_activation:
     secrets_included: false
   blocking_findings: []
   push_tag_or_remote_ref_move: false
-  task16_started: false
-  next_action: Task 15 is owner-accepted and its two-ledger commit is created. Await separate Task 16 R1 direction.
+  task16_started: true
+  next_action: At Task 15 closeout, separate Task 16 R1 direction was pending. R1 is now owner-accepted and R2 is active but technically blocked.
 post_live_gates:
   execution_boundary: Run only after rk/live activation, one gate at a time.
   technical_pass_is_acceptance: false
   R1:
     title: Config/profile activation policy
-    status: pending
-    tag_blocker: true
-    operator_acceptance: pending
+    status: owner-accepted
+    technical_verdict: passed
+    release_regression_detected: false
+    tag_blocker: false
+    operator_acceptance: accepted
+    owner_accepted_at: '2026-08-05T21:57:25+09:00'
+    checked_at: '2026-08-05T21:31:06+09:00'
+    verification:
+      profiles_checked: 49
+      config_check_passed: 49
+      config_check_failed: 0
+      config_writes: 0
+      typed_policy_match: 49
+      canonical_identity_mismatches: 0
+      model_registry_mismatches: 0
+      provider_registry_mismatches: 0
+      model_distribution:
+        gpt-5.6-sol: 46
+        glm-5.2: 3
+      running_gateway_count: 12
+      gateway_live_venv_match: 12
+      gateway_pid_parity: true
+      gateway_restarts: 0
+      state_database_count: 12
+      state_schema_versions:
+        - 23
+      live_head: 413ee1d4
+      live_clean: true
+    findings:
+      - id: R1-IDENTITY-SOT-001
+        severity: resolved
+        classification: pre-existing-canonical-identity-drift-not-release-regression
+        detail: Canonical default registry, alias, and PATH entrypoint now resolve as Munang; the legacy executable and active source-of-truth terms are absent.
+      - id: R1-MODEL-SOT-002
+        severity: resolved
+        classification: pre-existing-canonical-model-metadata-drift-not-release-regression
+        affected_profiles: 25
+        source_model: openai-codex/gpt-5.5
+        target_model: openai-codex/gpt-5.6-sol
+        non_target_semantics_unchanged: true
+    nonblocking_preexisting_observations:
+      - type: alias-coverage
+        profiles:
+          - ijeok
+          - yuyeop
+        detail: Canonical English identity matches; Korean aliases are absent and SOUL headings duplicate the English name. R1 did not change these profiles.
+    repair:
+      implementation_authorized: true
+      implementation_completed: true
+      entrypoint_created: /Users/draccoon/.local/bin/munang
+      entrypoint_removed: /Users/draccoon/.local/bin/heuktaeja
+      default_config_resolution: passed
+      model_profiles_changed: 25
+      public_cli_canary: passed
+      exact_target_only_forward: passed
+      exact_rollback: passed
+      gateway_or_credential_changes: 0
+    evidence:
+      path: root-kernel/evidence/v0.19.1-task16-r1-config-profile-policy.json
+      sha256: 18e6d621a7c9a0e4a1408d068d049512b87a12a2688d70cfe2cf7903ec2627cf
+      git_excluded: true
+    rollback:
+      directory: /Users/draccoon/Workspace/Hermes/update-backups/20260805T211508+0900-rk-v0191-task16-r1-repair
+      archive: r1-repair-nonsecret-prechange.tar.gz
+      manifest: rollback-manifest.json
+      script: rollback.py --apply
+      dry_run: passed
+      archive_extraction_canary: passed
+      secrets_included: false
+    receipts:
+      model_apply:
+        path: /Users/draccoon/Workspace/Hermes/update-backups/20260805T211508+0900-rk-v0191-task16-r1-repair/model-apply-receipt.json
+        sha256: 584b092dced964b883f8ee24afe770d293ec36a84044f50533e40d7c2a827369
+      final_verification:
+        path: /Users/draccoon/Workspace/Hermes/update-backups/20260805T211508+0900-rk-v0191-task16-r1-repair/final-verification-receipt.json
+        sha256: 08af73a8c325fc1dbd4c1227efdac989ddec092c29ece82161da4f75e75d3d6b
+    next_action: At R1 closeout, separate R2 direction was pending. That direction was later granted, and R2 was owner-accepted at 2026-08-06T00:01:21+09:00.
   R2:
     title: Skill provenance, overrides, and compatibility
-    status: pending
-    tag_blocker: true
-    operator_acceptance: pending
-    planning_status: task6-technical-pass-awaiting-owner-acceptance
+    status: owner-accepted
+    technical_verdict: pass
+    release_regression_detected: false
+    tag_blocker: false
+    operator_acceptance: accepted
+    accepted_at: '2026-08-06T00:01:21+09:00'
+    authorized: true
+    started_at: '2026-08-05T22:26:29+09:00'
+    checked_at: '2026-08-05T23:55:07+09:00'
+    planning_status: task6-owner-accepted
     execution_boundary: post-rk-live-only
     evidence:
       - root-kernel/evidence/v0.19.1-skill-delta.json
       - root-kernel/evidence/v0.19.1-skill-provenance.md
+      - root-kernel/evidence/v0.19.1-task16-r2-skill-provenance.json
+    evidence_sha256: da8f53037b650d37173f413bed57481c1e9ed954bc706a810dfc43686ef73988
     target:
       profile_count: 49
       bundled_per_profile: 70
@@ -1681,6 +1770,7 @@ post_live_gates:
       retained_plugin_entries: 14
       retired_plugin_entries: 1
       active_plugin_skill_roots: 0
+      retained_default_orca_skill_symlinks: 2
     plugin_decision:
       retain:
         - atn-plugin
@@ -1689,16 +1779,323 @@ post_live_gates:
         - kkachi-agent-network-plugin
       rule: Plugin-provided skills cannot keep a retired plugin alive.
     rollback_rule: Secret-excluded typed backups, exact package hashes, first-profile stop, affected-profile restore, and restore canary are mandatory before continuation.
+    application:
+      exact_bundled_profiles: 49
+      bundled_per_profile: 70
+      curator_prune_builtins_false_profiles: 49
+      no_bundled_markers: 0
+      curator_suppressed_files: 0
+      profile_archives: 0
+      managed_skills: 15
+      managed_governance_violations: 0
+      retained_plugin_entries: 14
+      retired_plugin_entries_removed: 1
+      retained_default_orca_skill_symlinks: 2
+    verification:
+      config_checks_passed: 49
+      resolver_profiles_passed: 49
+      exact_package_profiles: 49
+      fresh_skill_disclosure_kan_hits: 0
+      fresh_tool_disclosure_kan_hits: 0
+      retained_plugin_hash_exact_packages: 14
+      skill_curator_cron_tests_passed: 189
+      plugin_compatibility_tests_passed: 137
+      running_gateway_count: 12
+      gateway_pid_parity: false
+      gateway_restarts: 1
+      default_gateway_old_pid: 9980
+      default_gateway_pid: 30334
+      default_gateway_live_v0191_venv: true
+      telegram_connected: true
+      discord_connected: true
+      discord_identity: 문앙#5587
+      resolver_enabled_skill_count: 76
+      discord_registered_skill_count: 74
+      resumed_session_kan_tool_hits: 0
+      refresh_receipt:
+        path: /Users/draccoon/Workspace/Hermes/update-backups/20260805T223716+0900-rk-v0191-task16-r2/controller/refresh-final-verification-receipt.json
+        sha256: 441ba1a22e2def6dd0ba00b6dec3da3110a34dcf40ff05cb385f501f471d152a
+    blocker:
+      id: R2-RUNTIME-KAN-001
+      classification: resolved-by-owner-approved-controlled-root-gateway-refresh
+      status: resolved
+      current_root_session_kan_tools: 0
+      fresh_process_kan_tools: 0
+      required_action: none
+      self_restart_allowed: false
+      resolved_at: '2026-08-05T23:55:07+09:00'
+    rollback:
+      directory: /Users/draccoon/Workspace/Hermes/update-backups/20260805T223716+0900-rk-v0191-task16-r2
+      canary_profile: biui
+      exact_forward: passed
+      exact_config_rollback: passed
+      exact_skill_tree_rollback: passed
+      secrets_included: false
+    next_action: R2 is owner-accepted. R3 was separately authorized and now passes technically under the owner-directed Dashboard retirement policy.
   R3:
     title: Dashboard and Desktop
-    status: pending
-    tag_blocker: true
-    operator_acceptance: pending
+    status: acceptance-passed
+    tag_blocker: false
+    operator_acceptance: accepted
+    accepted_at: '2026-08-06T01:29:31+09:00'
+    accepted_by: '[Black.D.Raccoon]'
+    direction_received: true
+    dashboard_retirement_authorized: true
+    technical_verdict: passed
+    verified_at: '2026-08-06T00:49:19+09:00'
+    updated_at: '2026-08-06T01:29:31+09:00'
+    evidence:
+      path: root-kernel/evidence/v0.19.1-task16-r3-dashboard-desktop.json
+      sha256: 849ac9570bc93f5ff7880232231b9a9393ed421ca17487b07c799cbadf50c054
+    initial_dashboard_audit:
+      launchd_label: ai.hermes.dashboard
+      launchd_state: running
+      dashboard_pid: 9887
+      bind: 127.0.0.1:9119
+      backend_version: 0.19.1
+      backend_health_status: passed
+      initial_gateway_pid_from_status: 30334
+      transient_gateway_state_from_status: stopped
+      transient_gateway_running_from_status: false
+      transient_gateway_pid_from_status: null
+      transient_stopped_probes: 5/5
+      current_gateway_state_from_status: running
+      current_gateway_running_from_status: true
+      current_gateway_pid_from_status: 30334
+      current_running_probes: 10/10
+      gateway_liveness_status: resolved-current-probe-nonblocking
+      canonical_installed_activation_plist_equal: true
+      plist_sha256: 26b611e614e0a42755d58259dff65605d602baec1fbdce9c5c3bf83490e8ad40
+      backend_source_candidate_live_equal: true
+      candidate_frontend:
+        files: 51
+        sha256: 15e8ff94af4dbec3e10f7d85333db569735622916d3fbdafd0b79e99aaba5e5c
+        isolated_build: passed
+      live_frontend:
+        files: 30
+        sha256: e96df5a5e24aa16585ea7ff1e004a07f3d4f351705ccf15a8aade6495c2b6be2
+      frontend_build_parity: failed
+      gateway_liveness_discrepancy:
+        launchd_pid: 30334
+        process_alive: true
+        runtime_status_pid: 30334
+        runtime_status_discord: connected
+        runtime_status_telegram: connected
+        direct_runtime_pid_fallback: 30334
+        gateway_pid_path_exists: false
+        gateway_lock_path_exists: false
+        gateway_process_open_lock_inode: 468957493
+        installed_gateway_plist_sha256: 149262ffcf7ceb5f5f0b398653a87b5f71a318c0c36a68aecf591ea8736abac0
+        installed_equals_task14_activation_definition: true
+    desktop:
+      intentionally_inactive: true
+      processes: 0
+      launchd_labels: 0
+      background_items: 0
+      config_present: false
+      installed_app_paths: 0
+      activation_performed: false
+      status: passed
+    tests:
+      focused_dashboard_desktop: 56-passed-0-failed
+      selected_test_files: 10
+      isolated_home: true
+      candidate_dashboard_build: passed
+    resolved_findings:
+      R3-DASHBOARD-001:
+        classification: live-dashboard-frontend-build-stale
+        status: resolved-by-owner-directed-dashboard-retirement
+        root_cause: Git-ignored web_dist survived Task 15 tracked-tree activation while launchd restarted Dashboard with --skip-build.
+        resolution: Active frontend build removed and Dashboard service plus automatic-start definitions disabled instead of refreshing an unused surface.
+    nonblocking_findings:
+      R3-DASHBOARD-002:
+        classification: dashboard-false-stopped-root-gateway-status
+        status: superseded-by-dashboard-retirement
+        root_cause: gateway PID and lock paths are absent after the R2 --replace refresh while PID 30334 retains the previous open lock inode; the long-lived Dashboard temporarily cached a false-stopped result before fresh runtime-status fallback invalidated it.
+        resolution: Dashboard is intentionally offline; root gateway PID 30334 remains independently running and connected.
+    blockers: []
+    dashboard_retirement:
+      policy: intentionally-disabled
+      service_label: ai.hermes.dashboard
+      pid_before: 9887
+      service_loaded_after: false
+      process_count_after: 0
+      listener_9119_after: false
+      health_http_code_after: '000'
+      canonical_plist_exists_after: false
+      installed_plist_exists_after: false
+      live_web_dist_exists_after: false
+      candidate_web_dist_exists_after: false
+      active_build_removed: true
+      tailscale_proxy_label: ai.hermes.dashboard.tailscale-proxy
+      tailscale_proxy_loaded_before: false
+      tailscale_proxy_loaded_after: false
+      tailscale_proxy_canonical_exists_after: false
+      hermes_source_or_cli_removed: false
+      status: passed
+    root_gateway_after:
+      pid: 30334
+      state: running
+      discord: connected
+      telegram: connected
+      restarted: false
+    rollback:
+      directory: /Users/draccoon/Workspace/Hermes/update-backups/20260806T011838+0900-rk-v0191-task16-r3-dashboard-disable
+      pre_ledger_archive: r3-ledgers-before.tar.gz
+      live_frontend_backup: live-web-dist-before.tar.gz
+      definition_backups: 3
+      extraction_canary: passed
+      rollback_script_syntax: passed
+      checksums: passed
+      secrets_included: false
+    live_mutation:
+      dashboard_service_unloaded: true
+      dashboard_definitions_removed: true
+      dashboard_frontend_removed: true
+      inactive_dashboard_proxy_definition_removed: true
+      desktop_activated: false
+      gateway_restarted: false
+      profiles_or_config_changed: false
+    next_action: R3 is owner-accepted. R4 has also been owner-accepted. R5 remains pending and must not start without separate direction.
   R4:
     title: Cron, local scripts, watchers, and automation
-    status: pending
+    status: owner-accepted
     tag_blocker: true
-    operator_acceptance: pending
+    operator_acceptance: accepted
+    accepted_at: '2026-08-06T16:07:23+09:00'
+    accepted_by: Black.D.Raccoon
+    direction_received: true
+    technical_verdict: passed
+    verified_at: '2026-08-06T12:13:52+09:00'
+    evidence:
+      path: root-kernel/evidence/v0.19.1-task16-r4-automation.json
+      sha256: 4df1e6f59b8c7c64a0a3beff130e72217293b2398f8f29601f41e8f73f312d85
+    security_impact_assessment:
+      path: root-kernel/evidence/v0.19.1-task16-r4-security-impact.json
+      sha256: 48eeddf79004823fb4d34c62b96bd40b03490973077775d4819de9eb3de52bd4
+      status: applied-verification-pass-awaiting-operator-acceptance
+      profiles_affected:
+        - default
+        - wolong
+      commits_rewritten: 63
+      remote_branches: 1
+      remote_tags: 0
+      affected_pull_refs: 0
+      signed_commits: 1
+      signed_commit_before_exposure_preserved: true
+      generic_oauth_client_cli_management: unavailable
+      cloud_console_owner_interaction_required: false
+      security_apply_authorized: true
+    security_apply_evidence:
+      path: root-kernel/evidence/v0.19.1-task16-r4-security-apply.json
+      sha256: 8920884e489d8727bae4274f49d328d50bb1b5d4ac0fd7d5185653f62e1ef1ae
+    cron:
+      profiles: 49
+      stores_present: 14
+      jobs: 0
+      enabled_jobs: 0
+      parse_errors: 0
+      running_schedulers: 12
+      dormant_enabled_jobs: 0
+      status: passed
+    governance:
+      audited_at: '2026-08-06T02:07:05.791163'
+      exit_code: 0
+      violations: 0
+      runtime_files_checked: 18
+      transitive_dependencies_checked: 1
+      managed_profiles_checked: 49
+    custom_launchd:
+      labels: 4
+      canonical_installed_byte_equal: 4
+      targets_present: 4
+      loaded: 4
+      pre_repair_last_exit_zero: 4
+      workspace_backup_reloaded_runs: 1
+      workspace_backup_enabled: true
+      workspace_backup_run_at_load: false
+      workspace_backup_last_exit_code: 0
+    tests:
+      focused_candidate_and_contracts: 89-passed-0-failed
+      isolated_home: true
+      workspace_backup_contracts: 23-passed-0-failed
+      isolated_bare_remote_broad_add_and_secret_exclusion: passed
+    resolved_findings:
+      R4-AUTOMATION-001:
+        classification: active-workspace-git-backup-tracked-credential-path
+        status: resolved-current-control
+        repair_authorized: true
+        broad_git_add_preserved: true
+        secret_patterns: 28
+        tracked_secret_pattern_count: 0
+        credential_path_tracked_in_current_index: false
+        local_credential_preserved: true
+        credential_content_read_or_copied: false
+        guard_missing-pattern_fail_closed: true
+        guard_no-path-disclosure: true
+        launchd_reloaded: true
+      R4-REMOTE-TIP-001:
+        classification: repaired-broad-backup-remote-tip-clean
+        status: resolved
+        authorized: true
+        pre_main: d1f3f7c15d2695edc4d9edaf2fa1620a87d082fc
+        post_main: d1ada06aed69aacc8ba12c80bb81fa3b8a247b20
+        local_remote_equal: true
+        changed_paths: 6
+        remote_tip_contains_credential_path: false
+        local_credential_preserved: true
+      R4-HISTORY-001:
+        classification: prior-history-contained-google-oauth-credential
+        status: resolved
+        google_workspace_disabled_profiles:
+          - default
+          - wolong
+        local_client_and_token_files_removed: true
+        old_oauth_client_retirement: owner-confirmed
+        pre_main: d1ada06aed69aacc8ba12c80bb81fa3b8a247b20
+        post_main: 2026a231fbc10e913fae32acf05d35c6f8e88c55
+        commits_rewritten: 63
+        signed_commit_before_exposure_preserved: true
+        all_fetched_remote_refs_clean: true
+        original_clone_cleaned: true
+    blockers: {}
+    nonblocking_findings:
+      R4-AUTOMATION-002:
+        classification: unconsumed-runtime-wrappers-and-terminal-watchers
+        status: deferred-to-r5
+        profile_wrappers: 15
+        terminal_watchers: 2
+      R4-AUTOMATION-003:
+        classification: wolong-dashboard-source-residue
+        status: deferred-to-r5
+        source_plists: 2
+        installed_or_loaded: 0
+    rollback:
+      audit_directory: /Users/draccoon/Workspace/Hermes/update-backups/20260806T014432+0900-rk-v0191-task16-r4
+      repair_directory: /Users/draccoon/Workspace/Hermes/update-backups/20260806T015355+0900-rk-v0191-task16-r4-secret-exclusion
+      security_apply_directory: /Users/draccoon/Workspace/Hermes/update-backups/20260806T044956+0900-rk-v0191-task16-r4-security-apply
+      pre_ledger_archive: r4-pre-ledgers.tar.gz
+      governance_snapshot: script-governance-latest.json
+      extraction_canary: passed
+      definition_hash_canary: passed
+      plist_parity_canary: passed
+      index_rollback_canary: passed
+      secrets_included: false
+    live_mutation:
+      cron_changed: false
+      launchd_changed: true
+      runtime_scripts_changed: false
+      profile_or_config_changed: true
+      automation_source_changed: true
+      workspace_gitignore_changed: true
+      secret_pattern_file_created: true
+      repository_index_changed: true
+      repository_history_changed: true
+      remote_changed: true
+      ordinary_backup_commit_push: true
+      history_rewrite_or_force_push: true
+      credential_content_read_or_copied: false
+    next_action: R4 is owner-accepted. R5 remains pending and must not start without separate direction. Release-candidate commit, tag, push, and release-ref movement remain unauthorized.
   R5:
     title: Profile-owned local asset optimization
     status: pending
@@ -1707,7 +2104,7 @@ post_live_gates:
 activation:
   status: owner-accepted
   blockers:
-    - R1 through R5 pending before tag closeout
+    - R5 pending before tag closeout
   root_self_restart_allowed: false
   external_control_required: true
   sensitive_state_backup_requires_separate_approval: true
@@ -1730,10 +2127,10 @@ ledger_parity:
     - live-mutation state
     - rollback authority
     - next action
-  status: task15-owner-accepted-ledger-commit-created
+  status: task16-r4-owner-accepted
 next_action:
-  task: Task 16 R1 direction
-  description: Task 15 activation is technically passed, owner-accepted, and committed. Await a separate Task 16 R1 start direction. Push, tag, and remote-ref movement remain unauthorized.
+  task: R4 owner-accepted; await R5 direction
+  description: R4 is owner-accepted at 2026-08-06T16:07:23+09:00. R5 remains pending and must not start without separate direction. Release-candidate commit, tag, push, and release-ref movement remain unauthorized.
   d1_classification_approved: true
   task5_source_fix_authorized: true
   task5_source_fix_verified: true
@@ -1760,6 +2157,53 @@ next_action:
   task15_owner_acceptance: accepted
   task15_accepted_at: '2026-08-05T16:28:42+09:00'
   task15_commit_authorized: true
+  r1_authorized: true
+  r1_status: owner-accepted
+  r1_technical_verdict: passed
+  r1_owner_acceptance: accepted
+  r1_accepted_at: '2026-08-05T21:57:25+09:00'
+  r1_implementation_authorized: true
+  r2_authorized: true
+  r2_status: owner-accepted
+  r2_technical_verdict: pass
+  r2_owner_acceptance: accepted
+  r2_accepted_at: '2026-08-06T00:01:21+09:00'
+  r2_live_mutation_authorized: true
+  r2_live_mutation_scope:
+    - profile skill trees
+    - curator.prune_builtins
+    - default Kkachi plugin config entry and plugin root
+  r3_authorized: true
+  r3_status: owner-accepted
+  r3_technical_verdict: passed
+  r3_owner_acceptance: accepted
+  r3_accepted_at: '2026-08-06T01:29:31+09:00'
+  r3_tag_blocker: false
+  r3_dashboard_retirement_authorized: true
+  r3_frontend_refresh_superseded: true
+  r3_blockers: []
+  r3_resolved_findings:
+    - R3-DASHBOARD-001
+    - R3-DASHBOARD-002
+  r3_live_mutation_performed: true
+  r4_authorized: true
+  r4_status: owner-accepted
+  r4_technical_verdict: passed
+  r4_owner_acceptance: accepted
+  r4_accepted_at: '2026-08-06T16:07:23+09:00'
+  r4_repair_authorized: true
+  r4_security_direction_received: true
+  r4_security_impact_audit_completed: true
+  r4_security_apply_authorized: true
+  r4_resolved_findings:
+    - R4-AUTOMATION-001
+    - R4-REMOTE-TIP-001
+    - R4-HISTORY-001
+  r4_blockers: []
+  r4_nonblocking_findings:
+    - R4-AUTOMATION-002
+    - R4-AUTOMATION-003
+  r4_live_mutation_performed: true
   next_d_item: null
   next_d_item_owner_direction: all-current-d-items-owner-accepted-and-committed
   d_item_implementation_authorized: false
@@ -1768,4 +2212,4 @@ next_action:
   d2_technical_status: implemented-verified-owner-accepted
   d2_owner_acceptance: accepted
   d2_accepted_at: '2026-08-03T01:14:44+09:00'
-  live_mutation_authorized: false
+  live_mutation_authorized: true
