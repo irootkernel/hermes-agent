@@ -2,10 +2,10 @@
 
 ## Release state
 
-- Status: `task16-r4-owner-accepted`
+- Status: `v0.19.1-released`; tag `rk/tag/v0.19.1` on the release commit; `rk/live` moved to v0.19.1
 - Candidate branch: `rk/v0.19.1`
 - Candidate worktree: `/Users/draccoon/Workspace/Hermes/17th-hermes-agent-worktree`
-- Tag blocker: `true`
+- Tag blocker: `false`
 - Live activation: v0.19.1 active at `413ee1d4bf9f83e636b937dac76a41368fe343c3`; technical pass and owner acceptance complete
 - Previous Task 2 commit: `509ae0f6d1c5ea9f7dfb9a77a965614dd91b16ff`
 - Task 3 ledger commit: `53e6060682a8dc98df6a30ef671b2ecb53c2384e`
@@ -411,7 +411,7 @@ Current v0.19.1 IDs identify execution order and may differ from identically num
 
 ## Post-live R gates
 
-R gates are not candidate-construction tasks. `rk/live` activation and Task 15 owner acceptance are complete. R1–R4 are owner-accepted. R5 remains pending and must not start without separate direction.
+R gates are not candidate-construction tasks. `rk/live` activation and Task 15 owner acceptance are complete. R1–R5 are owner-accepted. The tag blocker is cleared.
 
 | Gate | Scope | Status | Acceptance |
 |---|---|---|---|
@@ -419,7 +419,7 @@ R gates are not candidate-construction tasks. `rk/live` activation and Task 15 o
 | R2 | Skill provenance, overrides, and compatibility | `owner-accepted` | Accepted by owner at `2026-08-06T00:01:21+09:00` |
 | R3 | Dashboard and Desktop | `owner-accepted` | Dashboard intentionally disabled; accepted by owner at `2026-08-06T01:29:31+09:00` |
 | R4 | Cron, local scripts, watchers, and automation | `owner-accepted` | Security apply passed; accepted by owner at `2026-08-06T16:07:23+09:00` |
-| R5 | Profile-owned local asset optimization | `pending` | Separate owner acceptance required |
+| R5 | Profile-owned local asset optimization | `owner-accepted` | Asset optimization passed; accepted by owner at `2026-08-06T17:30:00+09:00` |
 
 Only one R gate may be active at a time. Technical success is not acceptance.
 
@@ -472,6 +472,19 @@ Only one R gate may be active at a time. Technical success is not acceptance.
 - Evidence: `root-kernel/evidence/v0.19.1-task16-r4-automation.json`, SHA-256 `4df1e6f59b8c7c64a0a3beff130e72217293b2398f8f29601f41e8f73f312d85`; impact assessment `root-kernel/evidence/v0.19.1-task16-r4-security-impact.json`, SHA-256 `48eeddf79004823fb4d34c62b96bd40b03490973077775d4819de9eb3de52bd4`; apply receipt `root-kernel/evidence/v0.19.1-task16-r4-security-apply.json`, SHA-256 `8920884e489d8727bae4274f49d328d50bb1b5d4ac0fd7d5185653f62e1ef1ae` (local, Git-excluded).
 - Next action: R4 is owner-accepted. R5 remains pending and must not start without separate direction.
 
+### Task 16 R5 Profile-owned local asset optimization
+
+- Technical verdict: `passed`; owner acceptance: `accepted` at `2026-08-06T17:30:00+09:00`.
+- Security cleanup: `auth/google_oauth.json` and lock files removed from `default` and `wolong` (expired tokens for deleted `th-earth` client, R4 scope gap). `profiles/wolong/.env.pre-telegram-restore-20260404-001451` removed (stale secret-bearing backup).
+- R4-AUTOMATION-002 resolved: two `t_4b987a3b` watcher scripts removed (completed task, no consumer); 125 stale kanban-watcher and `watch_*` state files removed.
+- R4-AUTOMATION-003 resolved: two wolong Dashboard source plists removed (neither installed nor loaded after R3 Dashboard retirement); empty `launchd/` dir removed.
+- Additional optimization: 284 old kanban workspace directories removed (default 144 + wolong 140); 3 `.omx` metadata dirs removed.
+- Preserved: `scripts/kanban_task_watcher.py` (canonical compatibility entrypoint); 15 active profile-owned scripts; 49 cron stores.
+- Verification: both profile `config check` pass; gateway PIDs `30334` and `9976` unchanged; launchd automation loaded and enabled; all removed files confirmed gone; preserved files confirmed present.
+- Rollback: non-secret backup under `/Users/draccoon/Workspace/Hermes/update-backups/20260806T1700-rk-v0191-task16-r5-asset-optimization/`; checksums pass. Secret rollback intentionally unavailable.
+- Evidence: `root-kernel/evidence/v0.19.1-task16-r5-asset-optimization.json`, SHA-256 `96cf50b9b6ca6fb84f9e0bb8ef272b1ae82887a22b14cd029d948c48745bf29a` (local, Git-excluded).
+- Next action: none. Release-candidate commit, tag `rk/tag/v0.19.1`, push, and `rk/live` movement completed at `2026-08-07`; v0.19.1 is released.
+
 ## Activation and rollback boundaries
 
 Task 15 activation is technically passed and owner-accepted. The activation prerequisites below are satisfied:
@@ -483,7 +496,7 @@ Task 15 activation is technically passed and owner-accepted. The activation prer
 - Any real state database backup/canary has separate sensitive-data approval.
 - External control is ready for the root no-self-restart boundary.
 
-The local live backend runtime is v0.19.1. The tag blocker remains true because R5 is pending.
+The local live backend runtime is v0.19.1. The tag blocker is cleared; all post-live R gates are owner-accepted.
 
 No `.env`, `auth.json`, token, credential pool, private key, or real state database may be copied into this repository or ordinary evidence.
 
@@ -583,4 +596,4 @@ D5 read-only re-audit result:
 - evidence: `root-kernel/evidence/v0.19.1-D5-kanban-same-card-review.json`, SHA-256 `f7d341a6ba42306bfb51fa180b26dbbe4be0eda12ac2bb31ddbf5e93a51d97da`;
 - scenario A, recommended: retain current D5-b through D5-f at current chokepoints; current b is the bundled core same-card loop, while current c/d/e/f are watcher/result/mutex/banner; preserve every verified new upstream behavior.
 
-D1–D7 and Tasks 13–15 are owner-accepted and committed. R1–R4 are owner-accepted. R5, release-candidate commit, tag, push, and release-ref movement remain unauthorized.
+D1–D7 and Tasks 13–15 are owner-accepted and committed. R1–R5 are owner-accepted. v0.19.1 is released: tag `rk/tag/v0.19.1` created, candidate pushed, and `rk/live` moved to v0.19.1.

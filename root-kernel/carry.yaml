@@ -2,8 +2,8 @@ schema_version: 1
 ledger_kind: root-kernel-release-carry
 release:
   version: v0.19.1
-  status: task16-r4-owner-accepted
-  tag_blocker: true
+  status: v0.19.1-released
+  tag_blocker: false
   scaffolded_at: '2026-08-02T17:24:26+09:00'
   candidate_branch: rk/v0.19.1
   candidate_worktree: /Users/draccoon/Workspace/Hermes/17th-hermes-agent-worktree
@@ -55,16 +55,16 @@ release:
       subject: '[D5-c] Implement Kanban review outcome watcher'
       authorized_at: '2026-08-04T03:51:47+09:00'
       scope:
-        - for-root-kernel.md
-        - gateway/kanban_watchers.py
-        - hermes_cli/kanban_db.py
-        - root-kernel/carry.yaml
-        - tests/gateway/test_kanban_notifier.py
-        - tests/hermes_cli/test_kanban_core_functionality.py
-        - tests/tools/test_kanban_tools.py
-        - tests/tui_gateway/test_kanban_notify_poller.py
-        - tools/kanban_tools.py
-        - tui_gateway/server.py
+      - for-root-kernel.md
+      - gateway/kanban_watchers.py
+      - hermes_cli/kanban_db.py
+      - root-kernel/carry.yaml
+      - tests/gateway/test_kanban_notifier.py
+      - tests/hermes_cli/test_kanban_core_functionality.py
+      - tests/tools/test_kanban_tools.py
+      - tests/tui_gateway/test_kanban_notify_poller.py
+      - tools/kanban_tools.py
+      - tui_gateway/server.py
     latest_commit:
       task: D5-c
       commit_ref: self
@@ -86,36 +86,36 @@ release:
 candidate_boundary:
   clean_exact_tag_before_scaffold: true
   expected_task2_changes:
-    - for-root-kernel.md
-    - root-kernel/carry.yaml
+  - for-root-kernel.md
+  - root-kernel/carry.yaml
   task3_changes:
     ledger_updates:
-      - for-root-kernel.md
-      - root-kernel/carry.yaml
+    - for-root-kernel.md
+    - root-kernel/carry.yaml
     local_progress_evidence:
-      - root-kernel/evidence/release-note-v2026.7.20.md
-      - root-kernel/evidence/release-note-v2026.7.30.md
-      - root-kernel/evidence/upstream-delta-v2026.7.7.2-to-v2026.7.30.md
-      - root-kernel/evidence/upstream-delta-v2026.7.7.2-to-v2026.7.30.json
-      - root-kernel/evidence/v0.19.1-config-state-skill-signals.md
+    - root-kernel/evidence/release-note-v2026.7.20.md
+    - root-kernel/evidence/release-note-v2026.7.30.md
+    - root-kernel/evidence/upstream-delta-v2026.7.7.2-to-v2026.7.30.md
+    - root-kernel/evidence/upstream-delta-v2026.7.7.2-to-v2026.7.30.json
+    - root-kernel/evidence/v0.19.1-config-state-skill-signals.md
     evidence_git_policy: excluded-local-only-unless-owner-approves-publication
   task4_changes:
     ledger_updates:
-      - for-root-kernel.md
-      - root-kernel/carry.yaml
+    - for-root-kernel.md
+    - root-kernel/carry.yaml
     local_progress_evidence:
-      - root-kernel/evidence/v0.19.1-config-impact.md
-      - root-kernel/evidence/v0.19.1-config-impact.json
-      - root-kernel/evidence/v0.19.1-config-application.md
-      - root-kernel/evidence/v0.19.1-config-application.json
+    - root-kernel/evidence/v0.19.1-config-impact.md
+    - root-kernel/evidence/v0.19.1-config-impact.json
+    - root-kernel/evidence/v0.19.1-config-application.md
+    - root-kernel/evidence/v0.19.1-config-application.json
     evidence_git_policy: excluded-local-only-unless-owner-approves-publication
   task5_changes:
     ledger_updates:
-      - for-root-kernel.md
-      - root-kernel/carry.yaml
+    - for-root-kernel.md
+    - root-kernel/carry.yaml
     local_progress_evidence:
-      - root-kernel/evidence/v0.19.1-state-schema-canary.json
-      - root-kernel/evidence/v0.19.1-d1-cjk-recovery.json
+    - root-kernel/evidence/v0.19.1-state-schema-canary.json
+    - root-kernel/evidence/v0.19.1-d1-cjk-recovery.json
     evidence_git_policy: excluded-local-only-unless-owner-approves-publication
     synthetic_only: true
     new_carry_registered: D1
@@ -136,7 +136,8 @@ candidate_boundary:
   credentials_changed: false
   remote_refs_changed: false
   rollback:
-    scaffold: discard the two files before commit or revert the ledger-only Task 2 commit afterward
+    scaffold: discard the two files before commit or revert the ledger-only Task 2
+      commit afterward
     candidate_code: switch the reused worktree to rk/v0.18.2
     d1_candidate: /Users/draccoon/Workspace/Hermes/update-backups/20260802T224453-rk-v0191-d1-cjk-recovery
     live_runtime: preserve the separate live clone and observed v0.18.2 release refs
@@ -193,6 +194,7 @@ evidence:
     v0.19.1-task16-r4-automation.json: 4df1e6f59b8c7c64a0a3beff130e72217293b2398f8f29601f41e8f73f312d85
     v0.19.1-task16-r4-security-impact.json: 48eeddf79004823fb4d34c62b96bd40b03490973077775d4819de9eb3de52bd4
     v0.19.1-task16-r4-security-apply.json: 8920884e489d8727bae4274f49d328d50bb1b5d4ac0fd7d5185653f62e1ef1ae
+    v0.19.1-task16-r5-asset-optimization.json: 96cf50b9b6ca6fb84f9e0bb8ef272b1ae82887a22b14cd029d948c48745bf29a
     v0.19.1-D2-skill-write-approval.json: 0d6b1de44322fc7f37e66149008c0d30bf6359767e2c029a98d7f92c6f6a29d6
 signals:
   provenance: completed planning baseline; refresh in dedicated read-only tasks
@@ -253,8 +255,8 @@ signals:
     root_default_messaging_tokenless_required: true
     root_default_messaging_tokenless_observed: false
     root_default_nonempty_platform_token_variable_names:
-      - TELEGRAM_BOT_TOKEN
-      - DISCORD_BOT_TOKEN
+    - TELEGRAM_BOT_TOKEN
+    - DISCORD_BOT_TOKEN
     token_values_read: false
     root_messaging_activation_authorized: false
     task4_integrity:
@@ -283,7 +285,8 @@ signals:
       planned_tests_failed: 0
       additional_approval_tests_passed: 115
       additional_approval_tests_failed: 1
-      nonblocking_failure: macOS /tmp canonicalization false-positive in upstream test introduced by 0c8bcd3399
+      nonblocking_failure: macOS /tmp canonicalization false-positive in upstream
+        test introduced by 0c8bcd3399
       acceptance_status: accepted
       accepted_at: '2026-08-02T19:33:32+09:00'
   state:
@@ -293,8 +296,8 @@ signals:
     target_schema: 23
     target_symbol: hermes_state_common.py::SCHEMA_VERSION
     direct_migrations_required:
-      - 16-to-23
-      - 19-to-23
+    - 16-to-23
+    - 19-to-23
     isolated_canary_status: passed-d1-cjk-enabled-offline-recovery-owner-accepted
     synthetic_only: true
     production_database_accessed: false
@@ -354,13 +357,16 @@ signals:
         sessions_each: 2
         messages_each: 5
         cjk_rebuilt_after_recovery: true
-      root_cause: session_recovery reopened the CJK-triggered destination copy and verifier with plain sqlite3 connections that had not loaded the tokenizer
-      runtime_fix: load the existing CJK extension helper on the destination copy and verification connections
+      root_cause: session_recovery reopened the CJK-triggered destination copy and
+        verifier with plain sqlite3 connections that had not loaded the tokenizer
+      runtime_fix: load the existing CJK extension helper on the destination copy
+        and verification connections
     blocker:
       active: false
       id: TASK5-CJK-OFFLINE-RECOVERY
       carry_id: D1
-      rule: Task 5 accepted; D1 remains an activation carry but no longer blocks Task 6.
+      rule: Task 5 accepted; D1 remains an activation carry but no longer blocks Task
+        6.
       owner_direction_recorded: true
       implementation_authorized: true
       verification_status: passed
@@ -401,15 +407,20 @@ active_carries:
     status: implemented-verified-task5-accepted
     owner_direction: retain-minimal-then-retire-on-upstream-replacement
     implementation_authorized: true
-    requirement: Preserve all canonical session and message rows in separate-output recovery with the CJK extension installed and sessions.cjk_fts true, then report complete true with clean integrity and Korean search.
-    upstream_gap: SessionDB creates CJK triggers on an extension-aware connection, but session recovery copies and verifies through plain sqlite3 connections that do not load cjk_unicode61.
+    requirement: Preserve all canonical session and message rows in separate-output
+      recovery with the CJK extension installed and sessions.cjk_fts true, then report
+      complete true with clean integrity and Korean search.
+    upstream_gap: SessionDB creates CJK triggers on an extension-aware connection,
+      but session recovery copies and verifies through plain sqlite3 connections that
+      do not load cjk_unicode61.
     likely_files:
-      - hermes_cli/session_recovery.py
-      - tests/hermes_cli/test_session_recovery.py
+    - hermes_cli/session_recovery.py
+    - tests/hermes_cli/test_session_recovery.py
     red_evidence:
       status: captured
       artifact: root-kernel/evidence/v0.19.1-state-schema-canary.json
-      result: Both schema 16 and 19 recovery paths copied 0 of 5 messages and reported complete false while preserving the source.
+      result: Both schema 16 and 19 recovery paths copied 0 of 5 messages and reported
+        complete false while preserving the source.
     green_evidence:
       status: passed
       artifact: root-kernel/evidence/v0.19.1-d1-cjk-recovery.json
@@ -433,17 +444,21 @@ active_carries:
       independent_review: passed
       full_candidate_smoke: passed-task13-awaiting-owner-acceptance
     activation_impact: task5-owner-acceptance-and-activation-blocker
-    rollback: Revert only candidate D1 code and tests before activation; no live, profile, gateway, ref, tag, remote, or real-state rollback is involved.
+    rollback: Revert only candidate D1 code and tests before activation; no live,
+      profile, gateway, ref, tag, remote, or real-state rollback is involved.
     retirement:
       status: active-until-proven-upstream-replacement
       decision: retire
-      condition: An exact later upstream target preserves canonical counts and reports complete true for CJK-enabled hermes sessions recover, passes an equivalent CJK recovery regression, and leaves no Root Kernel-only behavior gap.
+      condition: An exact later upstream target preserves canonical counts and reports
+        complete true for CJK-enabled hermes sessions recover, passes an equivalent
+        CJK recovery regression, and leaves no Root Kernel-only behavior gap.
       insufficient_evidence:
-        - nearby CJK fix
-        - issue closure without target code verification
-        - matching symbol names without behavioral proof
+      - nearby CJK fix
+      - issue closure without target code verification
+      - matching symbol names without behavioral proof
     live_mutation: false
-    next_action: Keep active until an exact upstream replacement satisfies the retirement rule; no further D1 work is authorized in Task 6.
+    next_action: Keep active until an exact upstream replacement satisfies the retirement
+      rule; no further D1 work is authorized in Task 6.
   D2:
     current_id: D2
     title: Fail-closed skill write approval import boundary
@@ -460,17 +475,22 @@ active_carries:
     tag_blocker: false
     owner_acceptance: accepted
     accepted_at: '2026-08-03T01:14:44+09:00'
-    requirement: When skills.write_approval is true, an import or initialization failure in the approval helper must fail closed and must not apply an unstaged skill mutation.
-    finding: tools/skill_manager_tool.py::_apply_skill_write_gate returns no gate when tools.write_approval cannot import, so the caller can continue to mutation.
+    requirement: When skills.write_approval is true, an import or initialization failure
+      in the approval helper must fail closed and must not apply an unstaged skill
+      mutation.
+    finding: tools/skill_manager_tool.py::_apply_skill_write_gate returns no gate
+      when tools.write_approval cannot import, so the caller can continue to mutation.
     likely_files:
-      - tools/skill_manager_tool.py
-      - tests/tools/test_skill_manager_tool.py
+    - tools/skill_manager_tool.py
+    - tests/tools/test_skill_manager_tool.py
     red_evidence:
-      import_failure: existing source returned success true and created the skill; 1 expected failure
+      import_failure: existing source returned success true and created the skill;
+        1 expected failure
       evaluation_failure: RuntimeError escaped from evaluate_gate; 1 expected failure
     green_evidence:
       focused: 2 passed
-      behavior: import and gate-evaluation failures return structured success-false errors before mutation
+      behavior: import and gate-evaluation failures return structured success-false
+        errors before mutation
     integrated_smoke:
       related_files: 17
       passed: 199
@@ -493,8 +513,11 @@ active_carries:
       restored_red_tests: 2
     commit_header: '[D2]'
     live_mutation: false
-    retirement_rule: Retire only when an exact later upstream target blocks skill mutations on approval-helper import and evaluation failures, returns a structured error, preserves approved replay, and passes equivalent regression tests.
-    next_action: Keep active until an exact upstream replacement satisfies the retirement rule.
+    retirement_rule: Retire only when an exact later upstream target blocks skill
+      mutations on approval-helper import and evaluation failures, returns a structured
+      error, preserves approved replay, and passes equivalent regression tests.
+    next_action: Keep active until an exact upstream replacement satisfies the retirement
+      rule.
   D3:
     current_id: D3
     renumbered_from_provisional_id: D1
@@ -511,24 +534,27 @@ active_carries:
     tag_blocker: false
     owner_acceptance: accepted
     accepted_at: '2026-08-03T11:38:26+09:00'
-    requirement: Preserve profile-local credential ID or label selection and fail closed without sibling or singleton Codex credential substitution.
+    requirement: Preserve profile-local credential ID or label selection and fail
+      closed without sibling or singleton Codex credential substitution.
     files:
-      - agent/credential_pool.py
-      - agent/auxiliary_client.py
-      - hermes_cli/runtime_provider.py
-      - hermes_cli/auth_commands.py
-      - tests/agent/test_credential_pool.py
-      - tests/agent/test_auxiliary_client.py
-      - tests/hermes_cli/test_runtime_provider_resolution.py
-      - tests/hermes_cli/test_auth_commands.py
+    - agent/credential_pool.py
+    - agent/auxiliary_client.py
+    - hermes_cli/runtime_provider.py
+    - hermes_cli/auth_commands.py
+    - tests/agent/test_credential_pool.py
+    - tests/agent/test_auxiliary_client.py
+    - tests/hermes_cli/test_runtime_provider_resolution.py
+    - tests/hermes_cli/test_auth_commands.py
     red_evidence:
-      focused: 6 pool failures, 2 runtime failures, 2 auxiliary failures, 2 labelled-reauth failures, 1 empty-token failure, and 3 independent-review regression failures
+      focused: 6 pool failures, 2 runtime failures, 2 auxiliary failures, 2 labelled-reauth
+        failures, 1 empty-token failure, and 3 independent-review regression failures
       clean_base: 516f0b74d070ceb7ec1020e6ce521c5d96fd8f3a
     green_evidence:
       d3_focused: 19 passed
       related_without_unchanged_timing_test: 299 passed, 1 deselected
       unchanged_timing_test_isolated: 1 passed
-      static_checks: py_compile, ruff, git diff --check, and added-line secret scan passed
+      static_checks: py_compile, ruff, git diff --check, and added-line secret scan
+        passed
     independent_review:
       initial_findings: 3
       correction_tests: 3 passed
@@ -546,8 +572,12 @@ active_carries:
       red_after_restore: 16 failed, 3 passed
     commit_header: '[D3]'
     live_mutation: false
-    retirement_rule: Retire only when an exact later upstream target supplies profile-local exact ID and label affinity, fail-closed unavailable-pin behavior without sibling or singleton substitution, and durable exact labelled reauth with equivalent regression coverage.
-    next_action: Keep active until an exact upstream replacement satisfies the retirement rule.
+    retirement_rule: Retire only when an exact later upstream target supplies profile-local
+      exact ID and label affinity, fail-closed unavailable-pin behavior without sibling
+      or singleton substitution, and durable exact labelled reauth with equivalent
+      regression coverage.
+    next_action: Keep active until an exact upstream replacement satisfies the retirement
+      rule.
   D4:
     current_id: D4
     renumbered_from_provisional_id: D2
@@ -563,35 +593,44 @@ active_carries:
     implementation_authorized: true
     audit_started_at: '2026-08-03T11:38:26+09:00'
     audit_completed_at: '2026-08-03T11:56:43+09:00'
-    requirement: Preserve owned-thread response and ownership boundaries while failing closed on unsafe role mentions.
+    requirement: Preserve owned-thread response and ownership boundaries while failing
+      closed on unsafe role mentions.
     likely_files:
-      - gateway/platforms/helpers.py
-      - plugins/platforms/discord/adapter.py
+    - gateway/platforms/helpers.py
+    - plugins/platforms/discord/adapter.py
     upstream_absorbed:
-      - Persistent participation tracking and require/free-response/thread-require-mention gates.
-      - Fail-closed auto-thread failure, reply/voice skip behavior, bot inline-mention gates, safe output mentions, and missed-message recovery admission.
+    - Persistent participation tracking and require/free-response/thread-require-mention
+      gates.
+    - Fail-closed auto-thread failure, reply/voice skip behavior, bot inline-mention
+      gates, safe output mentions, and missed-message recovery admission.
     local_gaps:
-      - Persistent thread owner state is absent; participation still grants mention-free live routing.
-      - Recovered-message routing also treats participation as ownership.
-      - Role mentions can fall through to a free-response/default responder.
-      - Free-response owned auto-thread, parent-owner fallback, and ownership config bridge are absent.
-      - Auto-created, slash-created, and new forum text/media threads do not record ownership.
+    - Persistent thread owner state is absent; participation still grants mention-free
+      live routing.
+    - Recovered-message routing also treats participation as ownership.
+    - Role mentions can fall through to a free-response/default responder.
+    - Free-response owned auto-thread, parent-owner fallback, and ownership config
+      bridge are absent.
+    - Auto-created, slash-created, and new forum text/media threads do not record
+      ownership.
     red_evidence:
-      - 'Re-audit disposable gap probe: 6 expected failures reproduced.'
-      - 'Implementation core RED: 7 failed.'
-      - 'Implementation sibling RED: 4 failed.'
+    - 'Re-audit disposable gap probe: 6 expected failures reproduced.'
+    - 'Implementation core RED: 7 failed.'
+    - 'Implementation sibling RED: 4 failed.'
     green_evidence:
-      - 'Focused final: 42 passed.'
-      - 'Related Discord suite: 112 passed, 3 warnings.'
-      - 'Thread persistence sibling: 3 passed.'
-      - 'Broad gateway Discord glob matches clean base exactly: 233 passed, same 3 import-order failures.'
+    - 'Focused final: 42 passed.'
+    - 'Related Discord suite: 112 passed, 3 warnings.'
+    - 'Thread persistence sibling: 3 passed.'
+    - 'Broad gateway Discord glob matches clean base exactly: 233 passed, same 3 import-order
+      failures.'
     integrated_smoke: passed-related-baseline-equivalent
     evidence:
       path: root-kernel/evidence/v0.19.1-D4-discord-thread-ownership.json
       sha256: a93a6e7c726fbb945726de186251cbb53fd9808ee925bc116500da354e2836f1
     options:
-      A: Retain a minimal v0.19.1-aware owner and role fail-close extension across live, recovery, and new thread-creation siblings. Recommended.
-      B: Retire automatic ownership, require explicit mentions in shared threads, and retain only role-address fail-close.
+      A: Retain a minimal v0.19.1-aware owner and role fail-close extension across
+        live, recovery, and new thread-creation siblings. Recommended.
+      B: Retire automatic ownership, require explicit mentions in shared threads,
+        and retain only role-address fail-close.
       C: Retire or defer D4 and accept current participation-based behavior.
     rollback:
       archive: /Users/draccoon/Workspace/Hermes/update-backups/20260803T033508Z-rk-v0191-d4-pre-implementation/d4-targets.tar.gz
@@ -603,7 +642,8 @@ active_carries:
       security_concerns: 0
       logic_errors: 0
       reviewer: Claude Code read-only follow-up
-    next_action: D4 is owner-accepted. Await separate owner authorization before starting D5.
+    next_action: D4 is owner-accepted. Await separate owner authorization before starting
+      D5.
   D5:
     current_id: D5
     renumbered_from_provisional_id: D3
@@ -644,10 +684,12 @@ active_carries:
     d5_f_owner_accepted_at: '2026-08-04T17:50:41+09:00'
     audit_started_at: '2026-08-03T13:55:06+09:00'
     audit_completed_at: '2026-08-03T13:59:37+09:00'
-    requirement: Preserve only still-missing same-card review, result, mutex, watcher, and closed workflow semantics.
+    requirement: Preserve only still-missing same-card review, result, mutex, watcher,
+      and closed workflow semantics.
     canonical_subitems:
       D5-a: native-overlap analysis
-      D5-b: 'core same-card loop: cooperative handoff, submit-for-review, request-changes, and creator final gate'
+      D5-b: 'core same-card loop: cooperative handoff, submit-for-review, request-changes,
+        and creator final gate'
       D5-c: review outcome watcher
       D5-d: creator/acceptor result submission
       D5-e: mutex-key serialization
@@ -659,59 +701,78 @@ active_carries:
       D5-e: legacy D2-h
       D5-f: legacy D2-i
     likely_files:
-      - hermes_cli/kanban_db.py
-      - tools/kanban_tools.py
-      - toolsets.py
-      - hermes_cli/kanban.py
-      - gateway/kanban_watchers.py
-      - agent/prompt_builder.py
+    - hermes_cli/kanban_db.py
+    - tools/kanban_tools.py
+    - toolsets.py
+    - hermes_cli/kanban.py
+    - gateway/kanban_watchers.py
+    - agent/prompt_builder.py
     upstream_native_foundations:
-      - Native review claim/dispatch and generic workflow metadata.
-      - Goal-mode completion judge and structured completion contracts.
-      - Kanban repair, corruption recovery, backup retention, and WAL checkpoint behavior.
-      - Per-task model/provider override.
-      - Delegated-child mutation denial and isolated child/project worktrees.
-      - Multi-board, cursor-safe, profile-aware notifier routing.
+    - Native review claim/dispatch and generic workflow metadata.
+    - Goal-mode completion judge and structured completion contracts.
+    - Kanban repair, corruption recovery, backup retention, and WAL checkpoint behavior.
+    - Per-task model/provider override.
+    - Delegated-child mutation denial and isolated child/project worktrees.
+    - Multi-board, cursor-safe, profile-aware notifier routing.
     resolved_in_d5_b:
-      - Worker cooperative same-card handoff with owned-run release.
-      - Native submit-review and exact-provenance request-changes.
-      - Creator final-gate routing before final completion side effects.
-      - Worker-only same-card tools and explicit-run CLI parity.
-      - Goal-loop release and post-judge ownership safety.
+    - Worker cooperative same-card handoff with owned-run release.
+    - Native submit-review and exact-provenance request-changes.
+    - Creator final-gate routing before final completion side effects.
+    - Worker-only same-card tools and explicit-run CLI parity.
+    - Goal-loop release and post-judge ownership safety.
     resolved_in_d5_c:
-      - Existing durable review-watch receipt plus trusted gateway/TUI fallback with historical response shape.
-      - Same-task review cursor anchoring, same-destination conflict safety, and ordinary duplicate cursor preservation.
-      - Gateway and TUI requested_changes/review_accepted delivery, wake, and nonfinal subscription retention.
-      - Best-effort watcher setup that cannot reverse or misreport a successful D5-b review transition.
+    - Existing durable review-watch receipt plus trusted gateway/TUI fallback with
+      historical response shape.
+    - Same-task review cursor anchoring, same-destination conflict safety, and ordinary
+      duplicate cursor preservation.
+    - Gateway and TUI requested_changes/review_accepted delivery, wake, and nonfinal
+      subscription retention.
+    - Best-effort watcher setup that cannot reverse or misreport a successful D5-b
+      review transition.
     resolved_in_d5_d:
-      - Worker-only exact-run result submission to a distinct creator/acceptor using the existing durable submission anchor.
-      - Exact submitted_result event/run/submitter provenance with rework only to that submitter and ordinary completed acceptance.
-      - Final-acceptance artifact preservation with rollback, ambiguous-COMMIT, symlink, and BaseException interrupt safety.
-      - Existing D5-c watcher cursor reuse and success-only terminal/run-release stop-guard behavior.
+    - Worker-only exact-run result submission to a distinct creator/acceptor using
+      the existing durable submission anchor.
+    - Exact submitted_result event/run/submitter provenance with rework only to that
+      submitter and ordinary completed acceptance.
+    - Final-acceptance artifact preservation with rollback, ambiguous-COMMIT, symlink,
+      and BaseException interrupt safety.
+    - Existing D5-c watcher cursor reuse and success-only terminal/run-release stop-guard
+      behavior.
     resolved_in_d5_e:
-      - Explicit board-local mutex_key with trim-only normalization, blank-to-null, and preserved case/scheme.
-      - Atomic ready/review direct-claim serialization inside BEGIN IMMEDIATE with structured mutex_locked provenance.
-      - Partial-index-backed canonical exact owner lookup with dirty carried-row fallback and no stored-value rewrite.
-      - Same-tick ready/review dry/live dispatcher serialization, health suppression, and CLI/tool diagnostics.
-      - Running-only ownership release across completion, result/review, block, failure, reclaim, timeout, and crash exits.
+    - Explicit board-local mutex_key with trim-only normalization, blank-to-null,
+      and preserved case/scheme.
+    - Atomic ready/review direct-claim serialization inside BEGIN IMMEDIATE with structured
+      mutex_locked provenance.
+    - Partial-index-backed canonical exact owner lookup with dirty carried-row fallback
+      and no stored-value rewrite.
+    - Same-tick ready/review dry/live dispatcher serialization, health suppression,
+      and CLI/tool diagnostics.
+    - Running-only ownership release across completion, result/review, block, failure,
+      reclaim, timeout, and crash exits.
     local_gaps:
-      - Closed workflow_type banners are absent.
+    - Closed workflow_type banners are absent.
     red_evidence:
-      - 'Disposable D5 gap probe: 7 failed, 1 native-foundation test passed.'
+    - 'Disposable D5 gap probe: 7 failed, 1 native-foundation test passed.'
     green_evidence:
-      - 'D5-b focused implementation suite: 109 passed, 1 skipped.'
-      - 'D5-b canonical file-isolated broad gate: 34 files, 206 passed, 1 skipped, 0 failed files.'
-      - 'D5-c focused implementation suite: 89 passed, 1 skipped.'
-      - 'D5-c canonical file-isolated broad gate: 49 files, 298 passed, 1 skipped, 0 failed files.'
-      - 'D5-c i18n catalog parity: 36 passed.'
-      - 'D5-d focused implementation suite: 213 passed, 1 skipped.'
-      - 'D5-d canonical file-isolated Kanban broad gate: 42 files, 269 passed, 0 failed files.'
-      - 'D5-d static, Bandit delta, added-line security, integrated smoke, and 16-target rollback gates passed.'
-      - 'D5-e focused implementation suite: 30 passed, 101 deselected.'
-      - 'D5-e product-adjacent three-file suite: 131 passed.'
-      - 'D5-e canonical file-isolated Kanban broad gate: 49 files, 349 passed, 1 skipped, 0 failed files.'
-      - 'D5-e independent review: two blocking logic findings RED-reproduced and remediated; final read-only follow-up passed with zero blockers.'
-      - 'Static gates: py_compile, Ruff, and git diff --check passed.'
+    - 'D5-b focused implementation suite: 109 passed, 1 skipped.'
+    - 'D5-b canonical file-isolated broad gate: 34 files, 206 passed, 1 skipped, 0
+      failed files.'
+    - 'D5-c focused implementation suite: 89 passed, 1 skipped.'
+    - 'D5-c canonical file-isolated broad gate: 49 files, 298 passed, 1 skipped, 0
+      failed files.'
+    - 'D5-c i18n catalog parity: 36 passed.'
+    - 'D5-d focused implementation suite: 213 passed, 1 skipped.'
+    - 'D5-d canonical file-isolated Kanban broad gate: 42 files, 269 passed, 0 failed
+      files.'
+    - D5-d static, Bandit delta, added-line security, integrated smoke, and 16-target
+      rollback gates passed.
+    - 'D5-e focused implementation suite: 30 passed, 101 deselected.'
+    - 'D5-e product-adjacent three-file suite: 131 passed.'
+    - 'D5-e canonical file-isolated Kanban broad gate: 49 files, 349 passed, 1 skipped,
+      0 failed files.'
+    - 'D5-e independent review: two blocking logic findings RED-reproduced and remediated;
+      final read-only follow-up passed with zero blockers.'
+    - 'Static gates: py_compile, Ruff, and git diff --check passed.'
     integrated_smoke: passed-disposable-db-no-live-runtime
     evidence:
       path: root-kernel/evidence/v0.19.1-D5-kanban-same-card-review.json
@@ -720,37 +781,39 @@ active_carries:
       evidence:
         path: root-kernel/evidence/v0.19.1-D5-b-core-same-card-loop-investigation.json
         sha256: c9a53df199b46cfe1a4636fe1e4ee3cd63a694d05ed8ab8449fd1b0e1a3dbb26
-      historical_characterization: '18 passed; 13 native review sibling tests passed.'
-      current_gap_probe: '6 failed, 1 native review foundation passed.'
+      historical_characterization: 18 passed; 13 native review sibling tests passed.
+      current_gap_probe: 6 failed, 1 native review foundation passed.
       direct_historical_replay: rejected-git-apply-check-failed-and-v0191-sibling-gaps
       implementation_status: implemented-verified-committed
       implementation_design: retain-minimal-v0191-aware-core-loop-with-exact-review-provenance
       schema_deviation:
         column: tasks.review_submission_event_id
         kind: additive-nullable-backward-compatible
-        reason: Independent review reproduced stale nearest-event reuse and legacy/manual review lockout; exact durable linkage was required.
+        reason: Independent review reproduced stale nearest-event reuse and legacy/manual
+          review lockout; exact durable linkage was required.
       preserved_boundaries:
-        - Delegated-child and own-task/run gates wrap every worker transition.
-        - Transition tools are worker-only; operator reclaim/reassign retains takeover authority.
-        - Creator routing precedes goal judge bypass and final completion side effects.
-        - Reviewer/final and rework/handoff targets are spawnable and role-safe.
-        - Goal mode fails closed on invalid run ids and rechecks after judging.
+      - Delegated-child and own-task/run gates wrap every worker transition.
+      - Transition tools are worker-only; operator reclaim/reassign retains takeover
+        authority.
+      - Creator routing precedes goal judge bypass and final completion side effects.
+      - Reviewer/final and rework/handoff targets are spawnable and role-safe.
+      - Goal mode fails closed on invalid run ids and rechecks after judging.
       verification:
-        focused: '109 passed, 1 skipped'
-        broad_file_isolated: '34 files; 206 passed, 1 skipped, 0 failed files'
+        focused: 109 passed, 1 skipped
+        broad_file_isolated: 34 files; 206 passed, 1 skipped, 0 failed files
         static: py_compile-ruff-diff-check-passed
       rollback:
         archive_sha256: 28c0785c9c589eaac13628fc2757260eb835e86a43bca9ed066c6fa313523f46
-        restored_suite: '61 passed'
+        restored_suite: 61 passed
         additive_schema_backward_compatibility: passed
       expected_product_files:
-        - hermes_cli/kanban_db.py
-        - tools/kanban_tools.py
-        - toolsets.py
-        - agent/prompt_builder.py
-        - hermes_cli/kanban.py
-        - cli.py
-        - hermes_cli/goals.py
+      - hermes_cli/kanban_db.py
+      - tools/kanban_tools.py
+      - toolsets.py
+      - agent/prompt_builder.py
+      - hermes_cli/kanban.py
+      - cli.py
+      - hermes_cli/goals.py
       independent_review:
         first_pass: changes-required-6-findings-all-remediated
         follow_up: passed-zero-blocking-findings
@@ -767,28 +830,30 @@ active_carries:
       implementation_design: retain-minimal-v0191-aware-review-watcher-with-exact-anchor-and-tui-parity
       schema_change: none
       preserved_boundaries:
-        - Default dispatcher workers still strip all HERMES_SESSION routing metadata.
-        - HERMES_SESSION_ID is never promoted to a delivery destination.
-        - Existing profile-aware multi-board routing, cursor claim/rewind, and non-push wake-before-advance behavior remain intact.
-        - Subscriptions remain until done or archived; at D5-c closeout, D5-d result acceptance remained absent and separately gated.
+      - Default dispatcher workers still strip all HERMES_SESSION routing metadata.
+      - HERMES_SESSION_ID is never promoted to a delivery destination.
+      - Existing profile-aware multi-board routing, cursor claim/rewind, and non-push
+        wake-before-advance behavior remain intact.
+      - Subscriptions remain until done or archived; at D5-c closeout, D5-d result
+        acceptance remained absent and separately gated.
       verification:
-        focused: '89 passed, 1 skipped'
-        broad_file_isolated: '49 files; 298 passed, 1 skipped, 0 failed files'
-        i18n_catalog_parity: '36 passed'
+        focused: 89 passed, 1 skipped
+        broad_file_isolated: 49 files; 298 passed, 1 skipped, 0 failed files
+        i18n_catalog_parity: 36 passed
         static: pycompile-ruff-diff-check-security-scan-passed
       rollback:
         archive_sha256: adf3e52e24768f270fc0a5f662a967466ff4c55b79d479db2f9fbbc31dded049
-        restored_suite: '89 passed'
+        restored_suite: 89 passed
         pre_d5_c_db_backward_compatibility: passed
       expected_product_files:
-        - hermes_cli/kanban_db.py
-        - tools/kanban_tools.py
-        - gateway/kanban_watchers.py
-        - tui_gateway/server.py
+      - hermes_cli/kanban_db.py
+      - tools/kanban_tools.py
+      - gateway/kanban_watchers.py
+      - tui_gateway/server.py
       independent_review:
         first_pass: changes-required-2-findings-all-remediated
         follow_up: passed-zero-blocking-findings
-        specified_tests: '2 passed'
+        specified_tests: 2 passed
         reviewer: Hermes-delegated-read-only-follow-up
       implementation_authorized: true
       commit_authorized: true
@@ -801,15 +866,21 @@ active_carries:
       implementation_design: retain-minimal-v0191-aware-result-submission-with-exact-run-event-provenance
       schema_change: none
       preserved_boundaries:
-        - Worker submit-result requires the exact active owned run and is denied to delegated children and orchestrators.
-        - The acceptor defaults to the distinct spawnable creator; no worker board override is exposed.
-        - Result rework returns only to the exact submitter; acceptance emits completed and never review_accepted.
-        - Goal-mode acceptance keeps the completion judge and rechecks exact active acceptance provenance.
-        - Artifacts remain in scratch until final acceptance and preserve DB/filesystem consistency across rollback, ambiguous COMMIT, symlink, and BaseException paths.
-        - D5-c watcher foundations are reused without gateway or TUI product changes.
+      - Worker submit-result requires the exact active owned run and is denied to
+        delegated children and orchestrators.
+      - The acceptor defaults to the distinct spawnable creator; no worker board override
+        is exposed.
+      - Result rework returns only to the exact submitter; acceptance emits completed
+        and never review_accepted.
+      - Goal-mode acceptance keeps the completion judge and rechecks exact active
+        acceptance provenance.
+      - Artifacts remain in scratch until final acceptance and preserve DB/filesystem
+        consistency across rollback, ambiguous COMMIT, symlink, and BaseException
+        paths.
+      - D5-c watcher foundations are reused without gateway or TUI product changes.
       verification:
-        focused: '8 files; 213 passed, 1 skipped, 0 failed'
-        broad_file_isolated: '42 files; 269 passed, 0 failed files'
+        focused: 8 files; 213 passed, 1 skipped, 0 failed
+        broad_file_isolated: 42 files; 269 passed, 0 failed files
         targeted_review_regressions: passed
         integrated_smoke: passed-disposable-worker-submit-creator-accept-artifact
         static: pycompile-ruff-diff-check-bandit-delta-added-line-security-passed
@@ -818,12 +889,12 @@ active_carries:
         prompt_test_supplement_sha256: a6477156e696e3f447ba94c0222efb9ebd44e489b73bfbfcc7d7f67d32b4d1ee
         disposable_restore: 16-targets-byte-identical-to-head
       expected_product_files:
-        - agent/kanban_stop.py
-        - agent/prompt_builder.py
-        - hermes_cli/kanban.py
-        - hermes_cli/kanban_db.py
-        - tools/kanban_tools.py
-        - toolsets.py
+      - agent/kanban_stop.py
+      - agent/prompt_builder.py
+      - hermes_cli/kanban.py
+      - hermes_cli/kanban_db.py
+      - tools/kanban_tools.py
+      - toolsets.py
       independent_review:
         first_passes: changes-required-8-blockers-all-red-reproduced-and-remediated
         final_follow_up: passed-zero-blocking-findings
@@ -844,25 +915,29 @@ active_carries:
         publication_authorized: false
       historical_contract:
         commit: 0361594452e9329bfe7d32be1e0a853cd4c810a2
-        tests: '12 passed in 1.27s'
-        concurrent_race: '20/20 exactly one claim, one running task, and one structured rejection event'
+        tests: 12 passed in 1.27s
+        concurrent_race: 20/20 exactly one claim, one running task, and one structured
+          rejection event
         direct_replay: rejected-git-apply-check-failed-on-all-product-test-ledger-hunks
-      current_gap_probe: '9 failed: model, API, schema, direct ready/review claim, dry-run, health, CLI, and tool contracts'
-      native_foundation_verification: '55 passed across dispatch lock, write_txn retry, per-profile cap, tool, project, and worktree isolation suites'
+      current_gap_probe: '9 failed: model, API, schema, direct ready/review claim,
+        dry-run, health, CLI, and tool contracts'
+      native_foundation_verification: 55 passed across dispatch lock, write_txn retry,
+        per-profile cap, tool, project, and worktree isolation suites
       implementation_design: retain-minimal-v0191-aware-write-txn-guard-with-nonunique-lookup-index
       verification:
-        focused: '30 passed, 101 deselected'
-        product_adjacent_three_files: '131 passed'
-        broad_file_isolated: '49 files; 349 passed, 1 skipped, 0 failed files'
+        focused: 30 passed, 101 deselected
+        product_adjacent_three_files: 131 passed
+        broad_file_isolated: 49 files; 349 passed, 1 skipped, 0 failed files
         static: pycompile-ruff-diff-check-passed
-        bandit_delta: 'current 52, HEAD 52, high 0, new findings 0'
+        bandit_delta: current 52, HEAD 52, high 0, new findings 0
         added_line_security: zero-findings
-        direct_ready_race: '50/50 exactly one claim, one running owner, one mutex_locked rejection'
+        direct_ready_race: 50/50 exactly one claim, one running owner, one mutex_locked
+          rejection
         review_race: passed
         ready_review_cross_lane_dry_live: passed
         partial_index_query_plan: idx_tasks_mutex_status-used
         mixed_dirty_exact_owner_parity: canonical-exact-first-no-db-rewrite
-        long_cli_json_round_trip: '120009 characters passed'
+        long_cli_json_round_trip: 120009 characters passed
         lifecycle_release: complete-result-block-failure-manual-stale-timeout-crash-passed
       option_verdicts:
         application_guard: recommended-race-safe-api-compatible-additive
@@ -870,21 +945,28 @@ active_carries:
         separate_lock_table: rejected-duplicate-ownership-and-reclaim-state
         dispatcher_only: rejected-direct-claim-gap
       preserved_boundaries:
-        - Existing BEGIN IMMEDIATE write_txn remains the authoritative race boundary.
-        - Board-scoped dispatch lock, WAL fallback/checkpoint, per-profile cap, default routing, respawn guard, and circuit breaker remain intact.
-        - D5-b review, D5-c watcher, D5-d result, project/worktree isolation, and delegated-child denial remain intact.
-        - mutex_key is board-local, explicit, trim-only, case-preserving, and serializes running work without promising fairness or review-wait reservation.
-        - Normal exact owner lookup uses the non-unique index; a defensive normalized running-row fallback blocks whitespace-bearing carried/manual keys without rewriting the DB.
-        - Pre-existing duplicate same-key running rows are treated as legacy/manual corruption; D5-e blocks new claims but does not silently repair ownership.
-        - D5-f prompt and closed workflow context banners remain untouched and separately gated.
+      - Existing BEGIN IMMEDIATE write_txn remains the authoritative race boundary.
+      - Board-scoped dispatch lock, WAL fallback/checkpoint, per-profile cap, default
+        routing, respawn guard, and circuit breaker remain intact.
+      - D5-b review, D5-c watcher, D5-d result, project/worktree isolation, and delegated-child
+        denial remain intact.
+      - mutex_key is board-local, explicit, trim-only, case-preserving, and serializes
+        running work without promising fairness or review-wait reservation.
+      - Normal exact owner lookup uses the non-unique index; a defensive normalized
+        running-row fallback blocks whitespace-bearing carried/manual keys without
+        rewriting the DB.
+      - Pre-existing duplicate same-key running rows are treated as legacy/manual
+        corruption; D5-e blocks new claims but does not silently repair ownership.
+      - D5-f prompt and closed workflow context banners remain untouched and separately
+        gated.
       expected_product_files:
-        - hermes_cli/kanban_db.py
-        - hermes_cli/kanban.py
-        - tools/kanban_tools.py
+      - hermes_cli/kanban_db.py
+      - hermes_cli/kanban.py
+      - tools/kanban_tools.py
       expected_test_files:
-        - tests/hermes_cli/test_kanban_db.py
-        - tests/hermes_cli/test_kanban_cli.py
-        - tests/tools/test_kanban_tools.py
+      - tests/hermes_cli/test_kanban_db.py
+      - tests/hermes_cli/test_kanban_cli.py
+      - tests/tools/test_kanban_tools.py
       rollback:
         investigation_backup_dir: /Users/draccoon/Workspace/Hermes/update-backups/20260804T040811Z-rk-v0191-d5e-investigation
         investigation_archive_sha256: b6dce8a8a8c25b67a9bc78c0d5c3aa926edd107cd0d1b51813ddc43a8cc5f4d1
@@ -892,7 +974,7 @@ active_carries:
         implementation_archive_sha256: 0390df209bdb445da4c484990d225e0e50c0bf07746c303e6ec76f566eb52b2d
         secrets_included: false
         archive_hash_verified: true
-        disposable_restore_suite: '102 passed'
+        disposable_restore_suite: 102 passed
         forward_backward_db_compatibility: current-D5-e-db-pre-D5-e-open-create-claim-current-reopen-key-preservation-passed
         precommit_backup_dir: /Users/draccoon/Workspace/Hermes/update-backups/20260804T062738Z-rk-v0191-d5e-precommit
         precommit_archive_sha256: 7b44121e80aba8aa10b9427b4f14863493e9ce5a777237964f7000275a41ee0a
@@ -911,12 +993,15 @@ active_carries:
         architecture_review: timeout-excluded-from-investigation-verdict
       independent_implementation_review:
         background_batch: changes-required-two-logic-blockers-and-missing-edge-regressions
-        blocker_red_confirmation: '2 failed, 1 passed'
+        blocker_red_confirmation: 2 failed, 1 passed
         remediated_findings:
-          - exact query now implies partial-index predicate and permanent EXPLAIN test proves idx_tasks_mutex_status use
-          - direct and snapshot owner selection now share canonical-exact-first then normalized-dirty fallback without DB rewrite
-          - permanent review-race, cross-lane dry/live, migration, long-key, lifecycle-release, and human-diagnostic regressions added
-        edge_green: '12 passed'
+        - exact query now implies partial-index predicate and permanent EXPLAIN test
+          proves idx_tasks_mutex_status use
+        - direct and snapshot owner selection now share canonical-exact-first then
+          normalized-dirty fallback without DB rewrite
+        - permanent review-race, cross-lane dry/live, migration, long-key, lifecycle-release,
+          and human-diagnostic regressions added
+        edge_green: 12 passed
         final_follow_up: passed-zero-security-zero-logic-zero-missing-tests
         final_reviewer: Codex-CLI-read-only-blocker-follow-up
         reviewer_modified_files: false
@@ -946,9 +1031,12 @@ active_carries:
         publication_authorized: false
       native_overlap:
         verdict: partial-not-replacement
-        generic_guidance: KANBAN_GUIDANCE documents current lifecycle tools but no persistent per-card protocol or role constraints.
-        workflow_template_id: future-v2 routing identity with current list-filter use; not closed prompt authority.
-        current_step_key: future-v2 step identity with run snapshot use; not closed prompt authority.
+        generic_guidance: KANBAN_GUIDANCE documents current lifecycle tools but no
+          persistent per-card protocol or role constraints.
+        workflow_template_id: future-v2 routing identity with current list-filter
+          use; not closed prompt authority.
+        current_step_key: future-v2 step identity with run snapshot use; not closed
+          prompt authority.
       historical_verification:
         focused_rerun: 10-passed-410-deselected
         broad_rerun: 597-passed-1-skipped
@@ -964,25 +1052,36 @@ active_carries:
         lifecycle_inference: rejected-lossy-and-ambiguous
         selected: retain-minimal-v0.19.1-aware-closed-workflow-context
       recommendation:
-        storage_and_user_surface: Preserve workflow_type and --workflow-type for v0.18.2 DB/user compatibility while documenting separation from native routing metadata.
+        storage_and_user_surface: Preserve workflow_type and --workflow-type for v0.18.2
+          DB/user compatibility while documenting separation from native routing metadata.
         closed_value_count: 7
-        create_validation: None allowed; non-string, blank, and unknown values fail before idempotency lookup or writes.
-        persisted_sanitization: Non-coercing known-string-only; invalid values become null and never render or leak.
-        context_location: build_worker_context before Body; leave global KANBAN_GUIDANCE byte-stable.
-        required_copy_fix: creator_adjudicated_review reviewers use kanban_request_changes for rejection or kanban_complete for acceptance, never kanban_submit_review.
-        schema: additive nullable workflow_type TEXT; preserve existing column/bytes; no workflow_type index.
-        native_preservation: Never derive from, overwrite, alias, sanitize, or advance workflow_template_id/current_step_key.
+        create_validation: None allowed; non-string, blank, and unknown values fail
+          before idempotency lookup or writes.
+        persisted_sanitization: Non-coercing known-string-only; invalid values become
+          null and never render or leak.
+        context_location: build_worker_context before Body; leave global KANBAN_GUIDANCE
+          byte-stable.
+        required_copy_fix: creator_adjudicated_review reviewers use kanban_request_changes
+          for rejection or kanban_complete for acceptance, never kanban_submit_review.
+        schema: additive nullable workflow_type TEXT; preserve existing column/bytes;
+          no workflow_type index.
+        native_preservation: Never derive from, overwrite, alias, sanitize, or advance
+          workflow_template_id/current_step_key.
       required_product_files:
-        - hermes_cli/kanban_db.py
-        - hermes_cli/kanban.py
-        - tools/kanban_tools.py
+      - hermes_cli/kanban_db.py
+      - hermes_cli/kanban.py
+      - tools/kanban_tools.py
       required_tests:
-        - All seven banners and exact before-Body ordering.
-        - Strict invalid create types with no row/event write, including idempotency ordering.
-        - Persisted hostile text, numeric, and BLOB sanitization across context and all JSON surfaces.
-        - Fresh/additive/repeated migration, carried-byte preservation, and no dead index.
-        - No-key context byte parity and D5 transition/native-metadata preservation.
-        - Focused, product-adjacent, broad, static, security, and rollback compatibility gates.
+      - All seven banners and exact before-Body ordering.
+      - Strict invalid create types with no row/event write, including idempotency
+        ordering.
+      - Persisted hostile text, numeric, and BLOB sanitization across context and
+        all JSON surfaces.
+      - Fresh/additive/repeated migration, carried-byte preservation, and no dead
+        index.
+      - No-key context byte parity and D5 transition/native-metadata preservation.
+      - Focused, product-adjacent, broad, static, security, and rollback compatibility
+        gates.
       implementation:
         design: retain-minimal-v0.19.1-aware-closed-workflow-context
         product_files: 3
@@ -1017,7 +1116,8 @@ active_carries:
           verdict: revise
           security_blockers: 0
           logic_blockers: 1
-          blocker: Historical creator_adjudicated_review used the wrong current reviewer tool.
+          blocker: Historical creator_adjudicated_review used the wrong current reviewer
+            tool.
           disposition: corrected-in-proposed-copy-and-passed-design-spike
         implementation_architecture_security:
           session_id: 019fcbd7-2e76-7e70-9a22-9b227899f156
@@ -1042,12 +1142,13 @@ active_carries:
           verdict: pass
           blockers: 0
       scope:
-        - Historical contract, final code, tests, and limitations recovered.
-        - Upstream/current context, guidance, lifecycle, and metadata paths traced.
-        - Current gap reproduced and redesign validated in disposable probes.
+      - Historical contract, final code, tests, and limitations recovered.
+      - Upstream/current context, guidance, lifecycle, and metadata paths traced.
+      - Current gap reproduced and redesign validated in disposable probes.
       exclusions:
-        - No commit, push, D6, D7, or R gate.
-        - No production board, dispatcher, gateway, token, runtime, profile, registry, alias, skill, plugin, or cron mutation.
+      - No commit, push, D6, D7, or R gate.
+      - No production board, dispatcher, gateway, token, runtime, profile, registry,
+        alias, skill, plugin, or cron mutation.
       rollback:
         backup_dir: /Users/draccoon/Workspace/Hermes/update-backups/20260804T064139Z-rk-v0191-d5f-investigation
         archive_sha256: 641269997f8349aa24e815fd038de53f2cfd9d170bbf6b42102b298489367e5a
@@ -1072,7 +1173,9 @@ active_carries:
       owner_accepted_at: '2026-08-04T17:50:41+09:00'
       acceptance_basis: explicit-commit-direction-counts-as-owner-acceptance
     direction_scenario:
-      A: Retain current D5-b through D5-f while preserving all verified new upstream behavior. Current D5-b bundles legacy D2-b through D2-e; current D5-c/d/e/f map to legacy D2-f/g/h/i. Recommended.
+      A: Retain current D5-b through D5-f while preserving all verified new upstream
+        behavior. Current D5-b bundles legacy D2-b through D2-e; current D5-c/d/e/f
+        map to legacy D2-f/g/h/i. Recommended.
     independent_review:
       status: passed-after-findings-remediated
       security_concerns: 0
@@ -1081,7 +1184,8 @@ active_carries:
       reviewer: Codex-CLI-read-only-D5-f-AGENTS-wording-follow-up
       session_id: 019fcc00-e1ba-7f82-8ddd-2f4befb75bdd
     live_mutation: false
-    next_action: D5 is complete and owner-accepted in this self-recording commit; await explicit D6 re-audit direction.
+    next_action: D5 is complete and owner-accepted in this self-recording commit;
+      await explicit D6 re-audit direction.
   D6:
     current_id: D6
     renumbered_from_provisional_id: D4
@@ -1099,15 +1203,19 @@ active_carries:
     audit_completed_at: '2026-08-04T19:03:44+09:00'
     implementation_authorized_at: '2026-08-04T19:16:59+09:00'
     implementation_verified_at: '2026-08-04T19:33:45+09:00'
-    requirement: Preserve shell-visible exact integer return codes while keeping bool and success behavior safe.
+    requirement: Preserve shell-visible exact integer return codes while keeping bool
+      and success behavior safe.
     overlap:
       verdict: partial-not-replacement
       upstream_commit: 397e9fc1e46e594d9d021a9061095e1b109faabb
       current_main_matches_upstream_tag_byte_for_byte: true
       current_main_sha256: 13a826f08c3eb64c16b06d99e0b71274152c987bf87c26d948ec6ff09556ac63
-      native_behavior: nonzero isinstance-int values are propagated at the argparse process boundary.
-      retained_gap: bool is a subclass of int, so True currently becomes shell exit 1; the boundary is not exact-int.
-      historical_difference: v0.18.2/D6 used exact type matching and ignored True, False, and None.
+      native_behavior: nonzero isinstance-int values are propagated at the argparse
+        process boundary.
+      retained_gap: bool is a subclass of int, so True currently becomes shell exit
+        1; the boundary is not exact-int.
+      historical_difference: v0.18.2/D6 used exact type matching and ignored True,
+        False, and None.
     historical_reexecution:
       parent_with_final_tests: 3-failed-1-passed
       final_focused: 4-passed
@@ -1137,12 +1245,16 @@ active_carries:
       selected: retain-minimal-v0.19.1-aware-exact-int-helper
       rejected:
         retire_as_upstream_native: bool-safe exact-int gap remains.
-        verbatim_historical_replay: does not preserve the newer upstream nonzero dispatch shape minimally.
-        inline_one_line: acceptable but less explicit and less directly testable than a small helper.
+        verbatim_historical_replay: does not preserve the newer upstream nonzero dispatch
+          shape minimally.
+        inline_one_line: acceptable but less explicit and less directly testable than
+          a small helper.
       proposal:
-        - Add a small internal helper that exits only when type(value) is int and value is nonzero.
-        - Replace the inline isinstance branch with that helper.
-        - Add permanent actual-main subprocess behavior contracts before product code under TDD.
+      - Add a small internal helper that exits only when type(value) is int and value
+        is nonzero.
+      - Replace the inline isinstance branch with that helper.
+      - Add permanent actual-main subprocess behavior contracts before product code
+        under TDD.
     design_spike:
       path: /tmp/d6-design-spike
       product_mutation: false
@@ -1153,15 +1265,16 @@ active_carries:
     implementation:
       selected_design: retain-minimal-v0.19.1-aware-exact-int-helper
       product_files:
-        - hermes_cli/main.py
+      - hermes_cli/main.py
       test_files:
-        - tests/hermes_cli/test_main_return_codes.py
+      - tests/hermes_cli/test_main_return_codes.py
       product_sha256: 6e7a8f0efb6d05ec642e01374814cb08b1119926d2abb87596201641ff4e4b54
       test_sha256: 271a700bea66e6cb516a7e3adc41573d9382e12473681de316d104b92b663026
       behavior:
-        - Exact nonzero int values reach sys.exit.
-        - Bool, None, strings, and int subclasses remain natural success.
-        - Existing egress, Kanban, argparse, help, plugin, and handler-raised SystemExit behavior is preserved.
+      - Exact nonzero int values reach sys.exit.
+      - Bool, None, strings, and int subclasses remain natural success.
+      - Existing egress, Kanban, argparse, help, plugin, and handler-raised SystemExit
+        behavior is preserved.
       tdd:
         red: 11-passed-1-failed-True-return-only
         green: 12-passed
@@ -1187,14 +1300,15 @@ active_carries:
           verdict: pass
           blockers: 0
     required_implementation_tests:
-      - Actual-main subprocess None, False, True, zero, and string returns remain rc=0.
-      - Exact int 2 becomes rc=2 and int -1 becomes POSIX rc=255.
-      - Disposable-HERMES_HOME egress failure is rc=1.
-      - Missing Kanban task is rc=1, invalid board or argparse misuse is rc=2, and help is rc=0.
-      - Tests assert behavior relationships, not source snapshots.
+    - Actual-main subprocess None, False, True, zero, and string returns remain rc=0.
+    - Exact int 2 becomes rc=2 and int -1 becomes POSIX rc=255.
+    - Disposable-HERMES_HOME egress failure is rc=1.
+    - Missing Kanban task is rc=1, invalid board or argparse misuse is rc=2, and help
+      is rc=0.
+    - Tests assert behavior relationships, not source snapshots.
     likely_files:
-      - hermes_cli/main.py
-      - tests/hermes_cli/test_main_return_codes.py
+    - hermes_cli/main.py
+    - tests/hermes_cli/test_main_return_codes.py
     independent_review:
       architecture:
         session_id: 019fcc32-378b-7393-8117-806028ab4972
@@ -1205,7 +1319,9 @@ active_carries:
         verdict: revise-proposal-test-plan
         security_blockers: 0
         logic_blockers: 1
-        disposition: required permanent actual-main and real CLI contracts incorporated into the implementation proposal; must be completed before implementation can pass review.
+        disposition: required permanent actual-main and real CLI contracts incorporated
+          into the implementation proposal; must be completed before implementation
+          can pass review.
     evidence:
       path: root-kernel/evidence/v0.19.1-D6-cli-return-code-reaudit.json
       sha256: 5a811b6c6bbb5de3f692493553685a0a6abd67508809e93bf45246ed7291361a
@@ -1213,8 +1329,10 @@ active_carries:
       implementation_sha256: 11ce00b87a572afa874dad7224e9d8ae5b8eedca15c675418e1c89b7bdfe8694
       git_excluded: true
     exclusions:
-      - Product and permanent test changes are limited to the recorded D6 files; no other product surface was modified.
-      - No D7, R gate, live runtime, profile, gateway, token, skill, plugin, cron, commit, tag, or push mutation.
+    - Product and permanent test changes are limited to the recorded D6 files; no
+      other product surface was modified.
+    - No D7, R gate, live runtime, profile, gateway, token, skill, plugin, cron, commit,
+      tag, or push mutation.
     rollback:
       backup_dir: /Users/draccoon/Workspace/Hermes/update-backups/20260804T092056Z-rk-v0191-d6-audit
       archive: d6-ledgers-pre-audit.tar.gz
@@ -1230,9 +1348,11 @@ active_carries:
       precommit_archive: d6-precommit-files.tar.gz
       precommit_archive_sha256: 8d6fe27e9afd79f48a36ebef720f317ca57ce526d469cade9afb8530ee65a688
       precommit_restore_byte_parity: passed
-    red_evidence: permanent actual-main contract 11-passed-1-failed; True alone exited 1 instead of 0 before product change.
+    red_evidence: permanent actual-main contract 11-passed-1-failed; True alone exited
+      1 instead of 0 before product change.
     green_evidence: permanent focused contract 12-passed after the narrow helper.
-    integrated_smoke: 239-passed across 24 bounded egress, Kanban, main, and update files; baseline-only diagnostics remain separated.
+    integrated_smoke: 239-passed across 24 bounded egress, Kanban, main, and update
+      files; baseline-only diagnostics remain separated.
     implementation_authorized: true
     commit_authorized: true
     commit_authorized_at: '2026-08-04T20:52:21+09:00'
@@ -1241,7 +1361,9 @@ active_carries:
     owner_accepted_at: '2026-08-04T20:52:21+09:00'
     acceptance_basis: explicit-commit-direction-counts-as-owner-acceptance
     live_mutation: false
-    next_action: Create the authorized self-recording D6 commit; after it succeeds, await explicit D7 re-audit direction. Do not push or mutate live/profile/runtime state.
+    next_action: Create the authorized self-recording D6 commit; after it succeeds,
+      await explicit D7 re-audit direction. Do not push or mutate live/profile/runtime
+      state.
   D7:
     current_id: D7
     renumbered_from_provisional_id: D5
@@ -1258,32 +1380,39 @@ active_carries:
     audit_completed_at: '2026-08-04T22:24:50+09:00'
     implementation_started_at: '2026-08-04T22:37:12+09:00'
     implementation_completed_at: '2026-08-04T23:10:30+09:00'
-    requirement: Suppress only disabled or default-off optional tool warnings without hiding enabled-tool or new core diagnostics.
+    requirement: Suppress only disabled or default-off optional tool warnings without
+      hiding enabled-tool or new core diagnostics.
     likely_files:
-      - hermes_cli/doctor.py
+    - hermes_cli/doctor.py
     upstream_overlap:
       classification: partial-not-replacement
       native_commit: 6b21a935af24b7b3c4ee2370598471aa8978a243
-      native_behavior: The final missing-API-key summary is filtered to enabled CLI toolsets, but global Tool Availability warning rows are not.
-      retained_gap: Disabled and default-off optional tool warning rows remain visible before the native summary filter.
+      native_behavior: The final missing-API-key summary is filtered to enabled CLI
+        toolsets, but global Tool Availability warning rows are not.
+      retained_gap: Disabled and default-off optional tool warning rows remain visible
+        before the native summary filter.
     historical_lineage:
       final_commit: 5582e0db6512f67214a1b37d66a76e4df09bfe27
       direct_replay: rejected
-      reason: Exact-name filtering of available and unavailable rows is too broad for v0.19.1 aliases and subtoolsets such as browser-cdp.
+      reason: Exact-name filtering of available and unavailable rows is too broad
+        for v0.19.1 aliases and subtoolsets such as browser-cdp.
     recommendation:
       option: C
       name: warning-only-semantic-runtime-scope-filter
       status: implemented-verified
       design:
-        - Resolve CLI plus explicitly configured platform scopes through canonical _get_platform_tools.
-        - Expand enabled toolsets through resolve_toolset and keep warnings by exact toolset name or effective tool-name overlap.
-        - Apply after runtime overrides and filter only unavailable warning rows.
-        - Fail open globally on resolution exceptions and per row for malformed or unmapped metadata.
-        - Preserve the available list, native CLI-only summary filter, and all non-Tool-Availability diagnostics.
+      - Resolve CLI plus explicitly configured platform scopes through canonical _get_platform_tools.
+      - Expand enabled toolsets through resolve_toolset and keep warnings by exact
+        toolset name or effective tool-name overlap.
+      - Apply after runtime overrides and filter only unavailable warning rows.
+      - Fail open globally on resolution exceptions and per row for malformed or unmapped
+        metadata.
+      - Preserve the available list, native CLI-only summary filter, and all non-Tool-Availability
+        diagnostics.
       product_files:
-        - hermes_cli/doctor.py
+      - hermes_cli/doctor.py
       permanent_test_files:
-        - tests/hermes_cli/test_doctor.py
+      - tests/hermes_cli/test_doctor.py
     evidence:
       path: root-kernel/evidence/v0.19.1-D7-doctor-warning-filter-reaudit.json
       sha256: 0cc19782f6672b5b83776e302a23a778ef588159afe8fbf98c27240df3b53836
@@ -1294,16 +1423,20 @@ active_carries:
       current_target_suite_before_implementation: 55 passed
       throwaway_red_loop: 3 failed, 2 passed
       design_spike_contracts: 7 passed
-      permanent_vertical_red_contracts: 5 independently reproduced before each minimum GREEN
+      permanent_vertical_red_contracts: 5 independently reproduced before each minimum
+        GREEN
       review_blocker_red_contracts: 3 failed, then 3 passed after remediation
       final_doctor_file: 53 passed
       final_task12_target: 66 passed, 0 failed
       static: Ruff, py_compile, git diff --check, and added-line security scan passed
       final_real_disposable_profiles: 5 passed with rc 0 and byte-unchanged configs
       final_real_profile_summary_sha256: 3410c2ae47b2b65bc3d93163b0f6375257a26e29c8fe742d19e38cd057c2217a
-      output_outside_tool_availability: byte-identical for current-before versus final across all five cases
-      initial_implementation_reviews: 2 REVISE on one shared malformed-row fail-open blocker
-      final_implementation_reviews: 2 PASS, 0 blockers, 0 security concerns, 0 logic errors, 0 suggestions
+      output_outside_tool_availability: byte-identical for current-before versus final
+        across all five cases
+      initial_implementation_reviews: 2 REVISE on one shared malformed-row fail-open
+        blocker
+      final_implementation_reviews: 2 PASS, 0 blockers, 0 security concerns, 0 logic
+        errors, 0 suggestions
       kscq: no indexed learning note
     rollback:
       backup_dir: /Users/draccoon/Workspace/Hermes/update-backups/20260804T125430Z-rk-v0191-d7-investigation
@@ -1339,11 +1472,15 @@ active_carries:
     owner_accepted: true
     owner_accepted_at: '2026-08-05T01:20:28+09:00'
     acceptance_basis: explicit-owner-approval-without-commit-direction
-    red_evidence: permanent vertical RED contracts reproduced; review blocker reproduced as 2 failed plus 1 failed contracts
-    green_evidence: final doctor file 53 passed; Task 12 target 66 passed; static and security gates passed
-    integrated_smoke: Task 13 integrated candidate smoke passed; owner acceptance pending
+    red_evidence: permanent vertical RED contracts reproduced; review blocker reproduced
+      as 2 failed plus 1 failed contracts
+    green_evidence: final doctor file 53 passed; Task 12 target 66 passed; static
+      and security gates passed
+    integrated_smoke: Task 13 integrated candidate smoke passed; owner acceptance
+      pending
     live_mutation: false
-    next_action: Preserve D7 while Task 13 awaits owner acceptance. Do not push or mutate live/profile/runtime state.
+    next_action: Preserve D7 while Task 13 awaits owner acceptance. Do not push or
+      mutate live/profile/runtime state.
 historical_retired:
   v0.18.2/D1:
     title: Tool Search pair
@@ -1420,11 +1557,16 @@ task13:
     docker_sqlite: 3.53.4
     tag_signature_fingerprint: SHA256:x9xNOpeJhoEAY2gWhmWHZROC3QF3VjOEbmNo9vQ8y2A
   warnings:
-    - local shared candidate venv links SQLite 3.50.4 and uses verified DELETE-mode fallback; activation rebuild must re-verify fixed SQLite
-    - source banner upstream annotation follows local main and is not release-base evidence
-    - blank disposable home intentionally lacks config, credentials, launcher, initialized Skills Hub, optional tools, and a complete sessions state schema
-    - one auxiliary timeout first attempt exceeded its threshold by 3.8 ms; retry passed, exact tag and candidate each passed 3 of 3 clean-env comparisons, and candidate passed 5 of 5 normal-env repeats
-    - Task 14 rollback rehearsal remains an activation blocker and is not authorized by Task 13
+  - local shared candidate venv links SQLite 3.50.4 and uses verified DELETE-mode
+    fallback; activation rebuild must re-verify fixed SQLite
+  - source banner upstream annotation follows local main and is not release-base evidence
+  - blank disposable home intentionally lacks config, credentials, launcher, initialized
+    Skills Hub, optional tools, and a complete sessions state schema
+  - one auxiliary timeout first attempt exceeded its threshold by 3.8 ms; retry passed,
+    exact tag and candidate each passed 3 of 3 clean-env comparisons, and candidate
+    passed 5 of 5 normal-env repeats
+  - Task 14 rollback rehearsal remains an activation blocker and is not authorized
+    by Task 13
   blocking_findings: []
   isolation:
     live_path_mounted: false
@@ -1455,7 +1597,9 @@ task13:
     log: /Users/draccoon/Workspace/Hermes/update-backups/20260804T172349Z-rk-v0191-task13/08-independent-correction-reaudit.log
   task14_authorized: true
   task14_started_at: '2026-08-05T11:50:41+09:00'
-  next_action: Task 14 passed technically and awaits explicit owner acceptance. Do not copy production state or mutate rk/live, profiles, runtime, gateways, refs, tags, or remotes.
+  next_action: Task 14 passed technically and awaits explicit owner acceptance. Do
+    not copy production state or mutate rk/live, profiles, runtime, gateways, refs,
+    tags, or remotes.
 task14:
   title: Prepare activation backup and rollback rehearsal
   status: accepted-ledger-commit-created
@@ -1502,10 +1646,10 @@ task14:
     restored_package_files: 27
     old_runtime_version: v0.18.2
     old_runtime_exit_codes:
-      - 0
-      - 0
-      - 0
-      - 0
+    - 0
+    - 0
+    - 0
+    - 0
     disposable_state_schema: 19
     disposable_state_integrity: ok
     roster_reconstructed_without_start: true
@@ -1528,11 +1672,12 @@ task14:
     git_excluded: true
   task14_blocking_findings: []
   activation_boundaries:
-    - Task 15 activation not authorized
-    - separate restricted production state backup approval pending
-    - root gateway external control required
-    - root default messaging credential ownership unresolved; no credential reuse or fallback authorized
-    - PATH launcher normalization and rollback required during Task 15
+  - Task 15 activation not authorized
+  - separate restricted production state backup approval pending
+  - root gateway external control required
+  - root default messaging credential ownership unresolved; no credential reuse or
+    fallback authorized
+  - PATH launcher normalization and rollback required during Task 15
   acceptance_commit_rollback:
     archive: /Users/draccoon/Workspace/Hermes/update-backups/20260805T032625Z-rk-v0191-task14-acceptance-precommit/task14-acceptance-precommit.tar.gz
     sha256: e17056feaac1dda5ebb1825159e4f9485cf82eb4ca73d73883569f416529b2b0
@@ -1548,7 +1693,9 @@ task14:
     launchd_load_or_unload: false
     launcher_write: false
     push_tag_or_remote_ref_move: false
-  next_action: At Task 14 closeout, Task 15 direction and all activation mutations remained separately unauthorized. Task 15 has since activated v0.19.1 and been owner-accepted; push, tag, and remote refs remain unauthorized.
+  next_action: At Task 14 closeout, Task 15 direction and all activation mutations
+    remained separately unauthorized. Task 15 has since activated v0.19.1 and been
+    owner-accepted; push, tag, and remote refs remain unauthorized.
 task15_activation:
   status: owner-accepted-ledger-commit-created
   technical_verdict: pass
@@ -1572,7 +1719,8 @@ task15_activation:
     migration_performed: false
     recovered_runtime: v0.18.2
     recovered_roster: 13
-    cause: system SQLite 3.51.0 read-only integrity check failed on the large production snapshot
+    cause: system SQLite 3.51.0 read-only integrity check failed on the large production
+      snapshot
   repair:
     source_open_mode: read-only-preserved
     controller_interpreter: managed Python 3.11.15 with SQLite 3.53.1
@@ -1618,12 +1766,12 @@ task15_activation:
     credential_fallback_or_reuse_detected: false
   post_live_carry_regressions:
     scope:
-      - D1
-      - D4
-      - D5
-      - D6
-      - D7
-      - CJK FTS
+    - D1
+    - D4
+    - D5
+    - D6
+    - D7
+    - CJK FTS
     test_files: 14
     passed: 397
     failed: 0
@@ -1655,7 +1803,8 @@ task15_activation:
   blocking_findings: []
   push_tag_or_remote_ref_move: false
   task16_started: true
-  next_action: At Task 15 closeout, separate Task 16 R1 direction was pending. R1 is now owner-accepted and R2 is active but technically blocked.
+  next_action: At Task 15 closeout, separate Task 16 R1 direction was pending. R1
+    is now owner-accepted and R2 is active but technically blocked.
 post_live_gates:
   execution_boundary: Run only after rk/live activation, one gate at a time.
   technical_pass_is_acceptance: false
@@ -1686,27 +1835,29 @@ post_live_gates:
       gateway_restarts: 0
       state_database_count: 12
       state_schema_versions:
-        - 23
+      - 23
       live_head: 413ee1d4
       live_clean: true
     findings:
-      - id: R1-IDENTITY-SOT-001
-        severity: resolved
-        classification: pre-existing-canonical-identity-drift-not-release-regression
-        detail: Canonical default registry, alias, and PATH entrypoint now resolve as Munang; the legacy executable and active source-of-truth terms are absent.
-      - id: R1-MODEL-SOT-002
-        severity: resolved
-        classification: pre-existing-canonical-model-metadata-drift-not-release-regression
-        affected_profiles: 25
-        source_model: openai-codex/gpt-5.5
-        target_model: openai-codex/gpt-5.6-sol
-        non_target_semantics_unchanged: true
+    - id: R1-IDENTITY-SOT-001
+      severity: resolved
+      classification: pre-existing-canonical-identity-drift-not-release-regression
+      detail: Canonical default registry, alias, and PATH entrypoint now resolve as
+        Munang; the legacy executable and active source-of-truth terms are absent.
+    - id: R1-MODEL-SOT-002
+      severity: resolved
+      classification: pre-existing-canonical-model-metadata-drift-not-release-regression
+      affected_profiles: 25
+      source_model: openai-codex/gpt-5.5
+      target_model: openai-codex/gpt-5.6-sol
+      non_target_semantics_unchanged: true
     nonblocking_preexisting_observations:
-      - type: alias-coverage
-        profiles:
-          - ijeok
-          - yuyeop
-        detail: Canonical English identity matches; Korean aliases are absent and SOUL headings duplicate the English name. R1 did not change these profiles.
+    - type: alias-coverage
+      profiles:
+      - ijeok
+      - yuyeop
+      detail: Canonical English identity matches; Korean aliases are absent and SOUL
+        headings duplicate the English name. R1 did not change these profiles.
     repair:
       implementation_authorized: true
       implementation_completed: true
@@ -1737,7 +1888,8 @@ post_live_gates:
       final_verification:
         path: /Users/draccoon/Workspace/Hermes/update-backups/20260805T211508+0900-rk-v0191-task16-r1-repair/final-verification-receipt.json
         sha256: 08af73a8c325fc1dbd4c1227efdac989ddec092c29ece82161da4f75e75d3d6b
-    next_action: At R1 closeout, separate R2 direction was pending. That direction was later granted, and R2 was owner-accepted at 2026-08-06T00:01:21+09:00.
+    next_action: At R1 closeout, separate R2 direction was pending. That direction
+      was later granted, and R2 was owner-accepted at 2026-08-06T00:01:21+09:00.
   R2:
     title: Skill provenance, overrides, and compatibility
     status: owner-accepted
@@ -1752,9 +1904,9 @@ post_live_gates:
     planning_status: task6-owner-accepted
     execution_boundary: post-rk-live-only
     evidence:
-      - root-kernel/evidence/v0.19.1-skill-delta.json
-      - root-kernel/evidence/v0.19.1-skill-provenance.md
-      - root-kernel/evidence/v0.19.1-task16-r2-skill-provenance.json
+    - root-kernel/evidence/v0.19.1-skill-delta.json
+    - root-kernel/evidence/v0.19.1-skill-provenance.md
+    - root-kernel/evidence/v0.19.1-task16-r2-skill-provenance.json
     evidence_sha256: da8f53037b650d37173f413bed57481c1e9ed954bc706a810dfc43686ef73988
     target:
       profile_count: 49
@@ -1773,12 +1925,13 @@ post_live_gates:
       retained_default_orca_skill_symlinks: 2
     plugin_decision:
       retain:
-        - atn-plugin
-        - orca-status
+      - atn-plugin
+      - orca-status
       retire:
-        - kkachi-agent-network-plugin
+      - kkachi-agent-network-plugin
       rule: Plugin-provided skills cannot keep a retired plugin alive.
-    rollback_rule: Secret-excluded typed backups, exact package hashes, first-profile stop, affected-profile restore, and restore canary are mandatory before continuation.
+    rollback_rule: Secret-excluded typed backups, exact package hashes, first-profile
+      stop, affected-profile restore, and restore canary are mandatory before continuation.
     application:
       exact_bundled_profiles: 49
       bundled_per_profile: 70
@@ -1831,7 +1984,8 @@ post_live_gates:
       exact_config_rollback: passed
       exact_skill_tree_rollback: passed
       secrets_included: false
-    next_action: R2 is owner-accepted. R3 was separately authorized and now passes technically under the owner-directed Dashboard retirement policy.
+    next_action: R2 is owner-accepted. R3 was separately authorized and now passes
+      technically under the owner-directed Dashboard retirement policy.
   R3:
     title: Dashboard and Desktop
     status: acceptance-passed
@@ -1905,14 +2059,20 @@ post_live_gates:
       R3-DASHBOARD-001:
         classification: live-dashboard-frontend-build-stale
         status: resolved-by-owner-directed-dashboard-retirement
-        root_cause: Git-ignored web_dist survived Task 15 tracked-tree activation while launchd restarted Dashboard with --skip-build.
-        resolution: Active frontend build removed and Dashboard service plus automatic-start definitions disabled instead of refreshing an unused surface.
+        root_cause: Git-ignored web_dist survived Task 15 tracked-tree activation
+          while launchd restarted Dashboard with --skip-build.
+        resolution: Active frontend build removed and Dashboard service plus automatic-start
+          definitions disabled instead of refreshing an unused surface.
     nonblocking_findings:
       R3-DASHBOARD-002:
         classification: dashboard-false-stopped-root-gateway-status
         status: superseded-by-dashboard-retirement
-        root_cause: gateway PID and lock paths are absent after the R2 --replace refresh while PID 30334 retains the previous open lock inode; the long-lived Dashboard temporarily cached a false-stopped result before fresh runtime-status fallback invalidated it.
-        resolution: Dashboard is intentionally offline; root gateway PID 30334 remains independently running and connected.
+        root_cause: gateway PID and lock paths are absent after the R2 --replace refresh
+          while PID 30334 retains the previous open lock inode; the long-lived Dashboard
+          temporarily cached a false-stopped result before fresh runtime-status fallback
+          invalidated it.
+        resolution: Dashboard is intentionally offline; root gateway PID 30334 remains
+          independently running and connected.
     blockers: []
     dashboard_retirement:
       policy: intentionally-disabled
@@ -1956,7 +2116,8 @@ post_live_gates:
       desktop_activated: false
       gateway_restarted: false
       profiles_or_config_changed: false
-    next_action: R3 is owner-accepted. R4 has also been owner-accepted. R5 remains pending and must not start without separate direction.
+    next_action: R3 is owner-accepted. R4 has also been owner-accepted. R5 remains
+      pending and must not start without separate direction.
   R4:
     title: Cron, local scripts, watchers, and automation
     status: owner-accepted
@@ -1975,8 +2136,8 @@ post_live_gates:
       sha256: 48eeddf79004823fb4d34c62b96bd40b03490973077775d4819de9eb3de52bd4
       status: applied-verification-pass-awaiting-operator-acceptance
       profiles_affected:
-        - default
-        - wolong
+      - default
+      - wolong
       commits_rewritten: 63
       remote_branches: 1
       remote_tags: 0
@@ -2048,8 +2209,8 @@ post_live_gates:
         classification: prior-history-contained-google-oauth-credential
         status: resolved
         google_workspace_disabled_profiles:
-          - default
-          - wolong
+        - default
+        - wolong
         local_client_and_token_files_removed: true
         old_oauth_client_retirement: owner-confirmed
         pre_main: d1ada06aed69aacc8ba12c80bb81fa3b8a247b20
@@ -2095,42 +2256,53 @@ post_live_gates:
       ordinary_backup_commit_push: true
       history_rewrite_or_force_push: true
       credential_content_read_or_copied: false
-    next_action: R4 is owner-accepted. R5 remains pending and must not start without separate direction. Release-candidate commit, tag, push, and release-ref movement remain unauthorized.
+    next_action: R4 is owner-accepted. R5 remains pending and must not start without
+      separate direction. Release-candidate commit, tag, push, and release-ref movement
+      remain unauthorized.
   R5:
     title: Profile-owned local asset optimization
-    status: pending
-    tag_blocker: true
-    operator_acceptance: pending
+    status: owner-accepted
+    tag_blocker: false
+    operator_acceptance: accepted
+    accepted_at: '2026-08-06T17:30:00+09:00'
+    accepted_by: Black.D.Raccoon
+    technical_verdict: passed
+    verified_at: '2026-08-06T17:10:00+09:00'
+    evidence:
+      path: root-kernel/evidence/v0.19.1-task16-r5-asset-optimization.json
+      sha256: 96cf50b9b6ca6fb84f9e0bb8ef272b1ae82887a22b14cd029d948c48745bf29a
 activation:
   status: owner-accepted
   blockers:
-    - R5 pending before tag closeout
+  - R5 pending before tag closeout
   root_self_restart_allowed: false
   external_control_required: true
   sensitive_state_backup_requires_separate_approval: true
   sensitive_state_backup_approved_and_captured: true
   secret_exclusions:
-    - .env
-    - auth.json
-    - tokens
-    - credential pools
-    - private keys
+  - .env
+  - auth.json
+  - tokens
+  - credential pools
+  - private keys
 ledger_parity:
   paired_human_ledger: for-root-kernel.md
   required_fields:
-    - target and previous baselines
-    - local and remote ref observations
-    - current D ID and previous-release lineage
-    - D and R status
-    - tag and activation blockers
-    - evidence paths
-    - live-mutation state
-    - rollback authority
-    - next action
-  status: task16-r4-owner-accepted
+  - target and previous baselines
+  - local and remote ref observations
+  - current D ID and previous-release lineage
+  - D and R status
+  - tag and activation blockers
+  - evidence paths
+  - live-mutation state
+  - rollback authority
+  - next action
+  status: task16-r5-owner-accepted
 next_action:
-  task: R4 owner-accepted; await R5 direction
-  description: R4 is owner-accepted at 2026-08-06T16:07:23+09:00. R5 remains pending and must not start without separate direction. Release-candidate commit, tag, push, and release-ref movement remain unauthorized.
+  task: none; v0.19.1 released (tag rk/tag/v0.19.1, candidate pushed, rk/live moved)
+  description: 'All five post-live R gates (R1-R5) are owner-accepted. v0.19.1 released
+    at 2026-08-07: release-candidate commit, tag rk/tag/v0.19.1, push, and rk/live
+    movement completed.'
   d1_classification_approved: true
   task5_source_fix_authorized: true
   task5_source_fix_verified: true
@@ -2170,9 +2342,9 @@ next_action:
   r2_accepted_at: '2026-08-06T00:01:21+09:00'
   r2_live_mutation_authorized: true
   r2_live_mutation_scope:
-    - profile skill trees
-    - curator.prune_builtins
-    - default Kkachi plugin config entry and plugin root
+  - profile skill trees
+  - curator.prune_builtins
+  - default Kkachi plugin config entry and plugin root
   r3_authorized: true
   r3_status: owner-accepted
   r3_technical_verdict: passed
@@ -2183,8 +2355,8 @@ next_action:
   r3_frontend_refresh_superseded: true
   r3_blockers: []
   r3_resolved_findings:
-    - R3-DASHBOARD-001
-    - R3-DASHBOARD-002
+  - R3-DASHBOARD-001
+  - R3-DASHBOARD-002
   r3_live_mutation_performed: true
   r4_authorized: true
   r4_status: owner-accepted
@@ -2196,14 +2368,19 @@ next_action:
   r4_security_impact_audit_completed: true
   r4_security_apply_authorized: true
   r4_resolved_findings:
-    - R4-AUTOMATION-001
-    - R4-REMOTE-TIP-001
-    - R4-HISTORY-001
+  - R4-AUTOMATION-001
+  - R4-REMOTE-TIP-001
+  - R4-HISTORY-001
   r4_blockers: []
   r4_nonblocking_findings:
-    - R4-AUTOMATION-002
-    - R4-AUTOMATION-003
+  - R4-AUTOMATION-002
+  - R4-AUTOMATION-003
   r4_live_mutation_performed: true
+  r5_authorized: true
+  r5_status: owner-accepted
+  r5_technical_verdict: passed
+  r5_owner_acceptance: accepted
+  r5_accepted_at: '2026-08-06T17:30:00+09:00'
   next_d_item: null
   next_d_item_owner_direction: all-current-d-items-owner-accepted-and-committed
   d_item_implementation_authorized: false
