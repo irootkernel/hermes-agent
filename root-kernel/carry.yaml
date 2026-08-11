@@ -1,5 +1,13 @@
 schema_version: 1
 ledger_kind: root-kernel-release-carry
+documentation:
+  feature_guide: root-kernel/feature.md
+  release_ledger: root-kernel/ledger.md
+  machine_ledger: root-kernel/carry.yaml
+  responsibilities:
+    feature_guide: current user-visible differences, configuration, and usage recipes
+    release_ledger: version-scoped decisions, verification, activation, and rollback history
+    machine_ledger: structured carry state, lineage, evidence, and retirement rules
 release:
   version: v0.19.1
   status: v0.19.1-released
@@ -55,7 +63,7 @@ release:
       subject: '[D5-c] Implement Kanban review outcome watcher'
       authorized_at: '2026-08-04T03:51:47+09:00'
       scope:
-      - for-root-kernel.md
+      - root-kernel/ledger.md
       - gateway/kanban_watchers.py
       - hermes_cli/kanban_db.py
       - root-kernel/carry.yaml
@@ -86,11 +94,11 @@ release:
 candidate_boundary:
   clean_exact_tag_before_scaffold: true
   expected_task2_changes:
-  - for-root-kernel.md
+  - root-kernel/ledger.md
   - root-kernel/carry.yaml
   task3_changes:
     ledger_updates:
-    - for-root-kernel.md
+    - root-kernel/ledger.md
     - root-kernel/carry.yaml
     local_progress_evidence:
     - root-kernel/evidence/release-note-v2026.7.20.md
@@ -101,7 +109,7 @@ candidate_boundary:
     evidence_git_policy: excluded-local-only-unless-owner-approves-publication
   task4_changes:
     ledger_updates:
-    - for-root-kernel.md
+    - root-kernel/ledger.md
     - root-kernel/carry.yaml
     local_progress_evidence:
     - root-kernel/evidence/v0.19.1-config-impact.md
@@ -111,7 +119,7 @@ candidate_boundary:
     evidence_git_policy: excluded-local-only-unless-owner-approves-publication
   task5_changes:
     ledger_updates:
-    - for-root-kernel.md
+    - root-kernel/ledger.md
     - root-kernel/carry.yaml
     local_progress_evidence:
     - root-kernel/evidence/v0.19.1-state-schema-canary.json
@@ -2286,7 +2294,8 @@ activation:
   - credential pools
   - private keys
 ledger_parity:
-  paired_human_ledger: for-root-kernel.md
+  paired_human_ledger: root-kernel/ledger.md
+  paired_feature_guide: root-kernel/feature.md
   required_fields:
   - target and previous baselines
   - local and remote ref observations
@@ -2298,6 +2307,27 @@ ledger_parity:
   - rollback authority
   - next action
   status: task16-r5-owner-accepted
+feature_guide_parity:
+  source: active_carries
+  active_carries:
+  - D1
+  - D2
+  - D3
+  - D4
+  - D5
+  - D6
+  - D7
+  required_fields:
+  - user-visible difference from upstream
+  - operator action or explicit no-action statement
+  - configuration key, default, and restart requirement when applicable
+  - current command or usage recipe when applicable
+  exclude:
+  - release chronology
+  - local-only evidence paths
+  - backup package paths
+  - machine-only status duplication
+  status: v0.19.1-active-carries-documented
 next_action:
   task: none; v0.19.1 released (tag rk/tag/v0.19.1, candidate pushed, rk/live moved)
   description: 'All five post-live R gates (R1-R5) are owner-accepted. v0.19.1 released

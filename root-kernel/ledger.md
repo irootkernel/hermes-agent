@@ -1,4 +1,10 @@
-# Root Kernel Hermes Agent v0.19.1
+# Root Kernel Hermes Agent v0.19.1 Release Ledger
+
+This file is the human-readable, version-scoped release and operations ledger.
+
+Current user-visible behavior and configuration belong in
+`root-kernel/feature.md`. Structured carry state, lineage, evidence, and
+retirement rules belong in `root-kernel/carry.yaml`.
 
 ## Release state
 
@@ -28,10 +34,14 @@
 - Task 16 R2 was authorized at `2026-08-05T22:26:29+09:00`. The 49-profile target passed; the separately approved controlled root gateway refresh changed PID `9980`→`30334`, cleared KAN from the resumed session catalog, and preserved ATN. 주군 explicitly accepted R2 at `2026-08-06T00:01:21+09:00`
 - Task 16 R3 was authorized after R2 acceptance. Initial verification found stale Dashboard frontend parity. 주군 then directed that Dashboard will not be used and authorized removal of its active build and runtime disablement. The service, automatic-start definitions, inactive Tailscale proxy definition, and active `web_dist` were removed with verified rollback; 주군 explicitly accepted R3 at `2026-08-06T01:29:31+09:00`
 - Task 16 R4 was authorized after R3 acceptance. All 49 cron scopes contain zero jobs and current custom launchd/source parity passes. 주군 approved retaining broad `git add .` backup behavior while excluding secret data, then authorized the bounded security apply. Google Workspace retirement, credential removal, exact 63-commit history rewrite, remote/original-clone verification, and launchd resume passed technically. 주군 explicitly accepted R4 at `2026-08-06T16:07:23+09:00`
-- Release-candidate commit, tag, push, and remote-ref movement: not authorized
+- Release-candidate commit, tag, push, and remote-ref movement: completed at
+  `2026-08-07`; earlier task entries below preserve their historical gates
 - Scaffolded at: `2026-08-02T17:24:26+09:00`
 
-This document is the human-readable release ledger. `root-kernel/carry.yaml` is the machine-readable operational ledger. Both must be updated together after every approved D-item direction or verified result.
+This document and `root-kernel/carry.yaml` must be updated together after every
+approved D-item direction or verified result. Update
+`root-kernel/feature.md` whenever an active user-visible behavior, default,
+setting, command, or recommended recipe changes.
 
 ## Exact release baseline
 
@@ -90,7 +100,7 @@ Task 3 captured all five files and verified their source tags, GitHub release bo
 
 The candidate started from the clean peeled upstream tag. Task 2 added and committed only:
 
-- `for-root-kernel.md`
+- `root-kernel/ledger.md`
 - `root-kernel/carry.yaml`
 
 Task 3 created five local progress files under Git-excluded `root-kernel/evidence/` and updated both ledgers. Evidence files are not repository commit material unless separately approved. No carry code, test port, state database, skill installation, plugin, cron job, live checkout, remote ref, or tag was changed.
@@ -500,9 +510,10 @@ The local live backend runtime is v0.19.1. The tag blocker is cleared; all post-
 
 No `.env`, `auth.json`, token, credential pool, private key, or real state database may be copied into this repository or ordinary evidence.
 
-## Ledger parity checklist
+## Documentation parity checklist
 
-Before every commit-ready report, compare this document and `root-kernel/carry.yaml` for:
+Before every commit-ready report, compare this document and
+`root-kernel/carry.yaml` for:
 
 - target and previous baselines;
 - local and remote ref observations;
@@ -513,6 +524,10 @@ Before every commit-ready report, compare this document and `root-kernel/carry.y
 - live-mutation state;
 - rollback authority;
 - next action.
+
+Also compare the active carries with `root-kernel/feature.md`. The feature
+guide must describe every active user-visible carry and its current operator
+action without copying release chronology or machine-only evidence.
 
 ## Next action
 
