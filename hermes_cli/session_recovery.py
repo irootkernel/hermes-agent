@@ -25,6 +25,7 @@ from hermes_state import (
     SCHEMA_VERSION,
     SessionDB,
     _db_opens_cleanly,
+    load_fts5_cjk_extension,
 )
 
 
@@ -1182,6 +1183,7 @@ def _verify_recovered_database(
 
     conn = sqlite3.connect(str(output), isolation_level=None)
     try:
+        load_fts5_cjk_extension(conn)
         integrity_rows = [
             str(row[0]) for row in conn.execute("PRAGMA integrity_check").fetchall()
         ]
@@ -1440,6 +1442,7 @@ def _recover_via_lost_and_found(
         str(output), isolation_level=None, timeout=1.0
     )
     try:
+        load_fts5_cjk_extension(destination_conn)
         destination_conn.execute("PRAGMA foreign_keys=OFF")
         mapping = map_lost_and_found_rows(lf_conn, destination_conn)
         stubbing = stub_missing_parent_sessions(destination_conn)
@@ -1609,6 +1612,7 @@ def recover_session_database(
                 isolation_level=None,
                 timeout=1.0,
             )
+            load_fts5_cjk_extension(destination_conn)
             destination_conn.execute("PRAGMA foreign_keys=OFF")
 
             copy_report: dict[str, dict[str, Any]] = {}
