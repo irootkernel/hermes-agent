@@ -35,6 +35,8 @@ GATE_VARS = [
     "GATEWAY_ALLOWED_USERS",
     "DISCORD_NO_THREAD_CHANNELS",
     "DISCORD_FREE_RESPONSE_CHANNELS",
+    "DISCORD_AUTO_THREAD_FREE_RESPONSE",
+    "DISCORD_DEFAULT_THREAD_OWNER_PARENT_CHANNELS",
     "DISCORD_ALLOW_BOTS",
 ]
 
@@ -309,6 +311,8 @@ class TestYamlBridgeSeeding:
                 "allow_from": ["1001"],
                 "allowed_roles": [31],
                 "allow_all_users": False,
+                "auto_thread_free_response": True,
+                "default_thread_owner_parent_channels": ["111", "112"],
             },
         )
         assert seeded["allowed_channels"] == "111,112"
@@ -316,6 +320,8 @@ class TestYamlBridgeSeeding:
         assert seeded["allow_from"] == "1001"
         assert seeded["allowed_roles"] == "31"
         assert seeded["allow_all_users"] == "false"
+        assert seeded["auto_thread_free_response"] == "true"
+        assert seeded["default_thread_owner_parent_channels"] == "111,112"
         # Legacy env bridge preserved for single-profile deployments.
         assert os.environ["DISCORD_ALLOWED_CHANNELS"] == "111,112"
 
@@ -372,6 +378,34 @@ class TestYamlBridgeSeeding:
 
         assert a._get_allowed_channels() == {"111"}
         assert b._get_allowed_channels() == {"222"}
+
+    def test_omitted_d4_settings_do_not_inherit_first_profile_env(self, monkeypatch):
+        from agent import secret_scope
+        from plugins.platforms.discord.adapter import _apply_yaml_config
+
+        monkeypatch.setattr(secret_scope, "_MULTIPLEX_ACTIVE", False)
+        seeded_a = _apply_yaml_config(
+            {},
+            {
+                "auto_thread_free_response": True,
+                "default_thread_owner_parent_channels": ["111"],
+            },
+        )
+
+        monkeypatch.setattr(secret_scope, "_MULTIPLEX_ACTIVE", True)
+        token = secret_scope.set_secret_scope({})
+        try:
+            seeded_b = _apply_yaml_config({}, {})
+        finally:
+            secret_scope.reset_secret_scope(token)
+
+        a = _adapter(seeded_a)
+        b = _adapter(seeded_b)
+
+        assert a._discord_auto_thread_free_response() is True
+        assert a._discord_default_thread_owner_parent_channels() == {"111"}
+        assert b._discord_auto_thread_free_response() is False
+        assert b._discord_default_thread_owner_parent_channels() == set()
 
 
 class TestTelegramGateIsolation:

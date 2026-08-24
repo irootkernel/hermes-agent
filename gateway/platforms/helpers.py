@@ -6,8 +6,10 @@ and thread participation tracking.
 """
 
 import asyncio
+from contextlib import contextmanager
 import json
 import logging
+import os
 import re
 import time
 from pathlib import Path
@@ -276,6 +278,120 @@ class ThreadParticipationTracker:
 
     def clear(self) -> None:
         self._threads.clear()
+
+
+@contextmanager
+def _exclusive_state_lock(path: Path):
+    """Hold a cross-process advisory lock for one state transaction."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    handle = path.open("a+", encoding="utf-8")
+    try:
+        if os.name == "nt":  # pragma: no cover - Windows only
+            import msvcrt
+
+            handle.seek(0, 2)
+            if handle.tell() == 0:
+                handle.write("0")
+                handle.flush()
+            handle.seek(0)
+            getattr(msvcrt, "locking")(
+                handle.fileno(), getattr(msvcrt, "LK_LOCK"), 1
+            )
+        else:
+            import fcntl
+
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        yield
+    finally:
+        try:
+            if os.name == "nt":  # pragma: no cover - Windows only
+                import msvcrt
+
+                handle.seek(0)
+                getattr(msvcrt, "locking")(
+                    handle.fileno(), getattr(msvcrt, "LK_UNLCK"), 1
+                )
+            else:
+                import fcntl
+
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+        finally:
+            handle.close()
+
+
+class ThreadOwnerTracker:
+    """Persist the first numeric responder owner assigned to each thread."""
+
+    def __init__(self, platform_name: str, max_tracked: int = 500):
+        self._platform = platform_name
+        self._max_tracked = max_tracked
+        self._owners, self._available = self._load()
+
+    def _state_path(self) -> Path:
+        from hermes_constants import get_hermes_home
+
+        home = get_hermes_home()
+        shared_home = home.parent.parent if home.parent.name == "profiles" else home
+        return shared_home / f"{self._platform}_thread_owners.json"
+
+    def _lock_path(self) -> Path:
+        return self._state_path().with_suffix(".lock")
+
+    def _load(self) -> tuple[dict[str, str], bool]:
+        path = self._state_path()
+        if not path.exists():
+            return {}, True
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            return {}, False
+        if not isinstance(data, dict):
+            return {}, False
+        owners = {
+            str(thread_id): str(owner)
+            for thread_id, owner in data.items()
+            if isinstance(thread_id, (str, int))
+            and isinstance(owner, (str, int))
+            and str(thread_id).isdigit()
+            and str(owner).isdigit()
+        }
+        return owners, len(owners) == len(data)
+
+    def _refresh(self) -> None:
+        self._owners, self._available = self._load()
+
+    def _save(self) -> None:
+        atomic_json_write(self._state_path(), self._owners)
+
+    def mark_owner(self, thread_id: str, owner: str) -> bool:
+        thread_id = str(thread_id)
+        owner = str(owner)
+        if not thread_id.isdigit() or not owner.isdigit():
+            return False
+        with _exclusive_state_lock(self._lock_path()):
+            self._refresh()
+            existing = self._owners.get(thread_id)
+            if existing is not None:
+                return existing == owner
+            if not self._available or len(self._owners) >= self._max_tracked:
+                return False
+            self._owners[thread_id] = owner
+            self._save()
+            return True
+
+    def owner_for(self, thread_id: str) -> str | None:
+        self._refresh()
+        return self._owners.get(str(thread_id))
+
+    def is_owner(self, thread_id: str, owner: str) -> bool:
+        return self.owner_for(thread_id) == str(owner)
+
+    def is_available_for(self, thread_id: str) -> bool:
+        self._refresh()
+        thread_id = str(thread_id)
+        return self._available and (
+            thread_id in self._owners or len(self._owners) < self._max_tracked
+        )
 
 
 # ─── Phone Number Redaction ──────────────────────────────────────────────────

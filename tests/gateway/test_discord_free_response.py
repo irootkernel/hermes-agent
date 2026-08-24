@@ -1,13 +1,19 @@
 """Tests for Discord free-response defaults and mention gating."""
 
+import asyncio
 from datetime import datetime, timezone
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
-import sys
 
 import pytest
 
 from gateway.config import PlatformConfig
+import gateway.platforms.helpers as platform_helpers
 
 
 def _ensure_discord_mock():
@@ -97,7 +103,8 @@ class FakeThread:
 
 
 @pytest.fixture
-def adapter(monkeypatch):
+def adapter(monkeypatch, tmp_path):
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
     monkeypatch.setattr(discord_platform.discord, "DMChannel", FakeDMChannel, raising=False)
     monkeypatch.setattr(discord_platform.discord, "Thread", FakeThread, raising=False)
     monkeypatch.setattr(discord_platform.discord, "ForumChannel", FakeForumChannel, raising=False)
@@ -109,6 +116,8 @@ def adapter(monkeypatch):
         "DISCORD_REQUIRE_MENTION",
         "DISCORD_THREAD_REQUIRE_MENTION",
         "DISCORD_FREE_RESPONSE_CHANNELS",
+        "DISCORD_AUTO_THREAD_FREE_RESPONSE",
+        "DISCORD_DEFAULT_THREAD_OWNER_PARENT_CHANNELS",
         "DISCORD_AUTO_THREAD",
         "DISCORD_NO_THREAD_CHANNELS",
         "DISCORD_ALLOWED_CHANNELS",
@@ -121,18 +130,28 @@ def adapter(monkeypatch):
 
     config = PlatformConfig(enabled=True, token="fake-token")
     adapter = DiscordAdapter(config)
-    adapter._client = SimpleNamespace(user=SimpleNamespace(id=999))
+    adapter._client = SimpleNamespace(user=SimpleNamespace(id=999, bot=True))
     adapter._text_batch_delay_seconds = 0  # disable batching for tests
     adapter.handle_message = AsyncMock()
     return adapter
 
 
-def make_message(*, channel, content: str, mentions=None, msg_type=None):
+def make_message(
+    *,
+    channel,
+    content: str,
+    mentions=None,
+    role_mentions=None,
+    raw_role_mentions=None,
+    msg_type=None,
+):
     author = SimpleNamespace(id=42, display_name="Jezza", name="Jezza")
     return SimpleNamespace(
         id=123,
         content=content,
         mentions=list(mentions or []),
+        role_mentions=list(role_mentions or []),
+        raw_role_mentions=list(raw_role_mentions or []),
         attachments=[],
         reference=None,
         created_at=datetime.now(timezone.utc),
@@ -140,6 +159,440 @@ def make_message(*, channel, content: str, mentions=None, msg_type=None):
         author=author,
         type=msg_type if msg_type is not None else discord_platform.discord.MessageType.default,
     )
+
+
+def test_d4_thread_owner_tracker_persists_first_owner(monkeypatch, tmp_path):
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    first = platform_helpers.ThreadOwnerTracker("discord")
+    stale = platform_helpers.ThreadOwnerTracker("discord")
+    first.mark_owner("456", "1000")
+    stale.mark_owner("456", "1001")
+
+    reloaded = platform_helpers.ThreadOwnerTracker("discord")
+
+    assert reloaded.owner_for("456") == "1000"
+    assert reloaded.is_owner("456", "1000") is True
+    assert reloaded.is_owner("456", "1001") is False
+
+
+def test_d4_thread_owner_registry_is_shared_across_profiles(monkeypatch, tmp_path):
+    profile_a = tmp_path / "profiles" / "a"
+    profile_b = tmp_path / "profiles" / "b"
+    profile_a.mkdir(parents=True)
+    profile_b.mkdir(parents=True)
+
+    monkeypatch.setenv("HERMES_HOME", str(profile_a))
+    owner_a = platform_helpers.ThreadOwnerTracker("discord")
+    owner_a.mark_owner("456", "1000")
+
+    monkeypatch.setenv("HERMES_HOME", str(profile_b))
+    owner_b = platform_helpers.ThreadOwnerTracker("discord")
+    owner_b.mark_owner("456", "1001")
+
+    assert owner_b.owner_for("456") == "1000"
+    assert owner_b.is_owner("456", "1001") is False
+
+
+def test_d4_thread_owner_corrupt_state_fails_closed(monkeypatch, tmp_path):
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    state_path = tmp_path / "discord_thread_owners.json"
+    state_path.write_text("{corrupt", encoding="utf-8")
+
+    tracker = platform_helpers.ThreadOwnerTracker("discord")
+    tracker.mark_owner("456", "1001")
+
+    assert tracker.is_available_for("456") is False
+    assert state_path.read_text(encoding="utf-8") == "{corrupt"
+
+
+def test_d4_thread_owner_capacity_preserves_oldest_owner(monkeypatch, tmp_path):
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    tracker = platform_helpers.ThreadOwnerTracker("discord", max_tracked=2)
+    tracker.mark_owner("1", "1000")
+    tracker.mark_owner("2", "1000")
+    tracker.mark_owner("3", "1000")
+
+    reloaded = platform_helpers.ThreadOwnerTracker("discord", max_tracked=2)
+
+    assert reloaded.owner_for("1") == "1000"
+    assert reloaded.owner_for("2") == "1000"
+    assert reloaded.owner_for("3") is None
+    assert reloaded.is_available_for("3") is False
+
+
+def test_d4_thread_owner_concurrent_writers_choose_one_owner(tmp_path):
+    script = (
+        "from gateway.platforms.helpers import ThreadOwnerTracker; "
+        "import sys; "
+        "ThreadOwnerTracker('discord').mark_owner('456', sys.argv[1])"
+    )
+    env = {**os.environ, "HERMES_HOME": str(tmp_path)}
+    writers = [
+        subprocess.Popen(
+            [sys.executable, "-c", script, owner],
+            cwd=Path(__file__).parents[2],
+            env=env,
+        )
+        for owner in ("1000", "1001")
+    ]
+
+    assert [writer.wait(timeout=10) for writer in writers] == [0, 0]
+    stored = json.loads(
+        (tmp_path / "discord_thread_owners.json").read_text(encoding="utf-8")
+    )
+    assert stored == {"456": stored["456"]}
+    assert stored["456"] in {"1000", "1001"}
+
+
+@pytest.mark.parametrize("payload", ['[\"not-a-map\"]', '{"1":"1000","bad":"x"}'])
+def test_d4_thread_owner_invalid_state_fails_closed(monkeypatch, tmp_path, payload):
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    state_path = tmp_path / "discord_thread_owners.json"
+    state_path.write_text(payload, encoding="utf-8")
+
+    tracker = platform_helpers.ThreadOwnerTracker("discord")
+    tracker.mark_owner("456", "1001")
+
+    assert tracker.is_available_for("456") is False
+    assert state_path.read_text(encoding="utf-8") == payload
+
+
+@pytest.mark.asyncio
+async def test_d4_participation_without_ownership_requires_mention(
+    adapter, monkeypatch
+):
+    monkeypatch.setenv("DISCORD_REQUIRE_MENTION", "true")
+    adapter._threads.mark("456")
+    message = make_message(
+        channel=FakeThread(channel_id=456),
+        content="ambient chatter",
+    )
+
+    await adapter._handle_message(message)
+
+    adapter.handle_message.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_d4_auto_created_thread_records_owner(adapter, monkeypatch):
+    monkeypatch.setenv("DISCORD_REQUIRE_MENTION", "true")
+    monkeypatch.setenv("DISCORD_AUTO_THREAD", "true")
+    bot_user = adapter._client.user
+    adapter._auto_create_thread = AsyncMock(return_value=FakeThread(channel_id=790))
+    message = make_message(
+        channel=FakeTextChannel(channel_id=789),
+        content=f"<@{bot_user.id}> new task",
+        mentions=[bot_user],
+    )
+
+    await adapter._handle_message(message)
+
+    assert adapter._thread_owners.is_owner("790", str(bot_user.id)) is True
+
+
+@pytest.mark.asyncio
+async def test_d4_recovered_participation_without_owner_requires_mention(
+    adapter, monkeypatch
+):
+    monkeypatch.setenv("DISCORD_ALLOW_ALL_USERS", "true")
+    monkeypatch.setenv("DISCORD_REQUIRE_MENTION", "true")
+    adapter._threads.mark("456")
+    message = make_message(
+        channel=FakeThread(channel_id=456),
+        content="recovered ambient chatter",
+    )
+
+    admitted = await adapter._dispatch_recovered_message(message)
+
+    assert admitted is False
+    adapter.handle_message.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_d4_rejected_recovered_role_mention_does_not_claim_owner(
+    adapter, monkeypatch
+):
+    monkeypatch.setenv("DISCORD_ALLOW_ALL_USERS", "true")
+    monkeypatch.setenv("DISCORD_REQUIRE_MENTION", "true")
+    adapter.config.extra["default_thread_owner_parent_channels"] = ["789"]
+    role = SimpleNamespace(id=555)
+    message = make_message(
+        channel=FakeThread(channel_id=790, parent=FakeTextChannel(channel_id=789)),
+        content="<@&555> role-only recovery",
+        role_mentions=[role],
+        raw_role_mentions=[555],
+    )
+
+    admitted = await adapter._dispatch_recovered_message(message)
+
+    assert admitted is False
+    assert adapter._thread_owners.owner_for("790") is None
+    adapter.handle_message.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("rejection", ["unauthorized", "ignored", "invalid-type"])
+async def test_d4_other_rejected_recovery_candidates_do_not_claim_owner(
+    adapter, monkeypatch, rejection
+):
+    monkeypatch.setenv("DISCORD_ALLOW_ALL_USERS", "true")
+    monkeypatch.setenv("DISCORD_REQUIRE_MENTION", "true")
+    adapter.config.extra["default_thread_owner_parent_channels"] = ["789"]
+    message_type = None
+    if rejection == "unauthorized":
+        adapter._discord_message_admission = MagicMock(return_value=(False, False))
+    elif rejection == "ignored":
+        monkeypatch.setenv("DISCORD_IGNORED_CHANNELS", "789")
+    else:
+        message_type = object()
+    message = make_message(
+        channel=FakeThread(channel_id=790, parent=FakeTextChannel(channel_id=789)),
+        content="rejected recovery candidate",
+        msg_type=message_type,
+    )
+
+    admitted = await adapter._dispatch_recovered_message(message)
+
+    assert admitted is False
+    assert adapter._thread_owners.owner_for("790") is None
+    adapter.handle_message.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_d4_recovered_message_claims_dedup_before_live_ingress(
+    adapter, monkeypatch
+):
+    monkeypatch.setenv("DISCORD_ALLOW_ALL_USERS", "true")
+    monkeypatch.setenv("DISCORD_REQUIRE_MENTION", "true")
+    adapter.config.extra["default_thread_owner_parent_channels"] = ["789"]
+    adapter._ready_event.set()
+    message = make_message(
+        channel=FakeThread(channel_id=790, parent=FakeTextChannel(channel_id=789)),
+        content="recover exactly once",
+    )
+
+    recovered = await adapter._dispatch_recovered_message(message)
+    live_after = await adapter._dispatch_discord_message(message)
+
+    assert recovered is True
+    assert live_after is False
+    adapter.handle_message.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", [RuntimeError("boom"), asyncio.CancelledError()])
+async def test_d4_live_dispatch_failure_releases_dedup_like_recovery(
+    adapter, monkeypatch, failure
+):
+    monkeypatch.setenv("DISCORD_ALLOW_ALL_USERS", "true")
+    monkeypatch.setenv("DISCORD_REQUIRE_MENTION", "true")
+    adapter.config.extra["default_thread_owner_parent_channels"] = ["789"]
+    adapter._ready_event.set()
+    message = make_message(
+        channel=FakeThread(channel_id=790, parent=FakeTextChannel(channel_id=789)),
+        content="retry after failed handoff",
+    )
+    adapter._handle_message = AsyncMock(side_effect=failure)
+
+    with pytest.raises(type(failure)):
+        await adapter._dispatch_discord_message(message)
+
+    assert adapter._dedup.contains(str(message.id)) is False
+    assert adapter._thread_owners.owner_for("790") is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("ingress", ["live", "recovery"])
+async def test_d4_rejected_mention_only_does_not_poison_default_owner(
+    adapter, monkeypatch, ingress
+):
+    monkeypatch.setenv("DISCORD_ALLOW_ALL_USERS", "true")
+    monkeypatch.setenv("DISCORD_REQUIRE_MENTION", "true")
+    adapter.config.extra["default_thread_owner_parent_channels"] = ["789"]
+    adapter._ready_event.set()
+    bot_user = adapter._client.user
+    message = make_message(
+        channel=FakeThread(channel_id=790, parent=FakeTextChannel(channel_id=789)),
+        content=f"<@{bot_user.id}>",
+        mentions=[bot_user],
+    )
+
+    if ingress == "live":
+        dispatched = await adapter._dispatch_discord_message(message)
+    else:
+        dispatched = await adapter._dispatch_recovered_message(message)
+
+    assert dispatched is False
+    assert adapter._thread_owners.owner_for("790") is None
+    assert adapter._thread_owners.mark_owner("790", "1001") is True
+    assert adapter._thread_owners.owner_for("790") == "1001"
+    adapter.handle_message.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_d4_auto_threaded_mention_only_does_not_claim_owner(
+    adapter, monkeypatch
+):
+    monkeypatch.setenv("DISCORD_ALLOW_ALL_USERS", "true")
+    monkeypatch.setenv("DISCORD_REQUIRE_MENTION", "true")
+    monkeypatch.setenv("DISCORD_AUTO_THREAD", "true")
+    adapter._ready_event.set()
+    adapter._auto_create_thread = AsyncMock(return_value=FakeThread(channel_id=790))
+    bot_user = adapter._client.user
+    message = make_message(
+        channel=FakeTextChannel(channel_id=789),
+        content=f"<@{bot_user.id}>",
+        mentions=[bot_user],
+    )
+
+    dispatched = await adapter._dispatch_discord_message(message)
+
+    assert dispatched is False
+    adapter._auto_create_thread.assert_awaited_once()
+    assert adapter._thread_owners.owner_for("790") is None
+    assert adapter._thread_owners.mark_owner("790", "1001") is True
+    adapter.handle_message.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_d4_auto_threaded_failed_media_hydration_does_not_claim_owner(
+    adapter, monkeypatch
+):
+    monkeypatch.setenv("DISCORD_ALLOW_ALL_USERS", "true")
+    monkeypatch.setenv("DISCORD_REQUIRE_MENTION", "true")
+    monkeypatch.setenv("DISCORD_AUTO_THREAD", "true")
+    adapter._ready_event.set()
+    adapter._auto_create_thread = AsyncMock(return_value=FakeThread(channel_id=790))
+    adapter._cache_discord_document = AsyncMock(side_effect=OSError("hydrate failed"))
+    bot_user = adapter._client.user
+    message = make_message(
+        channel=FakeTextChannel(channel_id=789),
+        content=f"<@{bot_user.id}>",
+        mentions=[bot_user],
+    )
+    message.attachments = [
+        SimpleNamespace(
+            content_type="application/pdf",
+            filename="request.pdf",
+            size=128,
+            url="https://example.invalid/request.pdf",
+        )
+    ]
+
+    dispatched = await adapter._dispatch_discord_message(message)
+
+    assert dispatched is False
+    adapter._auto_create_thread.assert_awaited_once()
+    adapter._cache_discord_document.assert_awaited_once()
+    assert adapter._thread_owners.owner_for("790") is None
+    assert adapter._thread_owners.mark_owner("790", "1001") is True
+    adapter.handle_message.assert_not_awaited()
+
+
+def test_d4_role_only_mention_fails_closed(adapter):
+    adapter._is_allowed_user = MagicMock(return_value=True)
+    message = make_message(
+        channel=FakeTextChannel(channel_id=789),
+        content="<@&1504385394358353983> route to role",
+        role_mentions=[SimpleNamespace(id=1504385394358353983)],
+        raw_role_mentions=[1504385394358353983],
+    )
+    message.guild = message.channel.guild
+
+    admitted, _ = adapter._discord_message_admission(message, claim=False)
+
+    assert admitted is False
+
+
+def test_d4_role_and_explicit_bot_mention_is_admitted(adapter):
+    adapter._is_allowed_user = MagicMock(return_value=True)
+    bot_user = adapter._client.user
+    message = make_message(
+        channel=FakeTextChannel(channel_id=789),
+        content=f"<@&1504385394358353983> <@{bot_user.id}> route to bot",
+        mentions=[bot_user],
+        role_mentions=[SimpleNamespace(id=1504385394358353983)],
+        raw_role_mentions=[1504385394358353983],
+    )
+    message.guild = message.channel.guild
+
+    admitted, _ = adapter._discord_message_admission(message, claim=False)
+
+    assert admitted is True
+
+
+@pytest.mark.asyncio
+async def test_d4_configured_free_response_auto_thread_records_owner(
+    adapter, monkeypatch
+):
+    monkeypatch.setenv("DISCORD_REQUIRE_MENTION", "true")
+    monkeypatch.setenv("DISCORD_FREE_RESPONSE_CHANNELS", "789")
+    monkeypatch.setenv("DISCORD_AUTO_THREAD", "true")
+    adapter.config.extra["auto_thread_free_response"] = True
+    adapter._auto_create_thread = AsyncMock(return_value=FakeThread(channel_id=790))
+    message = make_message(
+        channel=FakeTextChannel(channel_id=789),
+        content="new free-response task",
+    )
+
+    await adapter._handle_message(message)
+
+    adapter._auto_create_thread.assert_awaited_once()
+    assert adapter._thread_owners.is_owner("790", "999") is True
+
+
+@pytest.mark.asyncio
+async def test_d4_configured_parent_defaults_unclaimed_thread_to_bot(
+    adapter, monkeypatch
+):
+    monkeypatch.setenv("DISCORD_REQUIRE_MENTION", "true")
+    adapter.config.extra["default_thread_owner_parent_channels"] = "789"
+    message = make_message(
+        channel=FakeThread(
+            channel_id=790,
+            parent=FakeTextChannel(channel_id=789),
+        ),
+        content="unmentioned owned follow-up",
+    )
+
+    await adapter._handle_message(message)
+
+    adapter.handle_message.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_d4_configured_parent_does_not_override_other_owner(
+    adapter, monkeypatch
+):
+    monkeypatch.setenv("DISCORD_REQUIRE_MENTION", "true")
+    adapter.config.extra["default_thread_owner_parent_channels"] = "789"
+    adapter._thread_owners.mark_owner("790", "1000")
+    message = make_message(
+        channel=FakeThread(
+            channel_id=790,
+            parent=FakeTextChannel(channel_id=789),
+        ),
+        content="unmentioned sibling follow-up",
+    )
+
+    await adapter._handle_message(message)
+
+    adapter.handle_message.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_d4_explicit_thread_response_claims_first_owner(adapter, monkeypatch):
+    monkeypatch.setenv("DISCORD_REQUIRE_MENTION", "true")
+    bot_user = adapter._client.user
+    message = make_message(
+        channel=FakeThread(channel_id=790),
+        content=f"<@{bot_user.id}> take this",
+        mentions=[bot_user],
+    )
+
+    await adapter._handle_message(message)
+
+    assert adapter._thread_owners.is_owner("790", str(bot_user.id)) is True
 
 
 def make_history_message(
