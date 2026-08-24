@@ -14025,7 +14025,7 @@ def main():
     # None are treated as success (exit 0).
     if hasattr(args, "func"):
         rc = args.func(args)
-        if isinstance(rc, int) and rc != 0:
+        if type(rc) is int and rc != 0:
             sys.exit(rc)
     else:
         parser.print_help()
