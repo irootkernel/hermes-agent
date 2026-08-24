@@ -464,6 +464,56 @@ class TestSkillManageDispatcher:
         assert (tmp_path / "bundled" / "SKILL.md").exists()
 
 
+class TestWriteApprovalGate:
+    def test_import_failure_blocks_create(self, tmp_path):
+        """An unavailable approval dependency must not degrade into a real write."""
+        import builtins
+
+        real_import = builtins.__import__
+
+        def fail_write_approval_import(
+            name, globals=None, locals=None, fromlist=(), level=0
+        ):
+            if name == "tools" and "write_approval" in fromlist:
+                raise ImportError("write approval unavailable")
+            return real_import(name, globals, locals, fromlist, level)
+
+        with (
+            _skill_dir(tmp_path),
+            patch("builtins.__import__", side_effect=fail_write_approval_import),
+        ):
+            raw = skill_manage(
+                action="create",
+                name="test-skill",
+                content=VALID_SKILL_CONTENT,
+            )
+
+        result = json.loads(raw)
+        assert result["success"] is False
+        assert "approval gate is unavailable" in result["error"].lower()
+        assert not (tmp_path / "test-skill").exists()
+
+    def test_evaluation_failure_blocks_create(self, tmp_path):
+        """A broken approval evaluator must return a tool error without writing."""
+        with (
+            _skill_dir(tmp_path),
+            patch(
+                "tools.write_approval.evaluate_gate",
+                side_effect=RuntimeError("boom"),
+            ),
+        ):
+            raw = skill_manage(
+                action="create",
+                name="test-skill",
+                content=VALID_SKILL_CONTENT,
+            )
+
+        result = json.loads(raw)
+        assert result["success"] is False
+        assert "approval gate is unavailable" in result["error"].lower()
+        assert not (tmp_path / "test-skill").exists()
+
+
 class TestSecurityScanGate:
     """_security_scan_skill is gated by skills.guard_agent_created config flag."""
 
