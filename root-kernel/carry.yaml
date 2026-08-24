@@ -1158,17 +1158,23 @@ verification_gates:
   activation_backup: S9-passed-four-profile-mode-restricted
   state_migration_rehearsal: S9-passed-v23-to-v26-real-data-disposable
   rollback_rehearsal: S9-passed-exact-v23-byte-restore
-  live_activation: pending
-  post_live: pending
+  live_activation: S10-passed-rk-refs-converged-and-live-updated
+  post_live: S11-passed-four-profile-runtime-verified
 
 activation:
-  status: S9-prepared-not-activated
-  current_live_version: v0.19.1
-  current_live_head: 7e65112b5303e9aa30cda440c2ab498bf5f360bc
+  status: S11-live-verified
+  owner_authorized_at: '2026-08-25T03:12:00+09:00'
+  current_live_version: v0.20.5
+  current_live_head: activation-evidence-commit-self
   target_live_version: v0.20.5
-  target_commit: pending-carries-and-acceptance
-  blockers:
-    - S10 publication and live activation owner approval not received
+  product_commit: af5456b53c957a393d089efb69ddfd9782bfee6f
+  refs: rk/v0.20.5-rk/tag/v0.20.5-rk/live-converged
+  config_schema: 38
+  state_schema: 26
+  active_profiles: [default, gongmyeong, wolyeong, samaui]
+  gateway_count: 4
+  runtime_probes: passed-4
+  blockers: []
   secret_exclusions:
     - .env
     - auth.json
@@ -1179,8 +1185,8 @@ activation:
 rollback:
   candidate_scaffold: discard every path in the exact 22-path candidate manifest against HEAD fcbd1076 while preserving unrelated work; deleting only root-kernel does not restore upstream
   preflight_dirty_state: apply the verified worktree.patch to v0.19.1 commit 7e65112b5303e9aa30cda440c2ab498bf5f360bc
-  live_runtime: unchanged at v0.19.1 through S9 activation preparation
-  state_restore: use the matching mode-0600 v23 snapshot under /Users/draccoon/Workspace/Hermes/backups/20260825-003717-v0205-activation-prep/state after stopping all writers; staged copy, file fsync, atomic replace, parent-directory fsync, then remove stale WAL/SHM while stopped
+  live_runtime: restore rk/live to 7e65112b5303e9aa30cda440c2ab498bf5f360bc with the recorded lease and reinstall v0.19.1
+  state_restore: use the matching mode-0600 v23 snapshot under /Users/draccoon/Workspace/Hermes/backups/20260825-031813-v0205-live-activation/state after stopping all writers; staged copy, file fsync, atomic replace, parent-directory fsync, then remove stale WAL/SHM while stopped
 
 ledger_parity:
   required_files:
@@ -1189,12 +1195,12 @@ ledger_parity:
     - root-kernel/ledger.md
   active_ids: [D1, D2, D3, D4, D6]
   omitted_ids: [D5, D7]
-  current_status: s9-activation-prep-passed-s10-held
-  verification: s9-four-profile-backup-v23-to-v26-migration-exact-v23-rollback-passed
+  current_status: s11-v0205-live-verified
+  verification: s10-refs-and-live-passed-s11-four-profile-runtime-passed
 
 next_action:
-  subtask: S10-ref-promotion-and-live-activation
-  action: remain on v0.19.1 until the owner explicitly resumes and approves S10
-  owner_approval_required: true
-  implementation_authorized: false
-  blocked_next_subtask: S10-ref-promotion-and-live-activation
+  subtask: post-release-monitoring
+  action: monitor v0.20.5 gateways and retain rollback evidence
+  owner_approval_required: false
+  implementation_authorized: true
+  blocked_next_subtask: null

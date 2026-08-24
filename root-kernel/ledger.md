@@ -134,9 +134,9 @@ The release fails if downstream changes appear in:
 | D3 | 38 focused failures reproduced | 38 focused tests passed | 359 D3 full-related and 414 D1-D3 cumulative tests; Ruff/static scan passed | passed; 0 blocking findings on newest snapshot | accepted 2026-08-24 |
 | D4 | 17 reproduced | 24 focused passed | 84 full-related; 498 cumulative | `deleg_19ae757b` passed | accepted 2026-08-24 |
 | D6 | `True` became exit 1 | 6 focused passed | 11 related; 504 historical cumulative receipt | `deleg_51f7ddda` passed | accepted 2026-08-24 |
-| Integrated candidate | n/a | newest snapshot: 144 files/1,520 passed | exact guards and baseline classification passed | sixteen reviews found blockers; all findings remediated | pending re-review |
-| Activation/rollback | n/a | pending | pending | pending | pending |
-| Post-live | n/a | pending | pending | pending | pending |
+| Integrated candidate | n/a | newest snapshot: 144 files/1,520 passed | exact guards and baseline classification passed | seventeenth exact-snapshot review passed | owner-accepted |
+| Activation/rollback | n/a | S9 rehearsal and fresh S10 backup passed | refs converged and live clone updated | rollback receipt sealed | passed |
+| Post-live | n/a | four profile probes passed | schema/config/integrity/gateways verified | no activation blocker | passed |
 
 No pending cell may be rewritten as passed without real command output or a durable evidence receipt.
 
@@ -361,8 +361,13 @@ Before activation, a separate mode-restricted activation backup and migration re
 - [x] S9 real-data disposable migration: four profiles v23→v26, integrity OK, zero foreign-key violations, session/message counts preserved
 - [x] S9 atomic rollback rehearsal: four profiles restored byte-for-byte to v23 snapshots with file and parent-directory fsync
 - [x] S9 live invariance: Hermes v0.19.1, four gateways running, four live databases remain integrity-OK v23
-- [ ] S10 held by owner at 2026-08-25T00:47:33+09:00; v0.19.1 live state retained
+- [x] S10 resumed and authorized by the owner on 2026-08-25
+- [x] `rk/v0.20.5`, annotated `rk/tag/v0.20.5`, and `rk/live` converged on the accepted v0.20.5 release
+- [x] Live clone updated through the official custom-branch updater; runtime reports Hermes Agent v0.20.5
+- [x] Four profile databases migrated v23→v26 with integrity OK and zero foreign-key violations
+- [x] Four profile configs migrated v33→v38 and four launchd gateways restarted from the live venv
+- [x] S11 one-shot runtime probes passed for 문앙(Munang), 공명(Gongmyeong), 월영(Wolyeong), and 사마의(Samaui)
 
 ## Next action
 
-Remain on v0.19.1 until the owner explicitly resumes and approves S10. No commit, push, tag, ref promotion, live state migration, or live activation is authorized.
+Monitor the activated v0.20.5 gateways and retain `/Users/draccoon/Workspace/Hermes/backups/20260825-031813-v0205-live-activation/` as the rollback authority. The previous live commit is `7e65112b5303e9aa30cda440c2ab498bf5f360bc`.

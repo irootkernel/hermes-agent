@@ -127,8 +127,8 @@ The preflight dirty state is preserved at:
 
 `/Users/draccoon/Workspace/Hermes/backups/20260824-030645-rk-v0205-preflight`
 
-To abandon this uncommitted candidate, discard every path in the exact 22-path candidate manifest against HEAD `fcbd1076…`, including all product, test, and `root-kernel/` changes; removing only the three canonical documents is not a rollback. Preserve unrelated work and use the verified preflight backup when restoring the prior dirty state. Production rollback is not yet applicable because no live state has changed.
+The v0.20.5 carries are committed as seven logical checkpoints above upstream target `fcbd1076…`. Production rollback restores remote `rk/live` and the live clone to v0.19.1 commit `7e65112b…`, then restores the matching v23 profile snapshots from `/Users/draccoon/Workspace/Hermes/backups/20260825-031813-v0205-live-activation/` only while all writers are stopped.
 
 ## Next gate
 
-D1, D2, D3, D4, D6, and S8 are owner-accepted. S9 activation preparation passed: all four live v23 state databases have mode-restricted external snapshots, real-data disposable v23→v26 migration preserved session/message counts and database integrity, and atomic rollback restored every disposable database byte-for-byte to its v23 snapshot. The owner placed S10 on hold. Live Hermes remains v0.19.1 with all four gateways running and all live databases at v23; no publication, ref promotion, migration, or activation is authorized.
+D1, D2, D3, D4, D6, and S8 are owner-accepted. S9 activation preparation passed. The owner authorized S10 on 2026-08-25; `rk/v0.20.5`, annotated tag `rk/tag/v0.20.5`, and `rk/live` were promoted, and the live clone was updated from v0.19.1 to v0.20.5. S11 passed with all four profiles on config schema 38 and state schema 26, integrity OK, zero foreign-key violations, four gateways running from the live venv, and successful identity/model probes for 문앙(Munang), 공명(Gongmyeong), 월영(Wolyeong), and 사마의(Samaui).
