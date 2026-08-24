@@ -86,6 +86,132 @@ def test_resolve_runtime_provider_uses_credential_pool(monkeypatch):
     assert resolved["source"] == "manual"
 
 
+def test_d3_credential_pin_blocks_runtime_singleton_fallback(tmp_path, monkeypatch):
+    hermes_home = tmp_path / "hermes"
+    hermes_home.mkdir(parents=True, exist_ok=True)
+    (hermes_home / ".env").write_text(
+        "HERMES_CREDENTIAL_PIN_OPENAI_CODEX_LABEL=PINNED\n"
+    )
+    monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+    monkeypatch.setattr(rp, "resolve_provider", lambda *a, **k: "openai-codex")
+    monkeypatch.setattr(
+        rp,
+        "load_pool",
+        lambda _provider: SimpleNamespace(
+            has_credentials=lambda: True,
+            select=lambda: None,
+        ),
+    )
+    monkeypatch.setattr(
+        rp,
+        "resolve_codex_runtime_credentials",
+        lambda: (_ for _ in ()).throw(AssertionError("singleton fallback called")),
+    )
+
+    with pytest.raises(rp.AuthError) as excinfo:
+        rp.resolve_runtime_provider(requested="openai-codex")
+
+    assert excinfo.value.code == "credential_pin_unavailable"
+
+
+def test_d3_credential_pin_blocks_explicit_runtime_override(tmp_path, monkeypatch):
+    hermes_home = tmp_path / "hermes"
+    hermes_home.mkdir(parents=True, exist_ok=True)
+    (hermes_home / ".env").write_text(
+        "HERMES_CREDENTIAL_PIN_OPENAI_CODEX_ID=missing-pin\n"
+    )
+    monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+    monkeypatch.setattr(rp, "resolve_provider", lambda *a, **k: "openai-codex")
+    monkeypatch.setattr(
+        rp,
+        "load_pool",
+        lambda _provider: SimpleNamespace(
+            has_credentials=lambda: True,
+            select=lambda: None,
+        ),
+    )
+
+    with pytest.raises(rp.AuthError) as excinfo:
+        rp.resolve_runtime_provider(
+            requested="openai-codex",
+            explicit_api_key="must-not-bypass-pin",
+            explicit_base_url="https://example.invalid/v1",
+        )
+
+    assert excinfo.value.code == "credential_pin_unavailable"
+
+
+def test_d3_credential_pin_blocks_direct_codex_singleton_resolver(
+    tmp_path, monkeypatch
+):
+    hermes_home = tmp_path / "hermes"
+    hermes_home.mkdir(parents=True, exist_ok=True)
+    (hermes_home / ".env").write_text(
+        "HERMES_CREDENTIAL_PIN_OPENAI_CODEX_ID=manual-pinned\n"
+    )
+    monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+
+    from hermes_cli import auth
+    from hermes_cli.config import invalidate_env_cache
+
+    invalidate_env_cache()
+    monkeypatch.setattr(
+        auth,
+        "_read_codex_tokens",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("singleton auth store read")
+        ),
+    )
+
+    with pytest.raises(auth.AuthError) as excinfo:
+        auth.resolve_codex_runtime_credentials(force_refresh=True)
+
+    assert excinfo.value.code == "credential_pin_requires_pool"
+
+
+def test_d3_credential_missing_pin_status_does_not_report_exhausted_sibling(
+    tmp_path, monkeypatch
+):
+    hermes_home = tmp_path / "hermes"
+    hermes_home.mkdir()
+    monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+    (hermes_home / ".env").write_text(
+        "HERMES_CREDENTIAL_PIN_OPENAI_CODEX_ID=missing-id\n"
+    )
+    (hermes_home / "auth.json").write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "providers": {},
+                "credential_pool": {
+                    "openai-codex": [
+                        {
+                            "id": "exhausted-sibling",
+                            "label": "SIBLING",
+                            "auth_type": "oauth",
+                            "priority": 0,
+                            "source": "manual:device_code",
+                            "access_token": "sibling-access",
+                            "refresh_token": "sibling-refresh",
+                            "last_status": "exhausted",
+                            "last_error_code": 429,
+                            "last_error_message": "sibling exhausted",
+                            "last_error_reset_at": "2099-01-01T00:00:00Z",
+                        }
+                    ]
+                },
+            }
+        )
+    )
+    from hermes_cli.auth import get_codex_auth_status
+
+    status = get_codex_auth_status()
+
+    assert status["logged_in"] is False
+    assert status.get("source") != "pool:SIBLING"
+    assert status.get("rate_limited") is not True
+
+
 class TestCustomProviderPoolLoopbackNoKeyExemption:
     """Regression for issue #86864: legacy custom_providers configs often
     used short/placeholder api_keys ('123', 'm') for local no-auth

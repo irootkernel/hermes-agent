@@ -16,6 +16,7 @@ from agent.credential_pool import (
     PooledCredential,
     credential_pool_matches_provider,
     get_custom_provider_pool_key,
+    has_configured_credential_pin,
     load_pool,
 )
 from agent.secret_scope import get_secret as _get_secret
@@ -1955,16 +1956,20 @@ def resolve_runtime_provider(
             _free_runtime["requested_provider"] = requested_provider
             return _free_runtime
 
-    explicit_runtime = _resolve_explicit_runtime(
-        provider=provider,
-        requested_provider=requested_provider,
-        model_cfg=model_cfg,
-        explicit_api_key=explicit_api_key,
-        explicit_base_url=explicit_base_url,
-        target_model=target_model,
+    codex_pin_configured = provider == "openai-codex" and has_configured_credential_pin(
+        provider
     )
-    if explicit_runtime:
-        return explicit_runtime
+    if not codex_pin_configured:
+        explicit_runtime = _resolve_explicit_runtime(
+            provider=provider,
+            requested_provider=requested_provider,
+            model_cfg=model_cfg,
+            explicit_api_key=explicit_api_key,
+            explicit_base_url=explicit_base_url,
+            target_model=target_model,
+        )
+        if explicit_runtime:
+            return explicit_runtime
 
     should_use_pool = provider != "openrouter"
     if provider == "openrouter":
@@ -1990,6 +1995,7 @@ def resolve_runtime_provider(
         pool = load_pool(provider) if should_use_pool else None
     except Exception:
         pool = None
+    pin_configured = should_use_pool and has_configured_credential_pin(provider)
     if pool and pool.has_credentials():
         entry = pool.select()
         pool_api_key = ""
@@ -2053,6 +2059,13 @@ def resolve_runtime_provider(
                 pool=pool,
                 target_model=target_model,
             )
+
+    if pin_configured:
+        raise AuthError(
+            f"Pinned credential for {provider} is unavailable.",
+            provider=provider,
+            code="credential_pin_unavailable",
+        )
 
     if provider == "nous":
         try:
