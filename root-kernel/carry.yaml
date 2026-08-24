@@ -1,0 +1,1200 @@
+schema_version: 1
+ledger_kind: root-kernel-release-carry
+documentation:
+  feature_guide: root-kernel/feature.md
+  release_ledger: root-kernel/ledger.md
+  machine_ledger: root-kernel/carry.yaml
+  responsibilities:
+    feature_guide: current candidate behavior, configuration, and operator guidance
+    release_ledger: version-scoped decisions, gates, verification, publication, activation, and rollback
+    machine_ledger: structured carry state, lineage, allowed paths, evidence, and retirement rules
+
+upgrade_safety_test_mapping:
+  schema_version: 1
+  registry: /Users/draccoon/Workspace/Hermes/ops/tests/hermes_upgrade
+  policy: preserve version-agnostic safety contracts; parameterize release facts; rerun release-specific carry contracts against each clean upstream target before retaining them
+  roots:
+    candidate: /Users/draccoon/Workspace/Hermes/hermes-agent-workspace
+    ops: /Users/draccoon/Workspace/Hermes/ops
+  required_gates: [S0, S1, S2, S3, S4, S5, S6, S7, S8, S9, S10, S11]
+  suites:
+    release-contract:
+      purpose: exact upstream, candidate boundary, carry state, review, approval, publication, activation, and rollback parity
+      gates: [S0, S1, S2, S8, S9, S10, S11]
+      reuse: release-parameterized
+      runner: scripts/run_tests.sh
+      test_paths:
+        - root: ops
+          path: tests/test_root_kernel_v0205_scaffold.py
+      next_release_action: replace version, refs, commit, schema, expected paths, carry set, receipts, and gate state without weakening assertions
+    activation-safety:
+      purpose: SQLite inspection, online backup, approved-root containment, candidate SessionDB migration, state preservation, integrity, foreign keys, exact atomic rollback, and sealed receipt verification
+      gates: [S9, S10, S11]
+      reuse: release-parameterized
+      runner: scripts/run_tests.sh
+      test_paths:
+        - root: ops
+          path: tests/hermes_upgrade/test_activation_safety.py
+        - root: ops
+          path: tests/hermes_upgrade/test_activation_backup_contract.py
+      current_release_fixtures:
+        - /Users/draccoon/Workspace/Hermes/backups/20260825-003717-v0205-activation-prep
+    mapping-selfcheck:
+      purpose: ensure every required release gate resolves to existing tests without path escape
+      gates: [S2, S8, S9, S10, S11]
+      reuse: version-agnostic
+      runner: scripts/run_tests.sh
+      test_paths:
+        - root: ops
+          path: tests/hermes_upgrade/test_test_mapping.py
+    D1-cjk-recovery:
+      purpose: preserve CJK session recovery and recovered-database verification contracts
+      gates: [S3, S8]
+      reuse: release-specific
+      runner: scripts/run_tests.sh
+      test_paths:
+        - root: candidate
+          path: tests/hermes_cli/test_session_recovery.py
+    D2-skill-write-fail-close:
+      purpose: block skill mutation when write approval is unavailable or fails
+      gates: [S4, S8]
+      reuse: release-specific
+      runner: scripts/run_tests.sh
+      test_paths:
+        - root: candidate
+          path: tests/tools/test_skill_manager_tool.py
+    D3-codex-pin-ownership:
+      purpose: exact profile-local Codex pin ownership, fail-closed resolution, atomic persistence, and exact labelled reauth
+      gates: [S5, S8]
+      reuse: release-specific
+      runner: scripts/run_tests.sh
+      test_paths:
+        - root: candidate
+          path: tests/agent/test_credential_pool.py
+        - root: candidate
+          path: tests/agent/test_auxiliary_client.py
+        - root: candidate
+          path: tests/hermes_cli/test_runtime_provider_resolution.py
+        - root: candidate
+          path: tests/hermes_cli/test_auth_commands.py
+    D4-discord-ownership:
+      purpose: first-owner, role-mention fail-close, recovery dedup, and owned free-response routing contracts
+      gates: [S6, S8]
+      reuse: release-specific
+      runner: scripts/run_tests.sh
+      test_paths:
+        - root: candidate
+          path: tests/gateway/test_discord_free_response.py
+        - root: candidate
+          path: tests/plugins/platforms/test_discord_gate_isolation.py
+    D6-bool-safe-return-code:
+      purpose: exact integers propagate as process exit codes while booleans remain success
+      gates: [S7, S8]
+      reuse: release-specific
+      runner: scripts/run_tests.sh
+      test_paths:
+        - root: candidate
+          path: tests/hermes_cli/test_main_return_codes.py
+
+release:
+  version: v0.20.5
+  status: s9-activation-prep-passed-s10-held
+  scaffolded_at: '2026-08-24T03:20:57+09:00'
+  candidate_branch: rk/v0.20.5
+  candidate_head: fcbd1076a93841fa88855acce810e342a5b78101
+  candidate_worktree: /Users/draccoon/Workspace/Hermes/hermes-agent-workspace
+  direct_update:
+    from: v0.19.1
+    to: v0.20.5
+    intermediate_activation: false
+  upstream_target:
+    package_version: 0.20.5
+    tag: v2026.8.19
+    tag_object: b05e680e63d39d5a8e3ec0f5842a41d1c4209c03
+    commit: fcbd1076a93841fa88855acce810e342a5b78101
+    signature:
+      verified: false
+      status: unsigned-or-unverifiable
+      claim_boundary: object-commit-package-identity-only
+  previous_release:
+    version: v0.19.1
+    downstream_branch: rk/v0.19.1
+    downstream_head: 7e65112b5303e9aa30cda440c2ab498bf5f360bc
+    downstream_tag: rk/tag/v0.19.1
+    downstream_tag_object: 1f3e105fa1f141a736b362dc4151e0136c19a189
+    live_branch: rk/live
+    live_head: 7e65112b5303e9aa30cda440c2ab498bf5f360bc
+    historical_authority:
+      feature_guide: rk/tag/v0.19.1:root-kernel/feature.md
+      release_ledger: rk/tag/v0.19.1:root-kernel/ledger.md
+      machine_ledger: rk/tag/v0.19.1:root-kernel/carry.yaml
+  planned_refs:
+    candidate: rk/v0.20.5
+    release_tag: rk/tag/v0.20.5
+    live: rk/live
+    exceptional_ref_prohibited_without_owner_direction: rk/tags/v02.20.5
+  publication:
+    local_candidate_created: true
+    candidate_committed: false
+    candidate_pushed: false
+    release_tag_created: false
+    release_tag_pushed: false
+    live_ref_moved: false
+    live_clone_activated: false
+
+owner_decisions:
+  documentation_structure:
+    status: confirmed
+    files:
+      - root-kernel/carry.yaml
+      - root-kernel/feature.md
+      - root-kernel/ledger.md
+    superseded_document_prohibited: for-root-kernel.md
+  carry_set:
+    status: confirmed
+    retain_and_reaudit: [D1, D2, D3, D4, D6]
+    omit: [D5, D7]
+  execution_policy:
+    gate_by_gate: true
+    owner_approval_required_before_each_subtask: true
+    no_historical_patch_wholesale_replay: true
+    current_target_behavior_is_authority: true
+
+candidate_boundary:
+  exact_upstream_baseline:
+    verified: true
+    verified_at: '2026-08-24T03:13:00+09:00'
+    branch: rk/v0.20.5
+    head: fcbd1076a93841fa88855acce810e342a5b78101
+    dirty_file_count_before_scaffold: 0
+    upstream_delta_file_count_before_scaffold: 0
+    root_kernel_file_count_before_scaffold: 0
+  expected_scaffold_changes:
+    - root-kernel/carry.yaml
+    - root-kernel/feature.md
+    - root-kernel/ledger.md
+  carry_code_changed: true
+  carry_tests_changed: true
+  live_checkout_changed: false
+  profiles_changed: false
+  configs_changed: false
+  state_databases_changed: false
+  skills_changed: false
+  plugins_changed: false
+  cron_changed: false
+  gateways_changed: false
+  credentials_changed: false
+  remote_refs_changed: false
+  no_downstream_kanban_invariant: true
+  no_downstream_doctor_filter_invariant: true
+  forbidden_downstream_paths:
+    - agent/kanban_stop.py
+    - agent/prompt_builder.py
+    - gateway/kanban_watchers.py
+    - hermes_cli/goals.py
+    - hermes_cli/kanban.py
+    - hermes_cli/kanban_db.py
+    - tools/kanban_tools.py
+    - toolsets.py
+    - tui_gateway/server.py
+    - tests/**/test_*kanban*.py
+    - hermes_cli/doctor.py
+  forbidden_retired_symbols:
+    - mutex_key
+    - workflow_type
+    - kanban_submit_result
+    - downstream_same_card_watcher
+
+preflight_backup:
+  status: verified
+  path: /Users/draccoon/Workspace/Hermes/backups/20260824-030645-rk-v0205-preflight
+  source_branch: rk/v0.19.1
+  source_head: 7e65112b5303e9aa30cda440c2ab498bf5f360bc
+  modified_files: 23
+  insertions: 6276
+  deletions: 3986
+  binary_patch:
+    file: worktree.patch
+    bytes: 559795
+    sha256: ebde73e83bd2a55ed16a4e58d72d4d4b18060e536f83c8ba325942652341f248
+  restore_probe:
+    git_apply_check: passed
+    git_apply: passed
+    file_sha256_match: passed
+    diff_numstat_match: passed
+    disposable_probe_removed: true
+  manifest:
+    file: SHA256SUMS
+    entries: 12
+    verification: passed
+  secrets_captured: false
+
+active_carries:
+  D1:
+    title: CJK-aware offline session recovery
+    decision: retain-minimal-implemented
+    status: completed-owner-accepted
+    historical_commit: deb6fc641599d45e9714bebf61101128d0ca950b
+    upstream_overlap: CJK search and FTS behavior evolved, but recovery-specific SQLite connections still require exact behavioral verification
+    remaining_contract: CJK-enabled separate-output recovery preserves canonical counts, integrity, complete status, Korean search, and source immutability
+    preliminary_allowed_paths:
+      - hermes_cli/session_recovery.py
+      - tests/hermes_cli/test_session_recovery.py
+      - root-kernel/carry.yaml
+      - root-kernel/feature.md
+      - root-kernel/ledger.md
+    evidence:
+      red:
+        status: reproduced
+        command: pytest -q tests/hermes_cli/test_session_recovery.py::test_recovery_preserves_messages_with_cjk_index_enabled -v --tb=short
+        failure: 'messages copy status failed: no such tokenizer: cjk_unicode61'
+        sibling_red: 'lost-and-found mapping raised sqlite3.OperationalError: no such tokenizer: cjk_unicode61'
+      green:
+        status: passed
+        command: pytest -q tests/hermes_cli/test_session_recovery.py -k cjk_index_enabled -v --tb=short
+        result: 2 passed, 4 deselected
+        verified_contracts:
+          - source database hash and bundle remain unchanged
+          - separate output preserves canonical session and message counts
+          - PRAGMA integrity_check returns ok
+          - messages_fts_cjk integrity check returns ok
+          - Korean search returns the recovered session
+          - normal and lost-and-found recovery paths both preserve CJK behavior
+      adjacent:
+        status: passed
+        primary: 'scripts/run_tests.sh tests/hermes_cli/test_session_recovery.py -v: 6 passed'
+        sibling: 'scripts/run_tests.sh tests/hermes_cli/test_session_recovery_lost_and_found.py -v: 7 passed'
+        lint: 'ruff check hermes_cli/session_recovery.py tests/hermes_cli/test_session_recovery.py: passed'
+      static_security_scan: passed-no-findings
+      independent_review:
+        status: passed
+        completed_at: '2026-08-24T07:25:39+09:00'
+        security_concerns: []
+        logic_errors: []
+        scope_issues: []
+        non_blocking_suggestions:
+          - add a direct source SHA-256 comparison to the lost-and-found-specific test
+          - assert the lost-and-found sessions canonical count explicitly
+          - make the CJK extension non-skippable in a future required CJK CI job
+      owner_acceptance:
+        status: accepted
+        accepted_at: '2026-08-24T10:22:52+09:00'
+        response: 승인
+    retirement_rule: retire only when an exact later upstream target passes an equivalent CJK recovery contract without downstream behavior
+
+  D2:
+    title: Fail-closed skill-write approval boundary
+    decision: retain-minimal-implemented
+    status: completed-owner-accepted
+    historical_commit: 49fa643064dadf3657d78be5139541079e262df0
+    upstream_overlap: skill mutation ledger and approval transport are stronger, but approval import or evaluator failure may still fail open
+    remaining_contract: active skill-write approval blocks mutation when gate import, initialization, or evaluation is unavailable
+    preliminary_allowed_paths:
+      - tools/skill_manager_tool.py
+      - tests/tools/test_skill_manager_tool.py
+      - root-kernel/carry.yaml
+      - root-kernel/feature.md
+      - root-kernel/ledger.md
+    evidence:
+      red:
+        status: reproduced
+        command: pytest -q tests/tools/test_skill_manager_tool.py::TestWriteApprovalGate -v --tb=short
+        import_failure: skill creation succeeded and wrote SKILL.md
+        evaluation_failure: RuntimeError escaped from evaluate_gate
+      green:
+        status: passed
+        command: pytest -q tests/tools/test_skill_manager_tool.py::TestWriteApprovalGate -v --tb=short
+        result: 2 passed
+        verified_contracts:
+          - approval import failure blocks mutation
+          - approval evaluation failure blocks mutation
+          - failures return a structured tool error
+      adjacent:
+        status: passed
+        command: scripts/run_tests.sh tests/tools/test_skill_manager_tool.py tests/tools/test_write_approval.py -v
+        result: 64 passed
+        lint: 'ruff check tools/skill_manager_tool.py tests/tools/test_skill_manager_tool.py: passed'
+      static_security_scan: passed-no-findings
+      independent_review:
+        status: passed
+        completed_at: '2026-08-24T10:31:00+09:00'
+        security_concerns: []
+        logic_errors: []
+        scope_issues: []
+        non_blocking_suggestions:
+          - parameterize fail-close coverage across every skill mutation action
+          - consider internal exception logging without exposing details to the user
+          - assert that gate failure creates no pending skill-write record
+      owner_acceptance:
+        status: accepted
+        accepted_at: '2026-08-24T14:08:06+09:00'
+        response: 승인
+    retirement_rule: retire only when upstream fails closed for all gate-unavailable paths with equivalent regression coverage
+
+  D3:
+    title: Exact OpenAI Codex credential pinning and labelled reauth
+    decision: retain-minimal-implemented
+    status: owner-accepted
+    historical_commit: c05d64572c01482e3619ce2850e8c6c4e0465938
+    upstream_overlap: credential pools, refresh, quarantine, and profile attribution expanded substantially
+    remaining_contract: a configured profile-local exact ID or unique label never substitutes a sibling credential and reauth updates the exact pinned row
+    preliminary_allowed_paths:
+      - agent/credential_pool.py
+      - agent/auxiliary_client.py
+      - hermes_cli/auth.py
+      - hermes_cli/runtime_provider.py
+      - hermes_cli/auth_commands.py
+      - tests/agent/test_credential_pool.py
+      - tests/agent/test_auxiliary_client.py
+      - tests/hermes_cli/test_runtime_provider_resolution.py
+      - tests/hermes_cli/test_auth_commands.py
+      - root-kernel/carry.yaml
+      - root-kernel/feature.md
+      - root-kernel/ledger.md
+    allowed_paths_require_trace_confirmation: false
+    evidence:
+      red:
+        status: reproduced
+        failures: 38
+        verified_gaps:
+          - pool select, current, peek, and lease ignored profile-local pins
+          - main and auxiliary runtime paths substituted singleton credentials
+          - labelled Codex auth appended rather than updating the exact row
+          - duplicate labels were not blocked before interactive login
+          - availability and recovery-time APIs reported healthy sibling state instead of the configured pin
+          - duplicate canonical device-code rows corrupted exact reauth ownership on the next pool reload
+          - an exact canonical pin remained selectable in the same duplicate-canonical corruption state
+          - stale recovery cursor and failure hints refreshed or persisted a non-pinned sibling
+          - pinned manual device-code refresh adopted singleton account tokens
+          - direct singleton resolver bypassed an active Codex pin during fallback recovery
+          - load_pool seeded and persisted an unpinned canonical singleton sibling before resolving a manual pin
+          - manual labelled reauth rewrote a concurrent sibling token update from a stale pre-login pool snapshot
+          - Codex auth status leaked exhausted sibling metadata when the configured pin was missing
+          - stale sibling failure recovery returned an exhausted pinned row despite pin unavailability
+          - pinned runtime refresh persisted a stale full-pool snapshot and overwrote a concurrent sibling token rotation
+          - canonical labelled reauth saved singleton tokens after the exact target changed during interactive login
+          - auxiliary 401 recovery used unscoped current refresh before failed-identity-aware rotation
+          - active-pin structural add reported success but exact-target runtime persistence omitted the new row on disk
+          - active-pin reset statuses reported all rows reset but persisted only the pinned row
+          - canonical labelled reauth allowed a second eligible canonical row added during interactive login
+          - active-pin reset skipped concurrent disk-only and reason-only status changes when the loaded snapshot was clean
+          - active Codex pin was bypassed by explicit main-runtime credentials
+          - active-pin structural remove rewrote stale sibling credentials and resurrected concurrent deletions
+          - active-pin structural add reused stale priorities after a concurrent disk-only append
+          - pinned cooldown clear passed an empty removal list and rewrote stale sibling credentials and status
+          - pinned aged-DEAD auto-prune skipped latest-disk exact-ID cardinality validation
+      green:
+        status: passed
+        command: pytest -q four-D3-test-files -k d3_credential -v --tb=short
+        result: 38 passed
+        verified_contracts:
+          - exact ID precedes label and unique labels select only the pinned row
+          - missing, ambiguous, exhausted, dead, empty, and unreadable pin sources fail closed
+          - ambient process environment does not configure a pin
+          - select, current, peek, lease, main runtime, and auxiliary runtime do not substitute siblings or singletons
+          - has_available and next_available_at report only the configured pin state
+          - labelled reauth updates exactly one matching OAuth row and duplicate labels block login
+      adjacent:
+        status: passed
+        command: scripts/run_tests.sh four-D3-test-files -q
+        result: 359 passed
+        lint: 'ruff check five D3 product and four D3 test files: passed'
+      static_security_scan: passed-no-findings
+      independent_review:
+        status: passed
+        final_review:
+          status: passed
+          blocking_findings: 0
+          snapshot: 38-focused-359-full-related-414-cumulative
+          non_blocking_suggestions:
+            - keep non-Codex generic pin behavior outside D3 and add provider contracts later
+            - strengthen automatic cooldown and aged-DEAD missing-target regression coverage
+            - assert byte-equivalent disk preservation after structural cardinality failures
+        first_review:
+          status: failed
+          blocking_findings: 2
+          findings:
+            - configured pin selection refreshed and persisted expiring siblings before resolving the pin
+            - canonical device-code labelled reauth overwrote all device-code sibling rows
+        remediation:
+          status: passed-focused-and-adjacent
+          focused_red: 2 failed
+          focused_green: 2 passed
+          behavior:
+            - configured pin scopes availability sync, refresh, and pruning to the exact candidate
+            - availability and recovery-time status APIs report only the configured pin
+            - labelled reauth passes an opt-in exact credential ID to singleton token persistence
+        second_review:
+          status: failed
+          blocking_findings: 1
+          finding: exact canonical-row reauth was not stable across load_pool singleton deduplication
+        second_remediation:
+          status: passed-focused-and-adjacent
+          focused_red: 1 failed
+          focused_green: 2 passed
+          behavior: multiple canonical device-code rows fail closed before login; a single canonical row remains exact across reload
+          pin_behavior: canonical pins also fail closed when multiple canonical device-code rows exist
+          recovery_behavior: entry mapping, forced refresh, and exhaustion rotation re-resolve the active pin before mutation
+        final_review_attempt:
+          status: failed-out-of-scope-expansion
+          codex_blocking_findings: 0
+          out_of_scope_findings: 2
+          finding: reviewer required hypothetical provider-generic pin semantics for Nous, xAI, Anthropic, and API-key providers outside the OpenAI Codex D3 contract
+          disposition: recorded as non-blocking suggestions pending independent scope adjudication
+        scope_adjudication:
+          status: failed
+          contract: active-profile HERMES_CREDENTIAL_PIN_OPENAI_CODEX_ID or HERMES_CREDENTIAL_PIN_OPENAI_CODEX_LABEL only
+          codex_blocking_findings: 2
+          findings:
+            - pinned independent manual device-code rows adopted singleton auth-store tokens before forced refresh
+            - direct singleton credential resolution remained reachable after pool recovery under an active pin
+        adjudication_remediation:
+          status: passed-focused-and-adjacent
+          focused_red: 2 failed
+          focused_green: 2 passed
+          behavior:
+            - only canonical source=device_code rows synchronize from the singleton auth store
+            - direct Codex singleton resolution fails closed before auth-store read or network refresh when a profile-local pin exists
+          final_rereview: pending
+        delayed_review_remediation:
+          status: passed-focused-and-adjacent
+          focused_red: 2 failed
+          focused_green: 2 passed
+          behavior:
+            - active Codex pins bypass all load_pool singleton and environment seeding, pruning, normalization, and persistence before exact selection
+            - manual labelled reauth reloads the current auth store under lock and updates one target ID without rewriting concurrent siblings
+          final_rereview: pending-new-snapshot
+        status_and_recovery_remediation:
+          status: passed-focused-and-adjacent
+          focused_red: 2 failed
+          focused_green: 2 passed
+          behavior:
+            - Codex status scans pool-wide rate-limit metadata only when no profile-local Codex pin is configured
+            - error recovery validates pinned-only availability before returning a pinned row for a stale sibling failure
+          final_rereview: pending-newest-snapshot
+        atomic_pinned_persistence_remediation:
+          status: passed-focused-and-adjacent
+          focused_red: 1 failed
+          focused_green: 1 passed
+          behavior:
+            - active Codex pins persist only the exact target row under the auth-store lock
+            - concurrent sibling additions, deletions, and token rotations remain untouched
+          final_rereview: pending-newest-snapshot
+        canonical_reauth_and_auxiliary_recovery_remediation:
+          status: passed-focused-and-adjacent
+          focused_red: 2 failed
+          focused_green: 2 passed
+          behavior:
+            - canonical labelled reauth validates one still-eligible exact target under lock before singleton or pool mutation
+            - auxiliary 401 recovery force-refreshes only the failed identity before identity-aware rotation
+          final_rereview: pending-newest-snapshot
+        atomic_structural_add_remediation:
+          status: passed-focused-and-adjacent
+          focused_red: 1 failed
+          focused_green: 1 passed
+          behavior:
+            - active Codex pins append one new credential atomically under the auth-store lock
+            - structural add preserves concurrent sibling token rotations and rejects duplicate IDs
+          final_rereview: pending-newest-snapshot
+        atomic_reset_and_canonical_cardinality_remediation:
+          status: passed-focused-and-adjacent
+          focused_red: 2 failed
+          focused_green: 2 passed
+          behavior:
+            - active Codex pins clear status fields on latest disk rows under the auth-store lock
+            - canonical labelled reauth requires exactly one eligible canonical row after interactive login
+          final_rereview: pending-newest-snapshot
+        latest_disk_reset_remediation:
+          status: passed-focused-and-adjacent
+          focused_red: 1 failed
+          focused_green: 1 passed
+          behavior:
+            - active Codex pin reset always reads latest disk rows regardless of stale in-memory count
+            - reset returns the number of disk rows with actual status values and includes reason-only fields
+          final_rereview: pending-newest-snapshot
+        explicit_remove_and_priority_remediation:
+          status: passed-focused-and-adjacent
+          focused_red: 3 failed
+          focused_green: 3 passed
+          behavior:
+            - active Codex pins take precedence over explicit main-runtime credentials
+            - structural remove deletes one stable ID from latest disk rows without rewriting siblings
+            - structural add computes and returns priority from latest disk rows under lock
+          final_rereview: pending-newest-snapshot
+        automatic_status_and_prune_remediation:
+          status: passed-focused-and-adjacent
+          focused_red: 2 failed
+          focused_green: 2 passed
+          behavior:
+            - pinned cooldown clear persists only the exact target and preserves latest sibling state
+            - pinned aged-DEAD pruning removes stable IDs through latest-disk cardinality checks
+          final_rereview: pending-newest-snapshot
+      owner_acceptance:
+        status: accepted
+        accepted_at: '2026-08-24T17:37:02+09:00'
+        response: 승인
+    retirement_rule: retire only when upstream provides exact profile-local pin ownership, fail-closed unavailability, and labelled reauth parity on every runtime path
+
+  D4:
+    title: Discord thread ownership, role-mention fail-close, and owned free-response auto-threading
+    decision: retain-minimal-final-review-passed
+    status: completed-owner-accepted
+    historical_commit: c82a9b6b6bdb8f672312d0deeca302a221608bf3
+    upstream_overlap: Bot Mode, group-room, thread participation, mention routing, and profile-scoped sessions expanded substantially
+    remaining_contract: participation does not grant ownership; ownership survives recovery and restart; unsafe role-only mentions fail closed; configured owned free-response threading records one owner
+    preliminary_allowed_paths:
+      - gateway/platforms/helpers.py
+      - plugins/platforms/discord/adapter.py
+      - tests/gateway/test_discord_free_response.py
+      - tests/plugins/platforms/test_discord_gate_isolation.py
+      - root-kernel/carry.yaml
+      - root-kernel/feature.md
+      - root-kernel/ledger.md
+    allowed_paths_require_trace_confirmation: false
+    allowed_paths_status: finalized-source-traced
+    evidence:
+      red:
+        status: reproduced
+        failures: 17
+        contracts:
+          - persistent first-owner tracker was absent
+          - prior participation granted mention-free access
+          - auto-created and explicitly handled threads did not record ownership
+          - role-only guild mentions were admitted
+          - configured free-response channels could not auto-thread
+          - configured parent channels could not provide default ownership
+          - YAML bridge omitted both D4 routing settings
+          - stale writers could overwrite the first explicit owner
+          - profile-scoped registries permitted multiplex split-brain ownership
+          - corrupt or partially invalid owner state failed open
+          - owner trimming discarded explicit owners
+          - omitted multiplex D4 settings inherited process-global legacy env
+          - rejected recovered ingress claimed ownership before shared admission completed
+          - successful recovery did not claim the dedup ID before racing live ingress
+          - rejected mention-only live and recovery ingress poisoned the default-owner slot
+      green:
+        status: passed
+        focused: 24
+        command: pytest -q tests/gateway/test_discord_free_response.py tests/plugins/platforms/test_discord_gate_isolation.py -k d4 --tb=short
+      adjacent:
+        status: passed
+        full_related: 84
+        full_related_command: scripts/run_tests.sh tests/gateway/test_discord_free_response.py tests/plugins/platforms/test_discord_gate_isolation.py tests/gateway/test_discord_thread_persistence.py tests/gateway/test_discord_missed_message_backfill.py -q
+        cumulative_d1_d4: 498
+        cumulative_files: 10
+        canonical_runner: scripts/run_tests.sh
+        ruff: passed
+        diff_check: passed
+      independent_review:
+        status: failed-stale-after-remediation
+        review_id: deleg_208ea64e
+        reviewed_snapshot: 10-focused-55-full-related-469-cumulative
+        security_blockers: 1
+        logic_blockers: 3
+        scope_blockers: 0
+        remediation:
+          status: passed
+          red: 5
+          green: 5
+          contracts:
+            - multiplex config isolation
+            - cross-process first-owner atomicity
+            - cross-profile shared owner registry
+            - corrupt and partial-invalid fail-close
+            - append-only capacity fail-close
+        second_review:
+          status: failed-stale-after-remediation
+          review_id: deleg_f028fd41
+          reviewed_snapshot: 17-focused-62-full-related-476-cumulative
+          security_blockers: 0
+          logic_blockers: 1
+          scope_blockers: 0
+          remediation:
+            status: passed
+            red: 1
+            green: 1
+            contract: rejected recovery candidates do not mutate thread ownership before admission and channel gates complete
+        third_review:
+          status: failed-stale-after-remediation
+          review_id: deleg_c940ab43
+          reviewed_snapshot: 21-focused-66-full-related-480-cumulative
+          security_blockers: 0
+          logic_blockers: 1
+          scope_blockers: 0
+          remediation:
+            status: passed
+            red: 1
+            green: 1
+            contract: successful recovery claims the message dedup ID before any racing live ingress
+        fourth_review:
+          status: failed-stale-after-remediation
+          review_id: deleg_7b7fff2e
+          reviewed_snapshot: 22-focused-82-full-related-496-cumulative
+          security_blockers: 1
+          logic_blockers: 0
+          scope_blockers: 0
+          remediation:
+            status: passed
+            red: 2
+            green: 2
+            contract: default-owner eligibility is pure and atomic ownership is claimed only after every false-return gate passes
+        final_review:
+          status: passed
+          review_id: deleg_19ae757b
+          reviewed_snapshot: 24-focused-84-full-related-498-cumulative
+          security_blockers: 0
+          logic_blockers: 0
+          scope_blockers: 0
+          suggestions:
+            - add committed media and backfilled-context mention-only variants
+            - add direct two-adapter synchronized final-CAS coverage
+            - exact primary gate-isolation test path added to preliminary manifest
+      owner_acceptance:
+        status: accepted
+        accepted_at: '2026-08-24T19:22:55+09:00'
+        response: 승인
+        authorization_scope: proceed-to-S7-D6-reaudit-and-minimal-implementation
+    retirement_rule: audit each sub-behavior independently and retire only exact upstream replacements while preserving Bot Mode and group-room behavior
+
+  D6:
+    title: Bool-safe CLI return-code propagation
+    decision: retain-minimal-current-target
+    status: completed-owner-accepted
+    historical_commit: 11847601d5da3efe68e768e633e768482175c99a
+    upstream_overlap: nonzero handler return propagation exists
+    remaining_contract: only exact integers propagate as process exit codes; booleans remain success
+    preliminary_allowed_paths:
+      - hermes_cli/main.py
+      - tests/hermes_cli/test_main_return_codes.py
+      - root-kernel/carry.yaml
+      - root-kernel/feature.md
+      - root-kernel/ledger.md
+    evidence:
+      red:
+        status: reproduced
+        failures: 1
+        contract: handler return True incorrectly became process exit 1
+      green:
+        status: passed
+        focused: 6
+        command: pytest -q tests/hermes_cli/test_main_return_codes.py -v --tb=short
+      adjacent:
+        status: passed
+        related: 11
+        related_files: 3
+        cumulative_d1_d6: 504
+        cumulative_files: 11
+        canonical_runner: scripts/run_tests.sh
+        ruff: passed
+        diff_check: passed
+        static_scan_findings: 0
+      independent_review:
+        status: passed
+        review_id: deleg_51f7ddda
+        reviewed_snapshot: 6-focused-11-related-504-cumulative
+        security_blockers: 0
+        logic_blockers: 0
+        scope_blockers: 0
+        suggestions:
+          - add permanent edge probes for negative int, float, IntEnum, int subclass, native SystemExit, argparse, and native nonzero handler
+          - narrow the test subprocess environment from os.environ.copy to a minimal allowlist
+      owner_acceptance:
+        status: accepted
+        accepted_at: '2026-08-24T19:51:46+09:00'
+        response: 승인
+        authorization_scope: proceed-to-S8-integrated-verification-only
+    retirement_rule: retire only when the exact top-level process boundary excludes bool with equivalent actual-process tests
+
+omitted_carries:
+  D5:
+    title: Root Kernel Kanban extensions
+    decision: omit-completely-use-upstream-native-kanban
+    status: omitted
+    historical_authority: rk/tag/v0.19.1
+    downstream_delta_allowed: false
+    prohibited_scope:
+      - product
+      - schema
+      - tools
+      - prompts
+      - watchers
+      - tests
+    verification: passed-exact-diff-and-forbidden-symbol-guard
+  D7:
+    title: Runtime-scoped doctor warning filtering
+    decision: omit-accept-upstream-diagnostics
+    status: omitted
+    historical_commit: 4ca7afa4f7d2afddea0e765b47e645e0765dc012
+    downstream_delta_allowed: false
+    verification: passed-exact-diff-guard
+
+release_evidence:
+  delta_report:
+    path: /Users/draccoon/Workspace/Hermes/vault/Hermes/00-inbox/hermes-agent-v0-19-1-to-v0-20-5-release-delta-report.md
+    status: completed
+  upgrade_plan:
+    path: /Users/draccoon/Workspace/Hermes/vault/Hermes/00-inbox/hermes-agent-v0-20-5-upgrade-plan.md
+    status: owner-approved-for-gated-execution
+  S8:
+    static_gates:
+      status: passed
+      exact_changed_paths: 22
+      forbidden_paths: 0
+      retired_product_symbols: 0
+      added_line_security_findings: 0
+      python_compilation: passed
+      ruff: passed
+      diff_check: passed
+      root_kernel_validator: passed
+    selected_integrated:
+      status: passed
+      files: 144
+      passed: 1520
+      failed: 0
+      skipped: 2
+      skip_boundary: windows-only-on-darwin
+      canonical_runner: scripts/run_tests.sh
+    full_suite:
+      files_discovered: 3159
+      estimated_tests: 31817
+      failed_files: 29
+      failed_tests: 92
+      clean_upstream_baseline_failed_files: 26
+      clean_upstream_baseline_failed_tests: 89
+      candidate_only_transient_files: 3
+      candidate_only_isolated_passed: 11
+      candidate_only_persistent_failures: 0
+      classification: no-candidate-only-regression
+    disposable_smoke:
+      root: /Users/draccoon/Workspace/Hermes/tmp/rk-v0205-smoke
+      imports: passed
+      version: v0.20.5
+      help: passed
+      config_check: passed
+      doctor: passed
+      state_schema: 26
+      state_integrity: passed
+      state_search: passed
+      cleaned: true
+    independent_review:
+      status: passed-owner-accepted
+      review_ids:
+        - deleg_691f25ed
+        - deleg_6542efca
+        - deleg_8568c1a8
+        - deleg_def093db
+        - deleg_f5726f00
+        - deleg_a900f368
+        - deleg_7410723f
+        - deleg_5a09976d
+        - deleg_bb1c20b6
+        - deleg_83140d88
+        - deleg_81a923c4
+        - deleg_197efb17
+        - deleg_f48c749d
+        - deleg_4c81ff70
+        - deleg_d761edf9
+        - deleg_c69470f4
+        - deleg_43450386
+      final_review_id: deleg_43450386
+      security_blockers: 0
+      correctness_blockers: 0
+      documentation_blockers: 0
+      remediation:
+        d3_live_memory_atomicity:
+          red: 3
+          green: 3
+          full_credential_pool: 84
+          selected_integrated: 1489
+          contracts:
+            - failed exact removal preserves live memory and durable rows
+            - failed pinned status reset preserves live status fields
+            - failed aged-DEAD prune preserves live target and retry behavior
+        root_kernel_consistency:
+          status: remediated
+          corrected_claims:
+            - D4 finalized scope
+            - D4 and D6 evidence matrix
+            - omitted D5 and D7 guards
+            - S8 review status and activation blockers
+        d3_success_snapshot_reconciliation:
+          red: 3
+          green: 6
+          full_credential_pool: 86
+          contracts:
+            - successful pinned status reset commits the authoritative latest disk rows
+            - successful exact removal commits latest target and sibling rows before follow-up mutation
+            - successful aged-DEAD prune commits latest disk additions and deletions
+            - follow-up exact status mutation cannot roll back a concurrent target token rotation
+        second_root_kernel_consistency:
+          status: remediated
+          corrected_claims:
+            - D4 allowed paths are finalized and source-traced
+            - ownership is shared across profiles and keyed to numeric responder identity
+            - completed selected and exact gates are not listed as the next action
+        d3_status_only_latest_disk_merge:
+          red: 1
+          green: 7
+          full_credential_pool: 87
+          contracts:
+            - ordinary pinned status writes merge only status metadata into the locked latest target row
+            - concurrent exact-target access and refresh token rotations are preserved
+            - returned authoritative rows reconcile live memory before any later mutation
+        third_root_kernel_consistency:
+          status: remediated
+          corrected_claims:
+            - D6 is implemented, reviewed, and owner-accepted
+            - the first three failed S8 reviews and their remediation define that historical state
+        d3_cooldown_status_merge:
+          red: 1
+          green: 2
+          full_credential_pool: 88
+          contracts:
+            - cooldown clearing uses the same locked status-only latest-row merge as status marking
+            - merge failure preserves both live memory and durable state for retry
+        d4_late_admission_ownership:
+          red: 1
+          green: 2
+          full_free_response: 46
+          combined_related: 156
+          contracts:
+            - auto-created threads do not preclaim ownership
+            - mention-only and failed attachment hydration cannot poison persistent first-owner state
+        d3_full_row_persist_first:
+          red: 1
+          green: 4
+          full_credential_pool: 90
+          contracts:
+            - pinned canonical token sync and refresh persist before live mutation
+            - failed exact replacement leaves live memory and durable state unchanged across retries
+            - successful exact replacement returns authoritative rows for live reconciliation
+        d3_source_target_lock_continuity:
+          red: 1
+          green: 3
+          full_credential_pool: 91
+          contracts:
+            - canonical provider-token read and exact target merge share one auth-store lock
+            - concurrent source or target rotation cannot be overwritten by a stale split transaction
+            - successful synchronization reconciles all validated authoritative rows
+        d3_terminal_refresh_atomicity:
+          red: 2
+          green: 5
+          full_credential_pool: 93
+          contracts:
+            - ambiguous exact-target identity aborts before refresh or any provider, live, cursor, or durable mutation
+            - terminal provider clearing and canonical-row removal share one auth-store transaction
+            - live entries and current_id reconcile only from successful authoritative quarantine rows
+            - successful provider-token adoption clears failure_reason with superseded status metadata
+        d3_canonical_eligibility_and_generation:
+          red: 3
+          green: 5
+          full_credential_pool: 96
+          contracts:
+            - sync and quarantine require the exact target to be the sole source=device_code auth_type=oauth row
+            - quarantine removes only the validated exact target
+            - both provider access and refresh generations prevent stale terminal quarantine
+            - exact candidate rollback covers all 22 paths and preserves unrelated work
+        ninth_review_provider_source_and_dedup_parity:
+          red: 2
+          green: 4
+          full_credential_pool: 98
+          full_free_response: 48
+          contracts:
+            - provider sync and quarantine lock the active store plus an authoritative global fallback source
+            - terminal provider mutation is saved to the locked source
+            - cross-store source-save failure restores the exact active auth-store bytes
+            - live dispatch releases dedup on exception or cancellation like recovered ingress
+        tenth_review_source_continuity_and_ledger:
+          red: 2
+          green: 4
+          full_credential_pool: 100
+          full_free_response: 48
+          contracts:
+            - a discovered global fallback provider must still have a dict provider and token state under its source lock
+            - source disappearance aborts sync and quarantine with exact profile and root byte preservation
+            - all machine-readable review-status fields identify the current remediation cycle
+        eleventh_review_cross_store_post_commit_rollback:
+          red: 1
+          green: 5
+          full_credential_pool: 101
+          full_free_response: 48
+          contracts:
+            - fallback quarantine captures exact active and authoritative-source bytes under their locks
+            - a source save that commits then raises restores source and active bytes before propagating
+        twelfth_review_compensation_boundary_and_diagnostics:
+          red: 2
+          green: 7
+          full_credential_pool: 104
+          full_free_response: 48
+          contracts:
+            - active and source saves share one compensation boundary
+            - source and active restorations are attempted independently after any save failure
+            - rollback failure preserves the operation exception and emits path-specific critical partial-state evidence
+        thirteenth_review_restore_directory_fsync:
+          red: 3
+          green: 7
+          full_credential_pool: 107
+          full_free_response: 48
+          contracts:
+            - exact restore fsyncs the replacement file and parent directory before success
+            - source and active restore directory-fsync failures remain explicit compensation failures
+            - one restore failure does not suppress the other rollback or replace the operation exception
+        fourteenth_review_refresh_cross_store_atomicity:
+          red: 1
+          green: 6
+          full_credential_pool: 108
+          full_free_response: 48
+          contracts:
+            - pinned canonical refresh holds active and authoritative-source locks across validation and persistence
+            - live rows and current_id do not advance until both durable stores commit
+            - any active or source save failure restores exact source and active bytes and propagates
+            - manual Codex pins retain pool-only persistence semantics
+        fifteenth_review_active_local_refresh_atomicity:
+          red: 2
+          green: 6
+          full_credential_pool: 110
+          full_free_response: 48
+          contracts:
+            - active-local and global-fallback refresh saves share one compensation boundary
+            - active-local commit-then-raise durably exact-restores the active store
+            - active-local success persists provider token-pair and last_refresh parity with set_active false
+            - live rows and current_id remain unchanged until durable success
+        sixteenth_review_global_active_provider_preservation:
+          red: 1
+          green: 4
+          full_credential_pool: 111
+          full_free_response: 48
+          contracts:
+            - canonical global-fallback refresh preserves source active_provider
+            - profile and source may preserve distinct active_provider values
+            - unrelated provider blocks remain unchanged
+            - token-pair and last_refresh parity persist with set_active false
+      final_review:
+        status: passed
+        review_id: deleg_43450386
+        blockers: 0
+        security_findings: 0
+        correctness_findings: 0
+        scope_findings: 0
+        prior_blocker: verified-remediated
+    owner_acceptance:
+      status: accepted
+      accepted_at: '2026-08-25T00:35:47+09:00'
+      response: 승인
+      authorization_scope: proceed-to-S9-activation-prep-only
+  S9:
+    status: passed
+    authorization:
+      authorized_at: '2026-08-25T00:35:47+09:00'
+      response: S8 승인. S9 진행해.
+      scope: activation-backup-disposable-real-data-migration-and-rollback-rehearsal-only
+    backup:
+      root: /Users/draccoon/Workspace/Hermes/backups/20260825-003717-v0205-activation-prep
+      root_mode: '0700'
+      snapshot_mode: '0600'
+      profile_count: 4
+      source_schema: 23
+      all_integrity_checks: passed
+      checksum_manifest: metadata/SHA256SUMS
+      manifest_sha256: 6ad66c15277c32936f1f08bc7d83e7964a4dc2c4b5134d0b25a28b8fdbf20771
+      secrets_excluded: true
+    migration_rehearsal:
+      target_schema: 26
+      profile_count: 4
+      real_point_in_time_data: true
+      disposable_workspace_copy_only: true
+      all_integrity_checks: passed
+      foreign_key_violations: 0
+      session_message_counts_preserved: true
+    rollback_rehearsal:
+      profile_count: 4
+      restored_schema: 23
+      exact_backup_bytes_restored: true
+      file_fsync: passed
+      parent_directory_fsync: passed
+      all_integrity_checks: passed
+      foreign_key_violations: 0
+    cleanup:
+      rehearsal_tmp_removed: true
+    live_invariance:
+      version: v0.19.1
+      profile_count: 4
+      gateways_running: 4
+      all_live_schema_versions: 23
+      all_live_integrity_checks: passed
+      live_state_mutated: false
+      refs_mutated: false
+    owner_acceptance:
+      status: pending-S10-authorization
+  S10:
+    status: held
+    decision_at: '2026-08-25T00:47:33+09:00'
+    response: 보류 — v0.19.1 live 상태 유지
+    publication_authorized: false
+    live_activation_authorized: false
+  scaffold:
+    verified_at: '2026-08-24T03:25:00+09:00'
+    yaml_parse: passed
+    cross_document_parity: passed
+    changed_path_guard: passed-three-documents-only
+    stale_current_claim_scan: passed
+    whitespace_and_diff_check: passed
+    owner_acceptance:
+      status: accepted
+      accepted_at: '2026-08-24T07:11:21+09:00'
+      authorization_scope: proceed-to-S3-D1
+  D1:
+    implemented_at: '2026-08-24T07:20:41+09:00'
+    product_files:
+      - hermes_cli/session_recovery.py
+    test_files:
+      - tests/hermes_cli/test_session_recovery.py
+    connection_boundaries:
+      - normal-recovery-destination
+      - lost-and-found-recovery-destination
+      - recovered-database-verification
+    focused_tests: passed-2
+    primary_file_regression: passed-6
+    sibling_regression: passed-7
+    lint: passed
+    static_security_scan: passed
+    independent_review:
+      status: passed
+      completed_at: '2026-08-24T07:25:39+09:00'
+      blocking_findings: 0
+      non_blocking_suggestions: 3
+    owner_acceptance:
+      status: accepted
+      accepted_at: '2026-08-24T10:22:52+09:00'
+      response: 승인
+  D2:
+    red: reproduced-import-fail-open-and-evaluator-exception
+    implementation:
+      strategy: current-target-minimal-reconstruction
+      changed_paths:
+        - tools/skill_manager_tool.py
+        - tests/tools/test_skill_manager_tool.py
+      behavior: approval import or evaluation failure returns a structured blocking tool error before mutation
+    focused_tests: passed-2
+    adjacent_regression: passed-64
+    lint: passed
+    static_security_scan: passed
+    independent_review:
+      status: passed
+      completed_at: '2026-08-24T10:31:00+09:00'
+      blocking_findings: 0
+      non_blocking_suggestions: 3
+    owner_acceptance:
+      status: accepted
+      accepted_at: '2026-08-24T14:08:06+09:00'
+      response: 승인
+  D3:
+    red: reproduced-pin-bypass-singleton-fallback-and-append-only-reauth
+    implementation:
+      strategy: current-target-minimal-reconstruction
+      changed_paths:
+        - agent/credential_pool.py
+        - agent/auxiliary_client.py
+        - hermes_cli/auth.py
+        - hermes_cli/runtime_provider.py
+        - hermes_cli/auth_commands.py
+        - tests/agent/test_credential_pool.py
+        - tests/agent/test_auxiliary_client.py
+        - tests/hermes_cli/test_runtime_provider_resolution.py
+        - tests/hermes_cli/test_auth_commands.py
+      behavior: active-profile exact ID or unique label pins fail closed without sibling or singleton substitution, and labelled reauth updates one exact OAuth row
+    focused:
+      passed: 38
+      failed: 0
+    full_related:
+      passed: 359
+      failed: 0
+    cumulative_downstream:
+      passed: 414
+      failed: 0
+      scope: D1-D2-D3 changed-code related files
+    lint:
+      passed: true
+    static_scan:
+      passed: true
+      findings: 0
+    independent_review:
+      status: passed
+      final_review_blocking_findings: 0
+      final_review_snapshot: 38-focused-359-full-related-414-cumulative
+      first_review_blocking_findings: 2
+      second_review_blocking_findings: 1
+      remediation_focused: passed-2
+      post_review_surface_red_green: passed-4
+      second_remediation_reload_stability: passed-2
+      canonical_pin_corruption_red_green: passed-1
+      recovery_api_pin_scope_red_green: passed-1
+      adjudication_account_isolation_red_green: passed-2
+      delayed_review_load_and_reauth_lock_red_green: passed-2
+      status_and_unavailable_recovery_red_green: passed-2
+      atomic_pinned_persistence_red_green: passed-1
+      canonical_reauth_and_auxiliary_recovery_red_green: passed-2
+      atomic_structural_add_red_green: passed-1
+      atomic_reset_and_canonical_cardinality_red_green: passed-2
+      latest_disk_reset_red_green: passed-1
+      explicit_remove_and_priority_red_green: passed-3
+      automatic_status_and_prune_red_green: passed-2
+    owner_acceptance:
+      status: accepted
+      accepted_at: '2026-08-24T17:37:02+09:00'
+      response: 승인
+      authorization_scope: proceed-to-S6-D4-reaudit-and-minimal-implementation
+
+verification_gates:
+  D1: passed-owner-accepted
+  D2: passed-owner-accepted
+  D3: passed-owner-accepted
+  D4: passed-owner-accepted
+  D6: passed-owner-accepted
+  integrated_candidate: passed-no-candidate-only-regression
+  omitted_feature_guard: passed
+  disposable_runtime: passed-cleaned
+  independent_review: S8-passed-zero-blockers-owner-accepted
+  activation_backup: S9-passed-four-profile-mode-restricted
+  state_migration_rehearsal: S9-passed-v23-to-v26-real-data-disposable
+  rollback_rehearsal: S9-passed-exact-v23-byte-restore
+  live_activation: pending
+  post_live: pending
+
+activation:
+  status: S9-prepared-not-activated
+  current_live_version: v0.19.1
+  current_live_head: 7e65112b5303e9aa30cda440c2ab498bf5f360bc
+  target_live_version: v0.20.5
+  target_commit: pending-carries-and-acceptance
+  blockers:
+    - S10 publication and live activation owner approval not received
+  secret_exclusions:
+    - .env
+    - auth.json
+    - credentials
+    - tokens
+    - secret-bearing logs
+
+rollback:
+  candidate_scaffold: discard every path in the exact 22-path candidate manifest against HEAD fcbd1076 while preserving unrelated work; deleting only root-kernel does not restore upstream
+  preflight_dirty_state: apply the verified worktree.patch to v0.19.1 commit 7e65112b5303e9aa30cda440c2ab498bf5f360bc
+  live_runtime: unchanged at v0.19.1 through S9 activation preparation
+  state_restore: use the matching mode-0600 v23 snapshot under /Users/draccoon/Workspace/Hermes/backups/20260825-003717-v0205-activation-prep/state after stopping all writers; staged copy, file fsync, atomic replace, parent-directory fsync, then remove stale WAL/SHM while stopped
+
+ledger_parity:
+  required_files:
+    - root-kernel/carry.yaml
+    - root-kernel/feature.md
+    - root-kernel/ledger.md
+  active_ids: [D1, D2, D3, D4, D6]
+  omitted_ids: [D5, D7]
+  current_status: s9-activation-prep-passed-s10-held
+  verification: s9-four-profile-backup-v23-to-v26-migration-exact-v23-rollback-passed
+
+next_action:
+  subtask: S10-ref-promotion-and-live-activation
+  action: remain on v0.19.1 until the owner explicitly resumes and approves S10
+  owner_approval_required: true
+  implementation_authorized: false
+  blocked_next_subtask: S10-ref-promotion-and-live-activation
