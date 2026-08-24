@@ -523,6 +523,25 @@ class TestReadCodexAccessToken:
         result = _read_codex_access_token()
         assert result == "tok-123"
 
+    def test_d3_credential_pin_blocks_singleton_fallback(self, tmp_path, monkeypatch):
+        hermes_home = tmp_path / "hermes"
+        hermes_home.mkdir(parents=True, exist_ok=True)
+        (hermes_home / ".env").write_text(
+            "HERMES_CREDENTIAL_PIN_OPENAI_CODEX_LABEL=PINNED\n"
+        )
+        monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+
+        with (
+            patch("agent.auxiliary_client._select_pool_entry", return_value=(True, None)),
+            patch(
+                "hermes_cli.auth._read_codex_tokens",
+                return_value={"tokens": {"access_token": "singleton-token"}},
+            ) as read_singleton,
+        ):
+            assert _read_codex_access_token() is None
+
+        read_singleton.assert_not_called()
+
 
 
 
@@ -723,6 +742,25 @@ class TestBuildCodexClient:
         assert model == "gpt-5.4"
         assert mock_openai.call_args.kwargs["api_key"] == "codex-auth-token"
         assert mock_openai.call_args.kwargs["base_url"] == "https://chatgpt.com/backend-api/codex"
+
+    def test_d3_credential_pin_blocks_client_singleton_fallback(self, tmp_path, monkeypatch):
+        hermes_home = tmp_path / "hermes"
+        hermes_home.mkdir(parents=True, exist_ok=True)
+        (hermes_home / ".env").write_text(
+            "HERMES_CREDENTIAL_PIN_OPENAI_CODEX_LABEL=PINNED\n"
+        )
+        monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+
+        with (
+            patch("agent.auxiliary_client._select_pool_entry", return_value=(True, None)),
+            patch(
+                "agent.auxiliary_client._read_codex_access_token",
+                side_effect=AssertionError("singleton fallback called"),
+            ),
+        ):
+            from agent.auxiliary_client import _build_codex_client
+
+            assert _build_codex_client("gpt-5.4") == (None, None)
 
     def test_rejects_missing_model(self):
         """Callers must pass an explicit model; no hardcoded default."""
@@ -1184,6 +1222,46 @@ class TestVisionClientFallback:
 
 
 class TestAuxiliaryPoolAwareness:
+
+    def test_d3_credential_401_recovery_refreshes_only_failed_identity(self):
+        class _Auth401(Exception):
+            status_code = 401
+
+        class _Pool:
+            matching_hint = None
+            rotated_hint = None
+
+            def has_credentials(self):
+                return True
+
+            def try_refresh_current(self):
+                raise AssertionError("unscoped current refresh")
+
+            def try_refresh_matching(self, api_key_hint=None, credential_id=None):
+                del credential_id
+                self.matching_hint = api_key_hint
+                return None
+
+            def mark_exhausted_and_rotate(
+                self, status_code=None, error_context=None, api_key_hint=None
+            ):
+                del status_code, error_context
+                self.rotated_hint = api_key_hint
+                return None
+
+        pool = _Pool()
+        with patch("agent.auxiliary_client.load_pool", return_value=pool):
+            from agent.auxiliary_client import _recover_provider_pool
+
+            recovered = _recover_provider_pool(
+                "openai-codex",
+                _Auth401("stale sibling"),
+                failed_api_key="stale-sibling-key",
+            )
+
+        assert recovered is False
+        assert pool.matching_hint == "stale-sibling-key"
+        assert pool.rotated_hint == "stale-sibling-key"
 
     def test_try_nous_refreshes_stale_pool_entry(self):
         stale_token = _jwt_with_claims({

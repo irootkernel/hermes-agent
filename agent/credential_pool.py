@@ -551,6 +551,32 @@ def get_pool_strategy(provider: str) -> str:
     return STRATEGY_FILL_FIRST
 
 
+def _credential_pin_env_prefix(provider: str) -> str:
+    normalized = re.sub(r"[^A-Za-z0-9]+", "_", str(provider or "").strip()).strip("_")
+    return f"HERMES_CREDENTIAL_PIN_{normalized.upper()}" if normalized else "HERMES_CREDENTIAL_PIN"
+
+
+def get_credential_pin(provider: str) -> Dict[str, str]:
+    """Read an exact credential ID or label pin from the active profile's .env."""
+    profile_env = load_env()
+    prefix = _credential_pin_env_prefix(provider)
+    pinned_id = str(profile_env.get(f"{prefix}_ID", "") or "").strip()
+    pinned_label = str(
+        profile_env.get(f"{prefix}_LABEL", "")
+        or profile_env.get(prefix, "")
+        or ""
+    ).strip()
+    if pinned_id:
+        return {"id": pinned_id}
+    if pinned_label:
+        return {"label": pinned_label}
+    return {}
+
+
+def has_configured_credential_pin(provider: str) -> bool:
+    return bool(get_credential_pin(provider))
+
+
 def credential_pool_matches_provider(
     pool_or_provider: Any,
     provider: Optional[str],
@@ -680,6 +706,59 @@ class CredentialPool:
         with self._lock:
             return bool(self._entries)
 
+    def has_configured_pin(self) -> bool:
+        return has_configured_credential_pin(self.provider)
+
+    def _find_configured_pin_unlocked(
+        self,
+    ) -> Tuple[Optional[PooledCredential], bool, Optional[str]]:
+        pin = get_credential_pin(self.provider)
+        if not pin:
+            return None, False, None
+
+        if "id" in pin:
+            value = pin["id"]
+            matches = [entry for entry in self._entries if entry.id == value]
+            kind = "id"
+        else:
+            value = pin.get("label", "")
+            matches = [entry for entry in self._entries if entry.label == value]
+            kind = "label"
+
+        if len(matches) != 1:
+            reason = "not found" if not matches else "not unique"
+            return None, True, f'pinned credential {kind} "{value}" is {reason}'
+
+        pinned = matches[0]
+        if pinned.source == "device_code":
+            canonical_rows = [
+                entry for entry in self._entries if entry.source == "device_code"
+            ]
+            if len(canonical_rows) != 1:
+                return None, True, (
+                    "pinned canonical credential is ambiguous because multiple "
+                    "device_code rows exist"
+                )
+        if not pinned.runtime_api_key:
+            return None, True, f'pinned credential {kind} "{value}" has no runtime credential'
+        return pinned, True, None
+
+    def _resolve_configured_pin_unlocked(
+        self,
+        available: List[PooledCredential],
+    ) -> Tuple[Optional[PooledCredential], bool, Optional[str]]:
+        pinned, configured, error = self._find_configured_pin_unlocked()
+        if not configured or pinned is None:
+            return pinned, configured, error
+
+        pinned_identity = (pinned.id, pinned.label, pinned.source, pinned.priority)
+        if not any(
+            (entry.id, entry.label, entry.source, entry.priority) == pinned_identity
+            for entry in available
+        ):
+            return None, True, f'pinned credential "{pinned.id}" is unavailable'
+        return pinned, True, None
+
     def has_available(self) -> bool:
         """True if at least one entry is not currently in exhaustion cooldown."""
         # ``_available_entries`` is not read-only: it prunes aged-out DEAD
@@ -688,6 +767,15 @@ class CredentialPool:
         # otherwise a status probe here can race a concurrent ``select`` /
         # rotation and tear ``self._entries`` or double-write auth.json.
         with self._lock:
+            pin_candidate, pin_configured, _pin_error = self._find_configured_pin_unlocked()
+            if pin_configured:
+                if pin_candidate is None:
+                    return False
+                available, _pending = self._available_entries(entries=[pin_candidate])
+                pinned, _configured, _error = self._resolve_configured_pin_unlocked(
+                    available
+                )
+                return pinned is not None
             available, _pending = self._available_entries()
             return bool(available)
 
@@ -707,7 +795,15 @@ class CredentialPool:
         ``_available_entries`` caller (see the comment on ``has_available``).
         """
         with self._lock:
-            available, _pending = self._available_entries()
+            pin_candidate, pin_configured, _pin_error = self._find_configured_pin_unlocked()
+            if pin_configured:
+                if pin_candidate is None:
+                    return None
+                scoped_entries = [pin_candidate]
+                available, _pending = self._available_entries(entries=scoped_entries)
+            else:
+                scoped_entries = self._entries
+                available, _pending = self._available_entries()
             if available:
                 return None
             # Mirror _available_entries: if the pool has no other credential
@@ -715,10 +811,10 @@ class CredentialPool:
             # seconds — next_available_at must report that shorter window too,
             # or the fallback restore gate waits an hour for a 60s cooldown.
             sole_credential = sum(
-                1 for e in self._entries if e.last_status != STATUS_DEAD
+                1 for e in scoped_entries if e.last_status != STATUS_DEAD
             ) <= 1
             candidates: List[float] = []
-            for entry in self._entries:
+            for entry in scoped_entries:
                 if entry.last_status != STATUS_EXHAUSTED:
                     continue
                 until = _exhausted_until(entry, sole_credential=sole_credential)
@@ -737,6 +833,15 @@ class CredentialPool:
 
     def current(self) -> Optional[PooledCredential]:
         with self._lock:
+            pin_candidate, pin_configured, _pin_error = self._find_configured_pin_unlocked()
+            if pin_configured:
+                if pin_candidate is None:
+                    return None
+                available, _pending = self._available_entries(entries=[pin_candidate])
+                pinned, _pin_configured, _pin_error = self._resolve_configured_pin_unlocked(
+                    available
+                )
+                return pinned
             return self._current_unlocked()
 
     def entry_id_for_api_key(self, api_key_hint: Any = None) -> Optional[str]:
@@ -746,6 +851,16 @@ class CredentialPool:
         If the cursor was cleared, fall back to an unambiguous key match.
         """
         with self._lock:
+            pin_candidate, pin_configured, _pin_error = self._find_configured_pin_unlocked()
+            if pin_configured:
+                if pin_candidate is None:
+                    return None
+                if (
+                    api_key_hint is not None
+                    and pin_candidate.runtime_api_key != api_key_hint
+                ):
+                    return None
+                return pin_candidate.id
             current = self._current_unlocked()
             if current is not None and (
                 api_key_hint is None
@@ -774,13 +889,46 @@ class CredentialPool:
                     self._entries[idx] = new
                     return
 
-    def _persist(self, *, removed_ids: Optional[List[str]] = None) -> None:
+    def _persist(
+        self,
+        *,
+        removed_ids: Optional[List[str]] = None,
+        added_entry: Optional[PooledCredential] = None,
+        entries: Optional[List[PooledCredential]] = None,
+    ) -> Optional[List[PooledCredential]]:
         # Self-locking (RLock): snapshotting self._entries must not race a
         # concurrent rotation when called from the deferred refresh path.
         with self._lock:
+            if self.provider == "openai-codex":
+                pin_candidate, pin_configured, _pin_error = (
+                    self._find_configured_pin_unlocked()
+                )
+                if pin_configured:
+                    if removed_ids:
+                        persisted_rows: List[Dict[str, Any]] = []
+                        for removed_id in dict.fromkeys(removed_ids):
+                            persisted_rows = auth_mod._remove_codex_pool_credential_exact(  # type: ignore[attr-defined]
+                                removed_id
+                            )
+                        return [
+                            PooledCredential.from_dict(self.provider, row)
+                            for row in persisted_rows
+                        ]
+                    elif added_entry is not None:
+                        auth_mod._append_codex_pool_credential_exact(  # type: ignore[attr-defined]
+                            added_entry.to_dict()
+                        )
+                    elif pin_candidate is not None:
+                        auth_mod._replace_codex_pool_credential_exact(  # type: ignore[attr-defined]
+                            pin_candidate.to_dict()
+                        )
+                    return
             write_credential_pool(
                 self.provider,
-                [entry.to_dict() for entry in self._entries],
+                [
+                    entry.to_dict()
+                    for entry in (self._entries if entries is None else entries)
+                ],
                 removed_ids=removed_ids,
             )
 
@@ -847,9 +995,71 @@ class CredentialPool:
             last_error_reset_at=normalized_error.get("reset_at"),
             extra=updated_extra,
         )
+        if persist and self.provider == "openai-codex":
+            with self._lock:
+                _pin_candidate, pin_configured, _pin_error = (
+                    self._find_configured_pin_unlocked()
+                )
+                if pin_configured:
+                    return self._commit_pinned_codex_status(updated)
         self._replace_entry(entry, updated)
         if persist:
             self._persist()
+        return updated
+
+    def _commit_pinned_codex_status(
+        self, updated: PooledCredential
+    ) -> PooledCredential:
+        """Persist one pinned status update before reconciling live rows."""
+        persisted_rows = (
+            auth_mod._merge_codex_pool_credential_status_exact(  # type: ignore[attr-defined]
+                updated.to_dict()
+            )
+        )
+        persisted_entries = [
+            PooledCredential.from_dict(self.provider, row) for row in persisted_rows
+        ]
+        authoritative = next(
+            candidate for candidate in persisted_entries if candidate.id == updated.id
+        )
+        self._entries = persisted_entries
+        return authoritative
+
+    def _commit_credential_update(
+        self,
+        previous: PooledCredential,
+        updated: PooledCredential,
+    ) -> PooledCredential:
+        """Persist a credential update before committing a configured Codex pin."""
+        if self.provider == "openai-codex":
+            with self._lock:
+                _pin_candidate, pin_configured, _pin_error = (
+                    self._find_configured_pin_unlocked()
+                )
+                if pin_configured:
+                    if updated.source == "device_code":
+                        persisted_rows = auth_mod._replace_codex_pool_credential_and_provider_exact(  # type: ignore[attr-defined]
+                            updated.to_dict(),
+                            previous.access_token or "",
+                            previous.refresh_token or "",
+                        )
+                    else:
+                        persisted_rows = auth_mod._replace_codex_pool_credential_exact(  # type: ignore[attr-defined]
+                            updated.to_dict()
+                        )
+                    persisted_entries = [
+                        PooledCredential.from_dict(self.provider, row)
+                        for row in persisted_rows
+                    ]
+                    authoritative = next(
+                        candidate
+                        for candidate in persisted_entries
+                        if candidate.id == updated.id
+                    )
+                    self._entries = persisted_entries
+                    return authoritative
+        self._replace_entry(previous, updated)
+        self._persist()
         return updated
 
     def _sync_anthropic_entry_from_credentials_file(self, entry: PooledCredential) -> PooledCredential:
@@ -904,7 +1114,9 @@ class CredentialPool:
             logger.debug("Failed to sync from credentials file: %s", exc)
         return entry
 
-    def _sync_codex_entry_from_auth_store(self, entry: PooledCredential) -> PooledCredential:
+    def _sync_codex_entry_from_auth_store(
+        self, entry: PooledCredential, *, fail_closed: bool = False
+    ) -> PooledCredential:
         """Sync a Codex device_code pool entry from auth.json if tokens differ.
 
         When a Codex OAuth access token expires (or the ChatGPT account hits
@@ -921,74 +1133,26 @@ class CredentialPool:
         device_code-sourced entries; env/API-key-sourced entries have no
         auth.json shadow to sync from.
         """
-        if self.provider != "openai-codex" or entry.source not in ("device_code", "manual:device_code"):
+        if self.provider != "openai-codex" or entry.source != "device_code":
             return entry
         try:
-            with _auth_store_lock():
-                auth_store = _load_auth_store()
-                state = _load_provider_state(auth_store, "openai-codex")
-            if not isinstance(state, dict):
-                return entry
-            tokens = state.get("tokens")
-            if not isinstance(tokens, dict):
-                return entry
-            store_access = tokens.get("access_token", "")
-            store_refresh = tokens.get("refresh_token", "")
-            # Adopt auth.json tokens when either side differs.  Codex refresh
-            # tokens are single-use too, so a fresh refresh_token from
-            # another process means our entry's pair is consumed/stale.
-            #
-            # Also adopt when the store has a refresh_token but no
-            # access_token — another process may have rotated the pair
-            # and the store entry's access_token was already consumed;
-            # the important signal is the refresh_token difference.
-            entry_access = entry.access_token or ""
-            entry_refresh = entry.refresh_token or ""
-            should_adopt = False
-            if store_access and (
-                store_access != entry_access
-                or (store_refresh and store_refresh != entry_refresh)
-            ):
-                should_adopt = True
-            elif (
-                store_refresh
-                and store_refresh != entry_refresh
-                and not store_access
-            ):
-                # Store has only a refresh_token (no access_token) —
-                # another process rotated the pair.  Adopt the
-                # refresh_token so we don't replay the consumed one.
-                logger.info(
-                    "Pool entry %s: auth.json has newer refresh_token "
-                    "but no access_token; adopting refresh_token to "
-                    "avoid replaying consumed token",
-                    entry.id,
+            persisted_rows = (
+                auth_mod._sync_codex_pool_credential_from_provider_exact(  # type: ignore[attr-defined]
+                    entry.id
                 )
-                should_adopt = True
-
-            if should_adopt:
-                logger.debug(
-                    "Pool entry %s: syncing Codex tokens from auth.json "
-                    "(refreshed by another process)",
-                    entry.id,
-                )
-                field_updates: Dict[str, Any] = {
-                    "access_token": store_access or entry.access_token,
-                    "refresh_token": store_refresh or entry.refresh_token,
-                    "last_status": None,
-                    "last_status_at": None,
-                    "last_error_code": None,
-                    "last_error_reason": None,
-                    "last_error_message": None,
-                    "last_error_reset_at": None,
-                }
-                if state.get("last_refresh"):
-                    field_updates["last_refresh"] = state["last_refresh"]
-                updated = replace(entry, **field_updates)
-                self._replace_entry(entry, updated)
-                self._persist()
-                return updated
+            )
+            persisted_entries = [
+                PooledCredential.from_dict(self.provider, row)
+                for row in persisted_rows
+            ]
+            authoritative = next(
+                candidate for candidate in persisted_entries if candidate.id == entry.id
+            )
+            self._entries = persisted_entries
+            return authoritative
         except Exception as exc:
+            if fail_closed:
+                raise
             logger.debug("Failed to sync Codex entry from auth.json: %s", exc)
         return entry
 
@@ -1188,6 +1352,10 @@ class CredentialPool:
         # and must not write back to the singleton.  All singleton-seeded
         # device-code sources (nous, openai-codex, xAI) use ``device_code``.
         if entry.source != "device_code":
+            return
+        if self.provider == "openai-codex" and self.has_configured_pin():
+            # Configured canonical refreshes are already committed across the
+            # exact pool row and authoritative provider source transactionally.
             return
         try:
             with _auth_store_lock():
@@ -1397,7 +1565,9 @@ class CredentialPool:
                 # refresh_token — single-use tokens consumed by another Hermes
                 # process sharing the same auth.json singleton would otherwise
                 # trigger ``refresh_token_reused`` on the next POST.
-                synced = self._sync_codex_entry_from_auth_store(entry)
+                synced = self._sync_codex_entry_from_auth_store(
+                    entry, fail_closed=True
+                )
                 if synced is not entry:
                     entry = synced
                 refreshed = auth_mod.refresh_codex_oauth_pure(
@@ -1440,6 +1610,12 @@ class CredentialPool:
             else:
                 return entry
         except Exception as exc:
+            if (
+                self.provider == "openai-codex"
+                and isinstance(exc, auth_mod.AuthError)
+                and getattr(exc, "code", None) == "codex_target_credential_changed"
+            ):
+                raise
             logger.debug("Credential refresh failed for %s/%s: %s", self.provider, entry.id, exc)
             # For anthropic claude_code entries: the refresh token may have been
             # consumed by another process. Check if ~/.claude/.credentials.json
@@ -1563,7 +1739,9 @@ class CredentialPool:
             # and the HTTP call.  Re-check auth.json and adopt the fresh tokens
             # if they have rotated since.
             if self.provider == "openai-codex":
-                synced = self._sync_codex_entry_from_auth_store(entry)
+                synced = self._sync_codex_entry_from_auth_store(
+                    entry, fail_closed=True
+                )
                 if synced.refresh_token != entry.refresh_token:
                     logger.debug(
                         "Codex OAuth refresh failed but auth.json has newer tokens — adopting"
@@ -1577,9 +1755,7 @@ class CredentialPool:
                         last_error_message=None,
                         last_error_reset_at=None,
                     )
-                    self._replace_entry(synced, updated)
-                    self._persist()
-                    return updated
+                    return self._commit_credential_update(synced, updated)
                 # Terminal error: auth.json has no newer tokens — the stored
                 # refresh_token is dead.  Clear it from auth.json so the next
                 # session does not re-seed the same revoked credentials, and
@@ -1589,50 +1765,42 @@ class CredentialPool:
                     logger.debug(
                         "Codex OAuth refresh token is terminally invalid; clearing local token state"
                     )
-                    try:
-                        with _auth_store_lock():
-                            auth_store = _load_auth_store()
-                            state = _load_provider_state(auth_store, "openai-codex") or {}
-                            if isinstance(state, dict):
-                                tokens = state.get("tokens") or {}
-                                if isinstance(tokens, dict):
-                                    store_refresh = str(tokens.get("refresh_token") or "").strip()
-                                    entry_refresh = str(entry.refresh_token or "").strip()
-                                    if not store_refresh or store_refresh == entry_refresh:
-                                        tokens.pop("access_token", None)
-                                        tokens.pop("refresh_token", None)
-                                        state["tokens"] = tokens
-                                        state["last_auth_error"] = {
-                                            "provider": "openai-codex",
-                                            "code": getattr(exc, "code", "unknown"),
-                                            "message": str(exc),
-                                            "reason": "credential_pool_refresh_failure",
-                                            "relogin_required": True,
-                                            "at": datetime.now(timezone.utc).isoformat(),
-                                        }
-                                        _save_provider_state(auth_store, "openai-codex", state)
-                                        _save_auth_store(auth_store)
-                    except Exception as clear_exc:
-                        logger.debug(
-                            "Failed to clear terminal Codex OAuth state: %s", clear_exc
+                    persisted_rows, quarantined = (
+                        auth_mod._quarantine_codex_pool_credential_exact(  # type: ignore[attr-defined]
+                            entry.id,
+                            str(entry.access_token or "").strip(),
+                            str(entry.refresh_token or "").strip(),
+                            {
+                                "provider": "openai-codex",
+                                "code": getattr(exc, "code", "unknown"),
+                                "message": str(exc),
+                                "reason": "credential_pool_refresh_failure",
+                                "relogin_required": True,
+                                "at": datetime.now(timezone.utc).isoformat(),
+                            },
                         )
-                    # Read-modify-write of self._entries: must be atomic.
-                    # This runs on the DEFERRED refresh path (outside the
-                    # pool lock), so take it here. self._lock is an RLock,
-                    # so the still-locked callers re-enter safely.
+                    )
+                    persisted_entries = [
+                        PooledCredential.from_dict(self.provider, row)
+                        for row in persisted_rows
+                    ]
                     with self._lock:
-                        removed_ids = [
-                            item.id for item in self._entries
-                            if item.source == "device_code"
-                        ]
-                        self._entries = [
-                            item for item in self._entries
-                            if item.source != "device_code"
-                        ]
-                        if self._current_id == entry.id:
+                        self._entries = persisted_entries
+                        if not any(
+                            item.id == self._current_id
+                            for item in persisted_entries
+                        ):
                             self._current_id = None
-                        self._persist(removed_ids=removed_ids)
-                    return None
+                    if quarantined:
+                        return None
+                    return next(
+                        (
+                            item
+                            for item in persisted_entries
+                            if item.id == entry.id
+                        ),
+                        entry,
+                    )
             # For nous: another process may have consumed the refresh token
             # between our proactive sync and the HTTP call.  Re-sync from
             # auth.json and adopt the fresh tokens if available.
@@ -1714,8 +1882,7 @@ class CredentialPool:
             last_error_message=None,
             last_error_reset_at=None,
         )
-        self._replace_entry(entry, updated)
-        self._persist()
+        updated = self._commit_credential_update(entry, updated)
         # Sync refreshed tokens back to auth.json providers so that
         # _seed_from_singletons() on the next load_pool() sees fresh state
         # instead of re-seeding stale/consumed tokens.
@@ -1820,7 +1987,11 @@ class CredentialPool:
             self._refresh_entry(entry, force=False)
 
     def _available_entries(
-        self, *, clear_expired: bool = False, refresh: bool = False,
+        self,
+        *,
+        clear_expired: bool = False,
+        refresh: bool = False,
+        entries: Optional[List[PooledCredential]] = None,
     ) -> Tuple[List[PooledCredential], List[tuple]]:
         """Return (available, pending_refresh) for entries not in cooldown.
 
@@ -1845,10 +2016,11 @@ class CredentialPool:
         # DEAD entries never re-enter rotation, so if at most one non-DEAD entry
         # exists there is nothing to rotate to: an exhausted sole credential
         # should cool down briefly rather than bench the only key for an hour.
+        scoped_entries = list(self._entries if entries is None else entries)
         sole_credential = sum(
-            1 for e in self._entries if e.last_status != STATUS_DEAD
+            1 for e in scoped_entries if e.last_status != STATUS_DEAD
         ) <= 1
-        for entry in self._entries:
+        for entry in scoped_entries:
             # Borrowed credentials persist as metadata-only references and are
             # hydrated from their live source on load.  A stale duplicate row
             # can remain unhydrated; never lease or select it as an empty key.
@@ -1952,9 +2124,15 @@ class CredentialPool:
                         last_error_message=None,
                         last_error_reset_at=None,
                     )
-                    self._replace_entry(entry, cleared)
-                    entry = cleared
-                    cleared_any = True
+                    _pin_candidate, pin_configured, _pin_error = (
+                        self._find_configured_pin_unlocked()
+                    )
+                    if self.provider == "openai-codex" and pin_configured:
+                        entry = self._commit_pinned_codex_status(cleared)
+                    else:
+                        self._replace_entry(entry, cleared)
+                        entry = cleared
+                        cleared_any = True
             if refresh and self._entry_needs_refresh(entry):
                 if self.provider in ("openai-codex", "xai-oauth"):
                     # Defer single-use-token refresh to avoid holding the
@@ -1971,11 +2149,23 @@ class CredentialPool:
                     continue
                 entry = refreshed
             available.append(entry)
+        retained_entries: Optional[List[PooledCredential]] = None
         if entries_to_prune:
             pruned_ids = set(entries_to_prune)
-            self._entries = [e for e in self._entries if e.id not in pruned_ids]
+            retained_entries = [e for e in self._entries if e.id not in pruned_ids]
         if cleared_any:
-            self._persist(removed_ids=entries_to_prune)
+            persisted_entries = self._persist(
+                removed_ids=entries_to_prune,
+                entries=retained_entries,
+            )
+        else:
+            persisted_entries = None
+        if retained_entries is not None:
+            self._entries = (
+                retained_entries
+                if persisted_entries is None
+                else persisted_entries
+            )
         return available, pending_refresh
 
     def _log_no_available_entries(self) -> None:
@@ -1998,7 +2188,31 @@ class CredentialPool:
         Returns ``(entry, pending_refresh)`` where *pending_refresh* contains
         single-use-token entries that must be refreshed outside the lock.
         """
-        available, pending_refresh = self._available_entries(clear_expired=True, refresh=refresh)
+        pin_candidate, pin_configured, pin_error = self._find_configured_pin_unlocked()
+        if pin_configured:
+            if pin_candidate is None:
+                self._current_id = None
+                logger.warning("credential pool: %s", pin_error)
+                return None, []
+            available, pending_refresh = self._available_entries(
+                clear_expired=True,
+                refresh=refresh,
+                entries=[pin_candidate],
+            )
+        else:
+            available, pending_refresh = self._available_entries(
+                clear_expired=True,
+                refresh=refresh,
+            )
+        pinned, pin_configured, pin_error = self._resolve_configured_pin_unlocked(available)
+        if pin_configured:
+            if pinned is None:
+                self._current_id = None
+                logger.warning("credential pool: %s", pin_error)
+                return None, pending_refresh
+            self._last_no_entries_log_at = None
+            self._current_id = pinned.id
+            return pinned, pending_refresh
         if not available:
             self._current_id = None
             self._log_no_available_entries()
@@ -2039,10 +2253,21 @@ class CredentialPool:
         # Single lock acquisition for the whole read; call the unlocked
         # helpers so we don't re-enter the non-reentrant ``self._lock``.
         with self._lock:
+            pin_candidate, pin_configured, _pin_error = self._find_configured_pin_unlocked()
+            if pin_configured:
+                if pin_candidate is None:
+                    return None
+                available, _pending = self._available_entries(entries=[pin_candidate])
+            else:
+                available, _pending = self._available_entries()
+            pinned, pin_configured, _pin_error = self._resolve_configured_pin_unlocked(
+                available
+            )
+            if pin_configured:
+                return pinned
             current = self._current_unlocked()
             if current is not None:
                 return current
-            available, _pending = self._available_entries()
             return available[0] if available else None
 
     def mark_exhausted_and_rotate(
@@ -2102,6 +2327,23 @@ class CredentialPool:
                     (e for e in self._entries if e.runtime_api_key == api_key_hint),
                     None,
                 )
+            pin_candidate, pin_configured, _pin_error = self._find_configured_pin_unlocked()
+            if pin_configured:
+                if pin_candidate is None:
+                    self._current_id = None
+                    return None
+                available, _pending = self._available_entries(entries=[pin_candidate])
+                pinned, _configured, _error = self._resolve_configured_pin_unlocked(
+                    available
+                )
+                if pinned is None:
+                    self._current_id = None
+                    return None
+                pin_candidate = pinned
+                if entry is None or entry.id != pin_candidate.id:
+                    self._current_id = pin_candidate.id
+                    return pin_candidate
+                entry = pin_candidate
             if entry is None and identity_supplied:
                 # The failed credential is identifiable but matches no entry
                 # (rotated away, or a wrapper whose runtime key differs).
@@ -2177,7 +2419,7 @@ class CredentialPool:
             # Mark every entry sharing the failed key so the pool can reach the
             # "no available entries" state and let the error propagate.
             failed_runtime_key = getattr(entry, "runtime_api_key", None)
-            if identity_supplied and failed_runtime_key:
+            if identity_supplied and failed_runtime_key and not pin_configured:
                 siblings_marked = False
                 for sibling in self._entries:
                     if sibling.id == entry.id:
@@ -2241,6 +2483,31 @@ class CredentialPool:
     ) -> Tuple[Optional[str], List[tuple]]:
         """Run lease acquisition under the lock, returning id + pending refreshes."""
         with self._lock:
+            pin_candidate, pin_configured, pin_error = self._find_configured_pin_unlocked()
+            if pin_configured:
+                if pin_candidate is None:
+                    logger.warning("credential pool: %s", pin_error)
+                    self._current_id = None
+                    return None, []
+                available, pending_refresh = self._available_entries(
+                    clear_expired=True,
+                    refresh=True,
+                    entries=[pin_candidate],
+                )
+                pinned, _pin_configured, pin_error = self._resolve_configured_pin_unlocked(
+                    available
+                )
+                if pinned is None or (credential_id and credential_id != pinned.id):
+                    logger.warning(
+                        "credential pool: %s",
+                        pin_error or "requested lease conflicts with configured pin",
+                    )
+                    self._current_id = None
+                    return None, pending_refresh
+                self._active_leases[pinned.id] = self._active_leases.get(pinned.id, 0) + 1
+                self._current_id = pinned.id
+                return pinned.id, pending_refresh
+
             if credential_id:
                 self._active_leases[credential_id] = self._active_leases.get(credential_id, 0) + 1
                 self._current_id = credential_id
@@ -2274,6 +2541,12 @@ class CredentialPool:
 
     def try_refresh_current(self) -> Optional[PooledCredential]:
         with self._lock:
+            pin_candidate, pin_configured, _pin_error = self._find_configured_pin_unlocked()
+            if pin_configured:
+                if pin_candidate is None:
+                    self._current_id = None
+                    return None
+                self._current_id = pin_candidate.id
             return self._try_refresh_current_unlocked()
 
     def try_refresh_matching(
@@ -2290,6 +2563,17 @@ class CredentialPool:
         rotating refresh token exactly once.
         """
         with self._lock:
+            pin_candidate, pin_configured, _pin_error = self._find_configured_pin_unlocked()
+            if pin_configured:
+                if pin_candidate is None:
+                    self._current_id = None
+                    return None
+                if credential_id and credential_id != pin_candidate.id:
+                    return None
+                if api_key_hint and api_key_hint != pin_candidate.runtime_api_key:
+                    return None
+                self._current_id = pin_candidate.id
+                return self._try_refresh_current_unlocked()
             entry = None
             if credential_id:
                 entry = next(
@@ -2330,10 +2614,18 @@ class CredentialPool:
 
     def reset_statuses(self) -> int:
         with self._lock:
+            status_fields = (
+                "last_status",
+                "last_status_at",
+                "last_error_code",
+                "last_error_reason",
+                "last_error_message",
+                "last_error_reset_at",
+            )
             count = 0
             new_entries = []
             for entry in self._entries:
-                if entry.last_status or entry.last_status_at or entry.last_error_code:
+                if any(getattr(entry, field) is not None for field in status_fields):
                     new_entries.append(
                         replace(
                             entry,
@@ -2348,25 +2640,60 @@ class CredentialPool:
                     count += 1
                 else:
                     new_entries.append(entry)
+            if self.provider == "openai-codex":
+                _pin_candidate, pin_configured, _pin_error = (
+                    self._find_configured_pin_unlocked()
+                )
+                if pin_configured:
+                    reset_count, persisted_rows = (  # type: ignore[attr-defined]
+                        auth_mod._reset_codex_pool_statuses_atomic()
+                    )
+                    self._entries = [
+                        PooledCredential.from_dict(self.provider, row)
+                        for row in persisted_rows
+                    ]
+                    return reset_count
             if count:
+                self._persist(entries=new_entries)
                 self._entries = new_entries
-                self._persist()
             return count
 
     def remove_index(self, index: int) -> Optional[PooledCredential]:
         with self._lock:
             if index < 1 or index > len(self._entries):
                 return None
-            removed = self._entries.pop(index - 1)
-            self._entries = [
+            removed = self._entries[index - 1]
+            new_entries = [
                 replace(entry, priority=new_priority)
-                for new_priority, entry in enumerate(self._entries)
+                for new_priority, entry in enumerate(
+                    self._entries[: index - 1] + self._entries[index:]
+                )
             ]
-            write_credential_pool(
-                self.provider,
-                [entry.to_dict() for entry in self._entries],
-                removed_ids=[removed.id],
-            )
+            if self.provider == "openai-codex":
+                _pin_candidate, pin_configured, _pin_error = (
+                    self._find_configured_pin_unlocked()
+                )
+                if pin_configured:
+                    persisted_rows = auth_mod._remove_codex_pool_credential_exact(  # type: ignore[attr-defined]
+                        removed.id
+                    )
+                    new_entries = [
+                        PooledCredential.from_dict(self.provider, row)
+                        for row in persisted_rows
+                    ]
+                else:
+                    write_credential_pool(
+                        self.provider,
+                        [entry.to_dict() for entry in new_entries],
+                        removed_ids=[removed.id],
+                    )
+            else:
+                write_credential_pool(
+                    self.provider,
+                    [entry.to_dict() for entry in new_entries],
+                    removed_ids=[removed.id],
+                )
+            self._entries = new_entries
             if self._current_id == removed.id:
                 self._current_id = None
             return removed
@@ -2399,9 +2726,20 @@ class CredentialPool:
 
     def add_entry(self, entry: PooledCredential) -> PooledCredential:
         with self._lock:
+            if self.provider == "openai-codex":
+                _pin_candidate, pin_configured, _pin_error = (
+                    self._find_configured_pin_unlocked()
+                )
+                if pin_configured:
+                    priority = auth_mod._append_codex_pool_credential_exact(  # type: ignore[attr-defined]
+                        entry.to_dict()
+                    )
+                    entry = replace(entry, priority=priority)
+                    self._entries.append(entry)
+                    return entry
             entry = replace(entry, priority=_next_priority(self._entries))
             self._entries.append(entry)
-            self._persist()
+            self._persist(added_entry=entry)
             return entry
 
 
@@ -3143,6 +3481,12 @@ def load_pool(provider: str) -> CredentialPool:
         for payload in raw_entries
     )
     entries = [PooledCredential.from_dict(provider, payload) for payload in raw_entries]
+    # An exact Codex pin makes the persisted pool rows authoritative.  Do not
+    # seed, prune, normalize, or persist sibling rows before the pin is resolved
+    # inside CredentialPool; canonical singleton synchronization is scoped to
+    # the selected pinned row by _available_entries().
+    if provider == "openai-codex" and get_credential_pin(provider):
+        return CredentialPool(provider, entries)
     raw_needs_auth_normalization = any(
         isinstance(payload, dict)
         and _normalize_pool_auth_type(

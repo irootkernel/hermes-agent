@@ -300,6 +300,461 @@ def test_auth_add_codex_oauth_keeps_distinct_pool_accounts(tmp_path, monkeypatch
     assert payload["active_provider"] == "openai-codex"
 
 
+def test_d3_credential_label_reauth_updates_only_matching_entry(tmp_path, monkeypatch):
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes"))
+    _write_auth_store(
+        tmp_path,
+        {
+            "version": 1,
+            "credential_pool": {
+                "openai-codex": [
+                    {
+                        "id": "pinned",
+                        "label": "PINNED",
+                        "auth_type": "oauth",
+                        "priority": 0,
+                        "source": "manual:device_code",
+                        "access_token": "pinned-old-access",
+                        "refresh_token": "pinned-old-refresh",
+                        "last_status": "exhausted",
+                        "last_status_at": 1.0,
+                        "last_error_code": 429,
+                    },
+                    {
+                        "id": "sibling",
+                        "label": "SIBLING",
+                        "auth_type": "oauth",
+                        "priority": 1,
+                        "source": "manual:device_code",
+                        "access_token": "sibling-access",
+                        "refresh_token": "sibling-refresh",
+                    },
+                ]
+            },
+        },
+    )
+    monkeypatch.setattr(
+        "hermes_cli.auth._codex_device_code_login",
+        lambda: {
+            "tokens": {
+                "access_token": "pinned-new-access",
+                "refresh_token": "pinned-new-refresh",
+            },
+            "base_url": "https://chatgpt.com/backend-api/codex",
+            "last_refresh": "2026-08-24T05:00:00Z",
+        },
+    )
+    from hermes_cli.auth_commands import auth_add_command
+
+    args = type(
+        "Args",
+        (),
+        {
+            "provider": "openai-codex",
+            "auth_type": "oauth",
+            "api_key": None,
+            "label": "PINNED",
+        },
+    )()
+    auth_add_command(args)
+
+    payload = json.loads((tmp_path / "hermes" / "auth.json").read_text())
+    entries = payload["credential_pool"]["openai-codex"]
+    assert [entry["id"] for entry in entries] == ["pinned", "sibling"]
+    pinned = next(entry for entry in entries if entry["label"] == "PINNED")
+    sibling = next(entry for entry in entries if entry["label"] == "SIBLING")
+    assert pinned["access_token"] == "pinned-new-access"
+    assert pinned["refresh_token"] == "pinned-new-refresh"
+    assert pinned["last_status"] is None
+    assert pinned["last_error_code"] is None
+    assert sibling["access_token"] == "sibling-access"
+    assert sibling["refresh_token"] == "sibling-refresh"
+
+
+def test_d3_credential_label_reauth_preserves_device_code_row_id(tmp_path, monkeypatch):
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes"))
+    _write_auth_store(
+        tmp_path,
+        {
+            "version": 1,
+            "credential_pool": {
+                "openai-codex": [
+                    {
+                        "id": "canonical-row",
+                        "label": "PINNED",
+                        "auth_type": "oauth",
+                        "priority": 0,
+                        "source": "device_code",
+                        "access_token": "old-access",
+                        "refresh_token": "old-refresh",
+                    },
+                    {
+                        "id": "canonical-sibling",
+                        "label": "SIBLING",
+                        "auth_type": "oauth",
+                        "priority": 1,
+                        "source": "manual:device_code",
+                        "access_token": "sibling-access",
+                        "refresh_token": "sibling-refresh",
+                    },
+                ]
+            },
+        },
+    )
+    monkeypatch.setattr(
+        "hermes_cli.auth._codex_device_code_login",
+        lambda: {
+            "tokens": {
+                "access_token": "new-access",
+                "refresh_token": "new-refresh",
+            },
+            "base_url": "https://chatgpt.com/backend-api/codex",
+            "last_refresh": "2026-08-24T06:00:00Z",
+        },
+    )
+    from hermes_cli.auth_commands import auth_add_command
+
+    args = type(
+        "Args",
+        (),
+        {
+            "provider": "openai-codex",
+            "auth_type": "oauth",
+            "api_key": None,
+            "label": "PINNED",
+        },
+    )()
+    auth_add_command(args)
+
+    payload = json.loads((tmp_path / "hermes" / "auth.json").read_text())
+    entries = payload["credential_pool"]["openai-codex"]
+    matching = [entry for entry in entries if entry["label"] == "PINNED"]
+    assert len(matching) == 1
+    assert matching[0]["id"] == "canonical-row"
+    assert matching[0]["access_token"] == "new-access"
+    assert matching[0]["refresh_token"] == "new-refresh"
+    sibling = next(entry for entry in entries if entry["id"] == "canonical-sibling")
+    assert sibling["access_token"] == "sibling-access"
+    assert sibling["refresh_token"] == "sibling-refresh"
+
+    from agent.credential_pool import load_pool
+
+    reloaded = load_pool("openai-codex").entries()
+    matching = [entry for entry in reloaded if entry.label == "PINNED"]
+    assert len(matching) == 1
+    assert matching[0].id == "canonical-row"
+    assert matching[0].access_token == "new-access"
+    sibling = next(entry for entry in reloaded if entry.id == "canonical-sibling")
+    assert sibling.access_token == "sibling-access"
+
+
+def test_d3_credential_duplicate_canonical_rows_fail_before_login(tmp_path, monkeypatch):
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes"))
+    rows = [
+        {
+            "id": "canonical-sibling",
+            "label": "SIBLING",
+            "auth_type": "oauth",
+            "priority": 0,
+            "source": "device_code",
+            "access_token": "sibling-access",
+            "refresh_token": "sibling-refresh",
+        },
+        {
+            "id": "canonical-target",
+            "label": "PINNED",
+            "auth_type": "oauth",
+            "priority": 1,
+            "source": "device_code",
+            "access_token": "target-access",
+            "refresh_token": "target-refresh",
+        },
+    ]
+    _write_auth_store(
+        tmp_path,
+        {"version": 1, "providers": {}, "credential_pool": {"openai-codex": rows}},
+    )
+
+    from hermes_cli.auth_commands import auth_add_command
+
+    with patch(
+        "hermes_cli.auth._codex_device_code_login",
+        return_value={"tokens": {"access_token": "new", "refresh_token": "new-refresh"}},
+    ) as login:
+        with pytest.raises(SystemExit, match="multiple canonical"):
+            auth_add_command(
+                type("Args", (), {"provider": "openai-codex", "label": "PINNED"})()
+            )
+
+    login.assert_not_called()
+
+
+def test_d3_credential_manual_label_reauth_preserves_concurrent_sibling_update(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes"))
+    rows = [
+        {
+            "id": "manual-target",
+            "label": "PINNED",
+            "auth_type": "oauth",
+            "priority": 0,
+            "source": "manual:device_code",
+            "access_token": "target-old-access",
+            "refresh_token": "target-old-refresh",
+        },
+        {
+            "id": "manual-sibling",
+            "label": "SIBLING",
+            "auth_type": "oauth",
+            "priority": 1,
+            "source": "manual:device_code",
+            "access_token": "sibling-old-access",
+            "refresh_token": "sibling-old-refresh",
+        },
+    ]
+    _write_auth_store(
+        tmp_path,
+        {"version": 1, "providers": {}, "credential_pool": {"openai-codex": rows}},
+    )
+
+    def login_with_concurrent_sibling_refresh():
+        auth_path = tmp_path / "hermes" / "auth.json"
+        payload = json.loads(auth_path.read_text())
+        sibling = next(
+            entry
+            for entry in payload["credential_pool"]["openai-codex"]
+            if entry["id"] == "manual-sibling"
+        )
+        sibling["access_token"] = "sibling-concurrent-access"
+        sibling["refresh_token"] = "sibling-concurrent-refresh"
+        auth_path.write_text(json.dumps(payload))
+        return {
+            "tokens": {
+                "access_token": "target-new-access",
+                "refresh_token": "target-new-refresh",
+            },
+            "last_refresh": "2026-08-24T15:10:00Z",
+        }
+
+    monkeypatch.setattr(
+        "hermes_cli.auth._codex_device_code_login",
+        login_with_concurrent_sibling_refresh,
+    )
+    from hermes_cli.auth_commands import auth_add_command
+
+    auth_add_command(
+        type("Args", (), {"provider": "openai-codex", "label": "PINNED"})()
+    )
+
+    payload = json.loads((tmp_path / "hermes" / "auth.json").read_text())
+    entries = payload["credential_pool"]["openai-codex"]
+    target = next(entry for entry in entries if entry["id"] == "manual-target")
+    sibling = next(entry for entry in entries if entry["id"] == "manual-sibling")
+    assert target["access_token"] == "target-new-access"
+    assert target["refresh_token"] == "target-new-refresh"
+    assert sibling["access_token"] == "sibling-concurrent-access"
+    assert sibling["refresh_token"] == "sibling-concurrent-refresh"
+
+
+def test_d3_credential_canonical_label_reauth_fails_if_target_changes_during_login(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes"))
+    target = {
+        "id": "canonical-target",
+        "label": "PINNED",
+        "auth_type": "oauth",
+        "priority": 0,
+        "source": "device_code",
+        "access_token": "target-old-access",
+        "refresh_token": "target-old-refresh",
+    }
+    _write_auth_store(
+        tmp_path,
+        {
+            "version": 1,
+            "providers": {},
+            "credential_pool": {"openai-codex": [target]},
+        },
+    )
+
+    def login_after_target_removal():
+        auth_path = tmp_path / "hermes" / "auth.json"
+        payload = json.loads(auth_path.read_text())
+        payload["credential_pool"]["openai-codex"] = []
+        auth_path.write_text(json.dumps(payload))
+        return {
+            "tokens": {
+                "access_token": "must-not-save-access",
+                "refresh_token": "must-not-save-refresh",
+            },
+            "last_refresh": "2026-08-24T15:40:00Z",
+        }
+
+    monkeypatch.setattr(
+        "hermes_cli.auth._codex_device_code_login",
+        login_after_target_removal,
+    )
+    from hermes_cli.auth import AuthError
+    from hermes_cli.auth_commands import auth_add_command
+
+    with pytest.raises(AuthError, match="changed during login"):
+        auth_add_command(
+            type("Args", (), {"provider": "openai-codex", "label": "PINNED"})()
+        )
+
+    payload = json.loads((tmp_path / "hermes" / "auth.json").read_text())
+    assert payload.get("providers", {}).get("openai-codex") is None
+
+
+def test_d3_credential_canonical_label_reauth_fails_if_canonical_sibling_added_during_login(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes"))
+    target = {
+        "id": "canonical-target",
+        "label": "PINNED",
+        "auth_type": "oauth",
+        "priority": 0,
+        "source": "device_code",
+        "access_token": "target-old-access",
+        "refresh_token": "target-old-refresh",
+    }
+    _write_auth_store(
+        tmp_path,
+        {
+            "version": 1,
+            "providers": {},
+            "credential_pool": {"openai-codex": [target]},
+        },
+    )
+
+    def login_after_canonical_sibling_addition():
+        auth_path = tmp_path / "hermes" / "auth.json"
+        payload = json.loads(auth_path.read_text())
+        payload["credential_pool"]["openai-codex"].append(
+            {
+                **target,
+                "id": "canonical-sibling",
+                "label": "SIBLING",
+                "priority": 1,
+                "access_token": "sibling-access",
+                "refresh_token": "sibling-refresh",
+            }
+        )
+        auth_path.write_text(json.dumps(payload))
+        return {
+            "tokens": {
+                "access_token": "must-not-save-access",
+                "refresh_token": "must-not-save-refresh",
+            },
+            "last_refresh": "2026-08-24T15:55:00Z",
+        }
+
+    monkeypatch.setattr(
+        "hermes_cli.auth._codex_device_code_login",
+        login_after_canonical_sibling_addition,
+    )
+    from hermes_cli.auth import AuthError
+    from hermes_cli.auth_commands import auth_add_command
+
+    with pytest.raises(AuthError, match="changed during login"):
+        auth_add_command(
+            type("Args", (), {"provider": "openai-codex", "label": "PINNED"})()
+        )
+
+    payload = json.loads((tmp_path / "hermes" / "auth.json").read_text())
+    assert payload.get("providers", {}).get("openai-codex") is None
+    persisted_target = next(
+        entry
+        for entry in payload["credential_pool"]["openai-codex"]
+        if entry["id"] == "canonical-target"
+    )
+    assert persisted_target["access_token"] == "target-old-access"
+    assert persisted_target["refresh_token"] == "target-old-refresh"
+
+
+def test_d3_credential_duplicate_label_fails_before_login(tmp_path, monkeypatch):
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes"))
+    duplicate = {
+        "label": "PINNED",
+        "auth_type": "oauth",
+        "source": "manual:device_code",
+        "access_token": "old-access",
+    }
+    _write_auth_store(
+        tmp_path,
+        {
+            "version": 1,
+            "credential_pool": {
+                "openai-codex": [
+                    {**duplicate, "id": "duplicate-a", "priority": 0},
+                    {**duplicate, "id": "duplicate-b", "priority": 1},
+                ]
+            },
+        },
+    )
+    monkeypatch.setattr(
+        "hermes_cli.auth._codex_device_code_login",
+        lambda: (_ for _ in ()).throw(AssertionError("device login started")),
+    )
+    from hermes_cli.auth_commands import auth_add_command
+
+    args = type(
+        "Args",
+        (),
+        {
+            "provider": "openai-codex",
+            "auth_type": "oauth",
+            "api_key": None,
+            "label": "PINNED",
+        },
+    )()
+    with pytest.raises(SystemExit, match="Multiple openai-codex credentials"):
+        auth_add_command(args)
+
+
+def test_d3_credential_ineligible_label_fails_before_login(tmp_path, monkeypatch):
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes"))
+    _write_auth_store(
+        tmp_path,
+        {
+            "version": 1,
+            "credential_pool": {
+                "openai-codex": [
+                    {
+                        "id": "api-row",
+                        "label": "PINNED",
+                        "auth_type": "api_key",
+                        "priority": 0,
+                        "source": "manual",
+                        "api_key": "api-secret",
+                    }
+                ]
+            },
+        },
+    )
+    monkeypatch.setattr(
+        "hermes_cli.auth._codex_device_code_login",
+        lambda: (_ for _ in ()).throw(AssertionError("device login started")),
+    )
+    from hermes_cli.auth_commands import auth_add_command
+
+    args = type(
+        "Args",
+        (),
+        {
+            "provider": "openai-codex",
+            "auth_type": "oauth",
+            "api_key": None,
+            "label": "PINNED",
+        },
+    )()
+    with pytest.raises(SystemExit, match="cannot be re-authenticated"):
+        auth_add_command(args)
+
+
 def test_codex_auth_status_reports_pool_only_credential(tmp_path, monkeypatch):
     monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes"))
     _write_auth_store(tmp_path, _codex_pool_only_store())

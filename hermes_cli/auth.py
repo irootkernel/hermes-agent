@@ -1500,6 +1500,8 @@ def _save_provider_state_to_source(
     provider_id: str,
     state: Dict[str, Any],
     source_path: Optional[Path],
+    *,
+    set_active: bool = True,
 ) -> None:
     """Persist provider state back to the auth store it was read from."""
     active_path = _auth_file_path()
@@ -1510,7 +1512,12 @@ def _save_provider_state_to_source(
     except Exception:
         same_store = source_path == active_path
     if same_store:
-        _save_provider_state(auth_store, provider_id, state)
+        _store_provider_state(
+            auth_store,
+            provider_id,
+            state,
+            set_active=set_active,
+        )
         _save_auth_store(auth_store)
         return
 
@@ -1518,8 +1525,43 @@ def _save_provider_state_to_source(
         provider_id,
         state,
         source_path,
-        set_active=True,
+        set_active=set_active,
     )
+
+
+def _restore_auth_store_bytes(target_path: Path, payload: bytes) -> None:
+    """Atomically restore an auth store's exact bytes while its lock is held."""
+    tmp_path = target_path.parent / (
+        f".{target_path.name}.rollback-{uuid.uuid4().hex}.tmp"
+    )
+    try:
+        fd = os.open(
+            str(tmp_path),
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+            stat.S_IRUSR | stat.S_IWUSR,
+        )
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(payload)
+            handle.flush()
+            os.fsync(handle.fileno())
+        atomic_replace(tmp_path, target_path)
+        target_path.chmod(stat.S_IRUSR | stat.S_IWUSR)
+        try:
+            dir_fd = os.open(str(target_path.parent), os.O_RDONLY)
+        except OSError:
+            if os.name != "nt":
+                raise
+        else:
+            try:
+                os.fsync(dir_fd)
+            finally:
+                os.close(dir_fd)
+    finally:
+        try:
+            if tmp_path.exists():
+                tmp_path.unlink()
+        except OSError:
+            pass
 
 
 def _store_provider_state(
@@ -3744,6 +3786,7 @@ def _sync_codex_pool_entries(
     tokens: Dict[str, str],
     last_refresh: Optional[str],
     previous_singleton_tokens: Optional[Dict[str, str]] = None,
+    target_credential_id: Optional[str] = None,
 ) -> None:
     """Mirror a fresh Codex re-auth into the credential_pool OAuth entries.
 
@@ -3810,7 +3853,9 @@ def _sync_codex_pool_entries(
         if not isinstance(entry, dict):
             continue
         source = entry.get("source")
-        if source == "device_code":
+        if target_credential_id is not None:
+            refresh_this_entry = entry.get("id") == target_credential_id
+        elif source == "device_code":
             # Singleton-seeded mirror — always refresh.
             refresh_this_entry = True
         elif source == "manual:device_code":
@@ -3840,12 +3885,55 @@ def _sync_codex_pool_entries(
         entry["last_error_reset_at"] = None
 
 
-def _save_codex_tokens(tokens: Dict[str, str], last_refresh: str = None, label: str = None) -> None:
+def _save_codex_tokens(
+    tokens: Dict[str, str],
+    last_refresh: Optional[str] = None,
+    label: Optional[str] = None,
+    target_credential_id: Optional[str] = None,
+) -> None:
     """Save Codex OAuth tokens to Hermes auth store (~/.hermes/auth.json)."""
     if last_refresh is None:
         last_refresh = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     with _auth_store_lock():
         auth_store = _load_auth_store()
+        if target_credential_id is not None:
+            pool = auth_store.get("credential_pool")
+            entries = pool.get("openai-codex") if isinstance(pool, dict) else None
+            matches = [
+                entry
+                for entry in entries or []
+                if isinstance(entry, dict)
+                and entry.get("id") == target_credential_id
+            ]
+            if len(matches) != 1:
+                raise AuthError(
+                    "The exact OpenAI Codex credential changed during login; retry re-authentication.",
+                    provider="openai-codex",
+                    code="codex_target_credential_changed",
+                    relogin_required=False,
+                )
+            target = matches[0]
+            if target.get("source") != "device_code" or target.get("auth_type") != "oauth":
+                raise AuthError(
+                    "The exact OpenAI Codex credential is no longer eligible for device-code re-authentication.",
+                    provider="openai-codex",
+                    code="codex_target_credential_ineligible",
+                    relogin_required=False,
+                )
+            canonical_entries = [
+                entry
+                for entry in entries or []
+                if isinstance(entry, dict)
+                and entry.get("source") == "device_code"
+                and entry.get("auth_type") == "oauth"
+            ]
+            if len(canonical_entries) != 1 or canonical_entries[0] is not target:
+                raise AuthError(
+                    "The canonical OpenAI Codex credential set changed during login; retry re-authentication.",
+                    provider="openai-codex",
+                    code="codex_target_credential_changed",
+                    relogin_required=False,
+                )
         state = _load_provider_state(auth_store, "openai-codex") or {}
         # Capture the previous singleton tokens BEFORE overwriting them.  The
         # pool-sync step uses this to distinguish legacy singleton-aliases
@@ -3864,8 +3952,639 @@ def _save_codex_tokens(tokens: Dict[str, str], last_refresh: str = None, label: 
             tokens,
             last_refresh,
             previous_singleton_tokens=previous_singleton_tokens,
+            target_credential_id=target_credential_id,
         )
         _save_auth_store(auth_store)
+
+
+def _update_codex_pool_credential(
+    target_credential_id: str,
+    tokens: Dict[str, str],
+    *,
+    last_refresh: Optional[str] = None,
+) -> None:
+    """Atomically update one independent Codex device-code pool row."""
+    with _auth_store_lock():
+        auth_store = _load_auth_store()
+        pool = auth_store.get("credential_pool")
+        entries = pool.get("openai-codex") if isinstance(pool, dict) else None
+        matches = [
+            entry
+            for entry in entries or []
+            if isinstance(entry, dict) and entry.get("id") == target_credential_id
+        ]
+        if len(matches) != 1:
+            raise AuthError(
+                "The exact OpenAI Codex credential changed during login; retry re-authentication.",
+                provider="openai-codex",
+                code="codex_target_credential_changed",
+                relogin_required=False,
+            )
+        entry = matches[0]
+        if entry.get("source") != "manual:device_code" or entry.get("auth_type") != "oauth":
+            raise AuthError(
+                "The exact OpenAI Codex credential is no longer eligible for device-code re-authentication.",
+                provider="openai-codex",
+                code="codex_target_credential_ineligible",
+                relogin_required=False,
+            )
+        entry["access_token"] = tokens["access_token"]
+        entry["refresh_token"] = tokens.get("refresh_token")
+        if last_refresh:
+            entry["last_refresh"] = last_refresh
+        entry["last_status"] = None
+        entry["last_status_at"] = None
+        entry["last_error_code"] = None
+        entry["last_error_reason"] = None
+        entry["last_error_message"] = None
+        entry["last_error_reset_at"] = None
+        _save_auth_store(auth_store)
+
+
+def _replace_codex_pool_credential_exact(
+    entry_payload: Dict[str, Any],
+) -> List[Dict[str, Any]]:
+    """Replace one Codex row and return authoritative rows while locked."""
+    target_credential_id = entry_payload.get("id")
+    if not isinstance(target_credential_id, str) or not target_credential_id:
+        raise AuthError(
+            "The exact OpenAI Codex credential is missing an ID.",
+            provider="openai-codex",
+            code="codex_target_credential_changed",
+            relogin_required=False,
+        )
+    with _auth_store_lock():
+        auth_store = _load_auth_store()
+        pool = auth_store.get("credential_pool")
+        entries = pool.get("openai-codex") if isinstance(pool, dict) else None
+        matches = [
+            index
+            for index, entry in enumerate(entries or [])
+            if isinstance(entry, dict) and entry.get("id") == target_credential_id
+        ]
+        if len(matches) != 1:
+            raise AuthError(
+                "The exact OpenAI Codex credential changed during persistence.",
+                provider="openai-codex",
+                code="codex_target_credential_changed",
+                relogin_required=False,
+            )
+        assert isinstance(entries, list)
+        entries[matches[0]] = dict(entry_payload)
+        _save_auth_store(auth_store)
+        return [dict(entry) for entry in entries if isinstance(entry, dict)]
+
+
+def _replace_codex_pool_credential_and_provider_exact(
+    entry_payload: Dict[str, Any],
+    expected_access_token: str,
+    expected_refresh_token: str,
+) -> List[Dict[str, Any]]:
+    """Atomically persist one canonical Codex refresh across its source stores."""
+    target_credential_id = entry_payload.get("id")
+    if not isinstance(target_credential_id, str) or not target_credential_id:
+        raise AuthError(
+            "The exact OpenAI Codex credential is missing an ID.",
+            provider="openai-codex",
+            code="codex_target_credential_changed",
+            relogin_required=False,
+        )
+    with _provider_state_transaction("openai-codex") as (
+        auth_store,
+        state,
+        state_source_path,
+    ):
+        active_path = _auth_file_path()
+        fallback_source = bool(
+            state_source_path is not None
+            and not _same_path(state_source_path, active_path)
+        )
+        tokens = state.get("tokens") if isinstance(state, dict) else None
+        pool = auth_store.get("credential_pool")
+        entries = pool.get("openai-codex") if isinstance(pool, dict) else None
+        if not isinstance(tokens, dict) or not isinstance(entries, list) or not all(
+            isinstance(entry, dict) for entry in entries
+        ):
+            raise AuthError(
+                "The OpenAI Codex refresh source changed during persistence.",
+                provider="openai-codex",
+                code="codex_target_credential_changed",
+                relogin_required=False,
+            )
+        assert isinstance(state, dict)
+        ids = [entry.get("id") for entry in entries]
+        matches = [index for index, entry_id in enumerate(ids) if entry_id == target_credential_id]
+        canonical_entries = [
+            entry
+            for entry in entries
+            if entry.get("source") == "device_code"
+            and entry.get("auth_type") == "oauth"
+        ]
+        if (
+            any(not isinstance(entry_id, str) or not entry_id for entry_id in ids)
+            or len(ids) != len(set(ids))
+            or len(matches) != 1
+            or len(canonical_entries) != 1
+            or canonical_entries[0] is not entries[matches[0]]
+        ):
+            raise AuthError(
+                "The canonical OpenAI Codex credential changed during persistence.",
+                provider="openai-codex",
+                code="codex_target_credential_changed",
+                relogin_required=False,
+            )
+        target = entries[matches[0]]
+        expected_access = expected_access_token or ""
+        expected_refresh = expected_refresh_token or ""
+        if (
+            (target.get("access_token") or "") != expected_access
+            or (target.get("refresh_token") or "") != expected_refresh
+            or (tokens.get("access_token") or "") != expected_access
+            or (tokens.get("refresh_token") or "") != expected_refresh
+        ):
+            raise AuthError(
+                "The OpenAI Codex credential changed during refresh persistence.",
+                provider="openai-codex",
+                code="codex_target_credential_changed",
+                relogin_required=False,
+            )
+        original_active_bytes = active_path.read_bytes()
+        original_source_bytes = (
+            state_source_path.read_bytes()
+            if fallback_source and state_source_path is not None
+            else None
+        )
+        entries[matches[0]] = dict(entry_payload)
+        tokens["access_token"] = entry_payload.get("access_token") or ""
+        tokens["refresh_token"] = entry_payload.get("refresh_token") or ""
+        if entry_payload.get("last_refresh"):
+            state["last_refresh"] = entry_payload["last_refresh"]
+        if not fallback_source:
+            _store_provider_state(
+                auth_store,
+                "openai-codex",
+                state,
+                set_active=False,
+            )
+            restore_targets = (
+                ("active", active_path, original_active_bytes),
+            )
+        else:
+            assert state_source_path is not None
+            assert original_source_bytes is not None
+            restore_targets = (
+                ("source", state_source_path, original_source_bytes),
+                ("active", active_path, original_active_bytes),
+            )
+        try:
+            _save_auth_store(auth_store)
+            if fallback_source:
+                assert state_source_path is not None
+                _save_provider_state_to_source(
+                    auth_store,
+                    "openai-codex",
+                    state,
+                    state_source_path,
+                    set_active=False,
+                )
+        except BaseException as operation_error:
+            rollback_errors: List[Tuple[str, Path, BaseException]] = []
+            for label, path, payload in restore_targets:
+                try:
+                    _restore_auth_store_bytes(path, payload)
+                except BaseException as rollback_error:
+                    rollback_errors.append((label, path, rollback_error))
+            if rollback_errors:
+                details = "; ".join(
+                    f"{label}={path}: {error!r}"
+                    for label, path, error in rollback_errors
+                )
+                operation_error.add_note(
+                    "CRITICAL: Codex refresh rollback failed; durable state may "
+                    f"be partial: {details}"
+                )
+                logger.critical(
+                    "Codex refresh rollback failed; active_path=%s; "
+                    "source_path=%s; failures=%s",
+                    active_path,
+                    state_source_path,
+                    details,
+                )
+            raise
+        return [dict(entry) for entry in entries]
+
+
+def _sync_codex_pool_credential_from_provider_exact(
+    target_credential_id: str,
+) -> List[Dict[str, Any]]:
+    """Sync provider tokens into one pool row in a single locked transaction."""
+    if not target_credential_id:
+        raise AuthError(
+            "The exact OpenAI Codex credential is missing an ID.",
+            provider="openai-codex",
+            code="codex_target_credential_changed",
+            relogin_required=False,
+        )
+    with _provider_state_transaction("openai-codex") as (
+        auth_store,
+        state,
+        state_source_path,
+    ):
+        active_path = _auth_file_path()
+        if (
+            state_source_path is not None
+            and not _same_path(state_source_path, active_path)
+            and (
+                not isinstance(state, dict)
+                or not isinstance(state.get("tokens"), dict)
+            )
+        ):
+            raise AuthError(
+                "The OpenAI Codex provider source changed during synchronization.",
+                provider="openai-codex",
+                code="codex_target_credential_changed",
+                relogin_required=False,
+            )
+        tokens = state.get("tokens") if isinstance(state, dict) else None
+        pool = auth_store.get("credential_pool")
+        entries = pool.get("openai-codex") if isinstance(pool, dict) else None
+        if not isinstance(entries, list) or not all(
+            isinstance(entry, dict) for entry in entries
+        ):
+            raise AuthError(
+                "The OpenAI Codex credential pool changed during synchronization.",
+                provider="openai-codex",
+                code="codex_target_credential_changed",
+                relogin_required=False,
+            )
+        ids = [entry.get("id") for entry in entries]
+        if any(not isinstance(entry_id, str) or not entry_id for entry_id in ids) or len(
+            ids
+        ) != len(set(ids)):
+            raise AuthError(
+                "The OpenAI Codex credential pool has ambiguous credential IDs.",
+                provider="openai-codex",
+                code="codex_target_credential_changed",
+                relogin_required=False,
+            )
+        matches = [index for index, entry_id in enumerate(ids) if entry_id == target_credential_id]
+        if len(matches) != 1:
+            raise AuthError(
+                "The exact OpenAI Codex credential changed during synchronization.",
+                provider="openai-codex",
+                code="codex_target_credential_changed",
+                relogin_required=False,
+            )
+        target = entries[matches[0]]
+        assert isinstance(target, dict)
+        canonical_entries = [
+            entry
+            for entry in entries
+            if entry.get("source") == "device_code"
+            and entry.get("auth_type") == "oauth"
+        ]
+        if (
+            target.get("source") != "device_code"
+            or target.get("auth_type") != "oauth"
+            or len(canonical_entries) != 1
+            or canonical_entries[0] is not target
+        ):
+            raise AuthError(
+                "The canonical OpenAI Codex credential changed during synchronization.",
+                provider="openai-codex",
+                code="codex_target_credential_changed",
+                relogin_required=False,
+            )
+        store_access = tokens.get("access_token", "") if isinstance(tokens, dict) else ""
+        store_refresh = tokens.get("refresh_token", "") if isinstance(tokens, dict) else ""
+        entry_access = target.get("access_token") or ""
+        entry_refresh = target.get("refresh_token") or ""
+        should_adopt = bool(
+            (store_access and (store_access != entry_access or (store_refresh and store_refresh != entry_refresh)))
+            or (store_refresh and store_refresh != entry_refresh and not store_access)
+        )
+        if should_adopt:
+            target["access_token"] = store_access or target.get("access_token")
+            target["refresh_token"] = store_refresh or target.get("refresh_token")
+            for field in (
+                "last_status",
+                "last_status_at",
+                "last_error_code",
+                "last_error_reason",
+                "last_error_message",
+                "last_error_reset_at",
+            ):
+                target[field] = None
+            target.pop("failure_reason", None)
+            if isinstance(state, dict) and state.get("last_refresh"):
+                target["last_refresh"] = state["last_refresh"]
+            _save_auth_store(auth_store)
+        return [dict(entry) for entry in entries]
+
+
+def _quarantine_codex_pool_credential_exact(
+    target_credential_id: str,
+    expected_access_token: str,
+    expected_refresh_token: str,
+    error_payload: Dict[str, Any],
+) -> Tuple[List[Dict[str, Any]], bool]:
+    """Atomically quarantine one canonical Codex credential and provider state."""
+    with _provider_state_transaction("openai-codex") as (
+        auth_store,
+        state,
+        state_source_path,
+    ):
+        active_path = _auth_file_path()
+        fallback_source = state_source_path is not None and not _same_path(
+            state_source_path, active_path
+        )
+        if fallback_source and (
+            not isinstance(state, dict)
+            or not isinstance(state.get("tokens"), dict)
+        ):
+            raise AuthError(
+                "The OpenAI Codex provider source changed during quarantine.",
+                provider="openai-codex",
+                code="codex_target_credential_changed",
+                relogin_required=False,
+            )
+        original_active_bytes = active_path.read_bytes()
+        original_source_bytes = (
+            state_source_path.read_bytes()
+            if fallback_source and state_source_path is not None
+            else None
+        )
+        pool = auth_store.get("credential_pool")
+        entries = pool.get("openai-codex") if isinstance(pool, dict) else None
+        if not isinstance(entries, list) or not all(
+            isinstance(entry, dict) for entry in entries
+        ):
+            raise AuthError(
+                "The OpenAI Codex credential pool changed during quarantine.",
+                provider="openai-codex",
+                code="codex_target_credential_changed",
+                relogin_required=False,
+            )
+        original_entries = [dict(entry) for entry in entries]
+        ids = [entry.get("id") for entry in entries]
+        if any(not isinstance(entry_id, str) or not entry_id for entry_id in ids) or len(
+            ids
+        ) != len(set(ids)) or ids.count(target_credential_id) != 1:
+            raise AuthError(
+                "The exact OpenAI Codex credential changed during quarantine.",
+                provider="openai-codex",
+                code="codex_target_credential_changed",
+                relogin_required=False,
+            )
+        target = entries[ids.index(target_credential_id)]
+        assert isinstance(target, dict)
+        canonical_entries = [
+            entry
+            for entry in entries
+            if entry.get("source") == "device_code"
+            and entry.get("auth_type") == "oauth"
+        ]
+        if (
+            target.get("source") != "device_code"
+            or target.get("auth_type") != "oauth"
+            or len(canonical_entries) != 1
+            or canonical_entries[0] is not target
+        ):
+            raise AuthError(
+                "The exact OpenAI Codex credential is no longer canonical.",
+                provider="openai-codex",
+                code="codex_target_credential_changed",
+                relogin_required=False,
+            )
+        state = state or {}
+        tokens = state.get("tokens") if isinstance(state, dict) else None
+        store_access = str(tokens.get("access_token") or "").strip() if isinstance(tokens, dict) else ""
+        store_refresh = str(tokens.get("refresh_token") or "").strip() if isinstance(tokens, dict) else ""
+        if (
+            (store_access and store_access != expected_access_token)
+            or (store_refresh and store_refresh != expected_refresh_token)
+        ):
+            return [dict(entry) for entry in entries], False
+        remaining = [entry for entry in entries if entry is not target]
+        assert isinstance(pool, dict)
+        pool["openai-codex"] = remaining
+        if isinstance(state, dict):
+            state_tokens = state.get("tokens") or {}
+            if isinstance(state_tokens, dict):
+                state_tokens.pop("access_token", None)
+                state_tokens.pop("refresh_token", None)
+                state["tokens"] = state_tokens
+            state["last_auth_error"] = dict(error_payload)
+            if state_source_path is None or _same_path(
+                state_source_path, active_path
+            ):
+                _save_provider_state(auth_store, "openai-codex", state)
+                _save_auth_store(auth_store)
+            else:
+                try:
+                    _save_auth_store(auth_store)
+                    _save_provider_state_to_source(
+                        auth_store,
+                        "openai-codex",
+                        state,
+                        state_source_path,
+                    )
+                except BaseException as operation_error:
+                    pool["openai-codex"] = original_entries
+                    rollback_failures = []
+                    if original_source_bytes is not None:
+                        try:
+                            _restore_auth_store_bytes(
+                                state_source_path,
+                                original_source_bytes,
+                            )
+                        except BaseException as rollback_error:
+                            rollback_failures.append(
+                                ("source", state_source_path, rollback_error)
+                            )
+                    try:
+                        _restore_auth_store_bytes(active_path, original_active_bytes)
+                    except BaseException as rollback_error:
+                        rollback_failures.append(
+                            ("active", active_path, rollback_error)
+                        )
+                    if rollback_failures:
+                        details = "; ".join(
+                            f"{label}={path}: {error}"
+                            for label, path, error in rollback_failures
+                        )
+                        operation_error.add_note(
+                            "credential quarantine rollback failed; "
+                            f"durable state may be partial: {details}"
+                        )
+                        logger.critical(
+                            "credential quarantine rollback failed; durable state "
+                            "may be partial; active_path=%s source_path=%s failures=%s",
+                            active_path,
+                            state_source_path,
+                            details,
+                        )
+                    raise
+        else:
+            _save_auth_store(auth_store)
+        return [dict(entry) for entry in remaining], True
+
+
+def _merge_codex_pool_credential_status_exact(
+    entry_payload: Dict[str, Any],
+) -> List[Dict[str, Any]]:
+    """Merge status fields into the latest exact row and return all rows."""
+    target_credential_id = entry_payload.get("id")
+    if not isinstance(target_credential_id, str) or not target_credential_id:
+        raise AuthError(
+            "The exact OpenAI Codex credential is missing an ID.",
+            provider="openai-codex",
+            code="codex_target_credential_changed",
+            relogin_required=False,
+        )
+    status_fields = (
+        "last_status",
+        "last_status_at",
+        "last_error_code",
+        "last_error_reason",
+        "last_error_message",
+        "last_error_reset_at",
+    )
+    with _auth_store_lock():
+        auth_store = _load_auth_store()
+        pool = auth_store.get("credential_pool")
+        entries = pool.get("openai-codex") if isinstance(pool, dict) else None
+        matches = [
+            index
+            for index, entry in enumerate(entries or [])
+            if isinstance(entry, dict) and entry.get("id") == target_credential_id
+        ]
+        if len(matches) != 1:
+            raise AuthError(
+                "The exact OpenAI Codex credential changed during persistence.",
+                provider="openai-codex",
+                code="codex_target_credential_changed",
+                relogin_required=False,
+            )
+        assert isinstance(entries, list)
+        target = entries[matches[0]]
+        assert isinstance(target, dict)
+        for field in status_fields:
+            target[field] = entry_payload.get(field)
+        if "failure_reason" in entry_payload:
+            target["failure_reason"] = entry_payload["failure_reason"]
+        else:
+            target.pop("failure_reason", None)
+        _save_auth_store(auth_store)
+        return [dict(entry) for entry in entries if isinstance(entry, dict)]
+
+
+def _append_codex_pool_credential_exact(entry_payload: Dict[str, Any]) -> int:
+    """Atomically append one Codex pool row without rewriting existing rows."""
+    sanitized = sanitize_borrowed_credential_payload(entry_payload, "openai-codex")
+    target_credential_id = sanitized.get("id")
+    if not isinstance(target_credential_id, str) or not target_credential_id:
+        raise AuthError(
+            "The new OpenAI Codex credential is missing an ID.",
+            provider="openai-codex",
+            code="codex_target_credential_changed",
+            relogin_required=False,
+        )
+    with _auth_store_lock():
+        auth_store = _load_auth_store()
+        pool = auth_store.get("credential_pool")
+        if not isinstance(pool, dict):
+            pool = {}
+            auth_store["credential_pool"] = pool
+        entries = pool.get("openai-codex")
+        if not isinstance(entries, list):
+            entries = []
+            pool["openai-codex"] = entries
+        if any(
+            isinstance(entry, dict) and entry.get("id") == target_credential_id
+            for entry in entries
+        ):
+            raise AuthError(
+                "An OpenAI Codex credential with the same ID already exists.",
+                provider="openai-codex",
+                code="codex_target_credential_changed",
+                relogin_required=False,
+            )
+        latest_priorities: List[int] = []
+        for existing_entry in entries:
+            if not isinstance(existing_entry, dict):
+                continue
+            existing_priority = existing_entry.get("priority")
+            if isinstance(existing_priority, int):
+                latest_priorities.append(existing_priority)
+        next_priority = max(latest_priorities, default=-1) + 1
+        sanitized["priority"] = next_priority
+        entries.append(dict(sanitized))
+        _save_auth_store(auth_store)
+        return next_priority
+
+
+def _remove_codex_pool_credential_exact(
+    target_credential_id: str,
+) -> List[Dict[str, Any]]:
+    """Remove one Codex row and return the authoritative persisted rows."""
+    with _auth_store_lock():
+        auth_store = _load_auth_store()
+        pool = auth_store.get("credential_pool")
+        entries = pool.get("openai-codex") if isinstance(pool, dict) else None
+        matches = [
+            index
+            for index, entry in enumerate(entries or [])
+            if isinstance(entry, dict) and entry.get("id") == target_credential_id
+        ]
+        if len(matches) != 1:
+            raise AuthError(
+                "The exact OpenAI Codex credential changed during removal.",
+                provider="openai-codex",
+                code="codex_target_credential_changed",
+                relogin_required=False,
+            )
+        assert isinstance(entries, list)
+        del entries[matches[0]]
+        for priority, entry in enumerate(entries):
+            if isinstance(entry, dict):
+                entry["priority"] = priority
+        _save_auth_store(auth_store)
+        return [dict(entry) for entry in entries if isinstance(entry, dict)]
+
+
+def _reset_codex_pool_statuses_atomic() -> Tuple[int, List[Dict[str, Any]]]:
+    """Clear statuses and return the count plus authoritative persisted rows."""
+    status_fields = (
+        "last_status",
+        "last_status_at",
+        "last_error_code",
+        "last_error_reason",
+        "last_error_message",
+        "last_error_reset_at",
+    )
+    with _auth_store_lock():
+        auth_store = _load_auth_store()
+        pool = auth_store.get("credential_pool")
+        entries = pool.get("openai-codex") if isinstance(pool, dict) else None
+        if not isinstance(entries, list):
+            return 0, []
+        changed = False
+        changed_rows = 0
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            if any(entry.get(field) is not None for field in status_fields):
+                changed_rows += 1
+            for field in status_fields:
+                if field in entry:
+                    entry.pop(field, None)
+                    changed = True
+        if changed:
+            _save_auth_store(auth_store)
+        return changed_rows, [
+            dict(entry) for entry in entries if isinstance(entry, dict)
+        ]
 
 
 def _recover_codex_tokens_from_cli(reason: str) -> Optional[Dict[str, str]]:
@@ -4113,6 +4832,17 @@ def resolve_codex_runtime_credentials(
     HTTP 401 ``Missing Authentication header`` from the wire instead of a usable
     credential. See issue #32992.
     """
+    from agent.credential_pool import has_configured_credential_pin
+
+    if has_configured_credential_pin("openai-codex"):
+        raise AuthError(
+            "A profile-local Codex credential pin is configured; "
+            "singleton credential resolution is disabled.",
+            provider="openai-codex",
+            code="credential_pin_requires_pool",
+            relogin_required=False,
+        )
+
     read_error: Optional[AuthError] = None
     try:
         data = _read_codex_tokens()
@@ -6989,7 +7719,8 @@ def get_codex_auth_status() -> Dict[str, Any]:
     # Check credential pool first — this is where `hermes auth` and
     # `hermes model` store device_code tokens.
     try:
-        from agent.credential_pool import load_pool
+        from agent.credential_pool import has_configured_credential_pin, load_pool
+        pin_configured = has_configured_credential_pin("openai-codex")
         pool = load_pool("openai-codex")
         if pool and pool.has_credentials():
             entry = pool.select()
@@ -7007,7 +7738,7 @@ def get_codex_auth_status() -> Dict[str, Any]:
                         "source": f"pool:{getattr(entry, 'label', 'unknown')}",
                         "api_key": api_key,
                     }
-            rate_limit = _codex_pool_rate_limit_status()
+            rate_limit = None if pin_configured else _codex_pool_rate_limit_status()
             if rate_limit:
                 return {
                     "logged_in": True,

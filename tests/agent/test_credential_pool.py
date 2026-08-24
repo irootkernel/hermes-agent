@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import json
+import stat
 import time
 from datetime import datetime, timezone
 
@@ -2079,3 +2080,1979 @@ class TestCredentialPoolQueryLocking:
             inner.release()
 
         assert done.wait(timeout=2.0), f"{method}() did not complete after lock release"
+
+
+def _d3_codex_entry(
+    entry_id: str,
+    label: str,
+    priority: int,
+    *,
+    status: str | None = None,
+    access_token: str | None = None,
+) -> dict:
+    entry = {
+        "id": entry_id,
+        "label": label,
+        "auth_type": "oauth",
+        "priority": priority,
+        "source": "manual:device_code",
+        "access_token": access_token if access_token is not None else f"token-{entry_id}",
+        "refresh_token": f"refresh-{entry_id}",
+        "base_url": "https://chatgpt.com/backend-api/codex",
+    }
+    if status:
+        entry.update(
+            {
+                "last_status": status,
+                "last_status_at": time.time(),
+                "last_error_code": 429,
+                "last_error_reset_at": time.time() + 3600,
+            }
+        )
+    return entry
+
+
+def _load_d3_codex_pool(tmp_path, monkeypatch, entries: list[dict], pin: str = ""):
+    hermes_home = tmp_path / "hermes"
+    monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+    monkeypatch.setattr("hermes_cli.auth._import_codex_cli_tokens", lambda: None)
+    _write_auth_store(
+        tmp_path,
+        {"version": 1, "credential_pool": {"openai-codex": entries}},
+    )
+    if pin:
+        (hermes_home / ".env").write_text(pin)
+    from agent.credential_pool import load_pool
+
+    return load_pool("openai-codex")
+
+
+def test_d3_credential_pin_controls_select_peek_and_lease(tmp_path, monkeypatch):
+    entries = [
+        _d3_codex_entry("first", "FIRST", 0),
+        _d3_codex_entry("pinned", "PINNED", 1),
+    ]
+    pin = "HERMES_CREDENTIAL_PIN_OPENAI_CODEX_LABEL=PINNED\n"
+
+    selected = _load_d3_codex_pool(tmp_path, monkeypatch, entries, pin).select()
+    peeked = _load_d3_codex_pool(tmp_path, monkeypatch, entries, pin).peek()
+    leased = _load_d3_codex_pool(tmp_path, monkeypatch, entries, pin).acquire_lease()
+
+    assert selected is not None and selected.id == "pinned"
+    assert peeked is not None and peeked.id == "pinned"
+    assert leased == "pinned"
+
+
+def test_d3_credential_id_pin_wins_and_rejects_sibling_lease(tmp_path, monkeypatch):
+    pool = _load_d3_codex_pool(
+        tmp_path,
+        monkeypatch,
+        [
+            _d3_codex_entry("first", "FIRST", 0),
+            _d3_codex_entry("pinned", "PINNED", 1),
+        ],
+        "HERMES_CREDENTIAL_PIN_OPENAI_CODEX_ID=pinned\n"
+        "HERMES_CREDENTIAL_PIN_OPENAI_CODEX_LABEL=FIRST\n",
+    )
+
+    selected = pool.select()
+    assert selected is not None and selected.id == "pinned"
+    assert pool.acquire_lease("first") is None
+
+
+@pytest.mark.parametrize(
+    "entries",
+    [
+        [
+            _d3_codex_entry("duplicate-a", "PINNED", 0),
+            _d3_codex_entry("duplicate-b", "PINNED", 1),
+        ],
+        [_d3_codex_entry("first", "FIRST", 0)],
+        [
+            _d3_codex_entry("pinned", "PINNED", 0, status="exhausted"),
+            _d3_codex_entry("first", "FIRST", 1),
+        ],
+        [
+            _d3_codex_entry("pinned", "PINNED", 0, access_token=""),
+            _d3_codex_entry("first", "FIRST", 1),
+        ],
+    ],
+)
+def test_d3_credential_invalid_pin_fails_closed(tmp_path, monkeypatch, entries):
+    pool = _load_d3_codex_pool(
+        tmp_path,
+        monkeypatch,
+        entries,
+        "HERMES_CREDENTIAL_PIN_OPENAI_CODEX_LABEL=PINNED\n",
+    )
+
+    assert pool.has_available() is False
+    if any(entry.get("last_status") == "exhausted" for entry in entries):
+        assert pool.next_available_at() is not None
+    assert pool.select() is None
+    assert pool.peek() is None
+    assert pool.acquire_lease() is None
+
+
+def test_d3_credential_pin_ignores_ambient_environment(tmp_path, monkeypatch):
+    monkeypatch.setenv("HERMES_CREDENTIAL_PIN_OPENAI_CODEX_LABEL", "PINNED")
+    pool = _load_d3_codex_pool(
+        tmp_path,
+        monkeypatch,
+        [
+            _d3_codex_entry("first", "FIRST", 0),
+            _d3_codex_entry("pinned", "PINNED", 1),
+        ],
+    )
+
+    selected = pool.select()
+    assert selected is not None and selected.id == "first"
+
+
+def test_d3_credential_current_rechecks_profile_pin(tmp_path, monkeypatch):
+    pool = _load_d3_codex_pool(
+        tmp_path,
+        monkeypatch,
+        [
+            _d3_codex_entry("first", "FIRST", 0),
+            _d3_codex_entry("pinned", "PINNED", 1),
+        ],
+    )
+    selected = pool.select()
+    assert selected is not None and selected.id == "first"
+
+    hermes_home = tmp_path / "hermes"
+    (hermes_home / ".env").write_text(
+        "HERMES_CREDENTIAL_PIN_OPENAI_CODEX_LABEL=PINNED\n"
+    )
+    from hermes_cli.config import invalidate_env_cache
+
+    invalidate_env_cache()
+    current = pool.current()
+    assert current is not None and current.id == "pinned"
+
+
+def test_d3_credential_pin_source_error_fails_closed(tmp_path, monkeypatch):
+    pool = _load_d3_codex_pool(
+        tmp_path,
+        monkeypatch,
+        [_d3_codex_entry("first", "FIRST", 0)],
+    )
+    monkeypatch.setattr(
+        "agent.credential_pool.load_env",
+        lambda: (_ for _ in ()).throw(PermissionError("profile .env unreadable")),
+    )
+
+    with pytest.raises(PermissionError, match="unreadable"):
+        pool.select()
+
+
+def test_d3_credential_pin_does_not_refresh_sibling(tmp_path, monkeypatch):
+    pinned = _d3_codex_entry("pinned", "PINNED", 0)
+    sibling = _d3_codex_entry("sibling", "SIBLING", 1)
+    pinned["access_token"] = _jwt_with_claims({"exp": int(time.time() + 3600)})
+    sibling["access_token"] = _jwt_with_claims({"exp": int(time.time() + 1)})
+    pool = _load_d3_codex_pool(
+        tmp_path,
+        monkeypatch,
+        [pinned, sibling],
+        "HERMES_CREDENTIAL_PIN_OPENAI_CODEX_LABEL=PINNED\n",
+    )
+    refreshed = []
+    monkeypatch.setattr(
+        pool,
+        "_refresh_entry",
+        lambda entry, *, force=False: refreshed.append(entry.id) or entry,
+    )
+
+    selected = pool.select()
+
+    assert selected is not None and selected.id == "pinned"
+    assert refreshed == []
+
+
+def test_d3_credential_canonical_pin_fails_closed_on_duplicate_canonical_rows(
+    tmp_path, monkeypatch
+):
+    sibling = _d3_codex_entry("canonical-sibling", "SIBLING", 0)
+    pinned = _d3_codex_entry("canonical-pinned", "PINNED", 1)
+    sibling["source"] = "device_code"
+    pinned["source"] = "device_code"
+    pool = _load_d3_codex_pool(
+        tmp_path,
+        monkeypatch,
+        [sibling, pinned],
+        "HERMES_CREDENTIAL_PIN_OPENAI_CODEX_ID=canonical-pinned\n",
+    )
+
+    assert pool.has_available() is False
+    assert pool.select() is None
+    assert pool.peek() is None
+    assert pool.acquire_lease() is None
+
+
+def test_d3_credential_recovery_apis_do_not_touch_stale_sibling(tmp_path, monkeypatch):
+    pool = _load_d3_codex_pool(
+        tmp_path,
+        monkeypatch,
+        [
+            _d3_codex_entry("first", "FIRST", 0),
+            _d3_codex_entry("pinned", "PINNED", 1),
+        ],
+    )
+    selected = pool.select()
+    assert selected is not None and selected.id == "first"
+
+    hermes_home = tmp_path / "hermes"
+    (hermes_home / ".env").write_text(
+        "HERMES_CREDENTIAL_PIN_OPENAI_CODEX_ID=pinned\n"
+    )
+    from hermes_cli.config import invalidate_env_cache
+
+    invalidate_env_cache()
+    refreshed = []
+    monkeypatch.setattr(
+        pool,
+        "_refresh_entry",
+        lambda entry, *, force=False: refreshed.append(entry.id) or entry,
+    )
+
+    assert pool.entry_id_for_api_key(selected.runtime_api_key) is None
+    current = pool.try_refresh_current()
+    assert current is not None and current.id == "pinned"
+    assert refreshed == ["pinned"]
+
+    refreshed.clear()
+    assert pool.try_refresh_matching(credential_id="first") is None
+    assert refreshed == []
+
+    rotated = pool.mark_exhausted_and_rotate(
+        status_code=429,
+        credential_id="first",
+    )
+    assert rotated is not None and rotated.id == "pinned"
+    first = next(entry for entry in pool.entries() if entry.id == "first")
+    assert first.last_status is None
+
+
+def test_d3_credential_manual_pin_does_not_adopt_singleton_account(
+    tmp_path, monkeypatch
+):
+    manual = _d3_codex_entry("manual-pinned", "PINNED", 0)
+    pool = _load_d3_codex_pool(
+        tmp_path,
+        monkeypatch,
+        [manual],
+        "HERMES_CREDENTIAL_PIN_OPENAI_CODEX_ID=manual-pinned\n",
+    )
+    _write_auth_store(
+        tmp_path,
+        {
+            "version": 1,
+            "providers": {
+                "openai-codex": {
+                    "tokens": {
+                        "access_token": "singleton-account-token",
+                        "refresh_token": "singleton-account-refresh",
+                    }
+                }
+            },
+            "credential_pool": {"openai-codex": [manual]},
+        },
+    )
+
+    selected = pool.select()
+    assert selected is not None and selected.id == "manual-pinned"
+    refresh_inputs = []
+    monkeypatch.setattr(
+        "hermes_cli.auth.refresh_codex_oauth_pure",
+        lambda access_token, refresh_token: refresh_inputs.append(
+            (access_token, refresh_token)
+        )
+        or {
+            "access_token": "manual-refreshed-token",
+            "refresh_token": "manual-refreshed-refresh",
+        },
+    )
+
+    refreshed = pool.try_refresh_current()
+
+    assert refreshed is not None and refreshed.id == "manual-pinned"
+    assert refresh_inputs == [
+        (manual["access_token"], manual["refresh_token"])
+    ]
+
+
+def test_d3_credential_load_pool_does_not_seed_unpinned_singleton_sibling(
+    tmp_path, monkeypatch
+):
+    hermes_home = tmp_path / "hermes"
+    hermes_home.mkdir()
+    monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+    (hermes_home / ".env").write_text(
+        "HERMES_CREDENTIAL_PIN_OPENAI_CODEX_ID=manual-pinned\n"
+    )
+    manual = _d3_codex_entry("manual-pinned", "PINNED", 0)
+    canonical = _d3_codex_entry("canonical-sibling", "SIBLING", 1)
+    canonical["source"] = "device_code"
+    _write_auth_store(
+        tmp_path,
+        {
+            "version": 1,
+            "providers": {
+                "openai-codex": {
+                    "tokens": {
+                        "access_token": "singleton-new-token",
+                        "refresh_token": "singleton-new-refresh",
+                    }
+                }
+            },
+            "credential_pool": {"openai-codex": [manual, canonical]},
+        },
+    )
+    from agent.credential_pool import load_pool
+
+    selected = load_pool("openai-codex").select()
+
+    assert selected is not None and selected.id == "manual-pinned"
+    payload = json.loads((hermes_home / "auth.json").read_text())
+    persisted = next(
+        entry
+        for entry in payload["credential_pool"]["openai-codex"]
+        if entry["id"] == "canonical-sibling"
+    )
+    assert persisted["access_token"] == canonical["access_token"]
+    assert persisted["refresh_token"] == canonical["refresh_token"]
+
+
+def test_d3_credential_recovery_does_not_return_unavailable_pin_for_sibling_failure(
+    tmp_path, monkeypatch
+):
+    pinned = _d3_codex_entry("pinned-id", "PINNED", 0, status="exhausted")
+    sibling = _d3_codex_entry("sibling-id", "SIBLING", 1)
+    pool = _load_d3_codex_pool(
+        tmp_path,
+        monkeypatch,
+        [pinned, sibling],
+        "HERMES_CREDENTIAL_PIN_OPENAI_CODEX_ID=pinned-id\n",
+    )
+
+    recovered = pool.mark_exhausted_and_rotate(
+        status_code=429,
+        credential_id="sibling-id",
+        api_key_hint=sibling["access_token"],
+    )
+
+    assert pool.has_available() is False
+    assert recovered is None
+
+
+def test_d3_credential_pinned_refresh_preserves_concurrent_sibling_tokens(
+    tmp_path, monkeypatch
+):
+    target = _d3_codex_entry("pinned-id", "PINNED", 0)
+    sibling = _d3_codex_entry("sibling-id", "SIBLING", 1)
+    pool = _load_d3_codex_pool(
+        tmp_path,
+        monkeypatch,
+        [target, sibling],
+        "HERMES_CREDENTIAL_PIN_OPENAI_CODEX_ID=pinned-id\n",
+    )
+    assert pool.select() is not None
+
+    from hermes_cli.auth import write_credential_pool
+
+    concurrent_rows = [entry.to_dict() for entry in pool.entries()]
+    concurrent_sibling = next(
+        entry for entry in concurrent_rows if entry["id"] == "sibling-id"
+    )
+    concurrent_sibling["access_token"] = "sibling-concurrent-access"
+    concurrent_sibling["refresh_token"] = "sibling-concurrent-refresh"
+    write_credential_pool("openai-codex", concurrent_rows)
+
+    monkeypatch.setattr(
+        "agent.credential_pool.auth_mod.refresh_codex_oauth_pure",
+        lambda *_args, **_kwargs: {
+            "access_token": "target-refreshed-access",
+            "refresh_token": "target-refreshed-refresh",
+        },
+    )
+    assert pool.try_refresh_current() is not None
+
+    payload = json.loads((tmp_path / "hermes" / "auth.json").read_text())
+    persisted_sibling = next(
+        entry
+        for entry in payload["credential_pool"]["openai-codex"]
+        if entry["id"] == "sibling-id"
+    )
+    assert persisted_sibling["access_token"] == "sibling-concurrent-access"
+    assert persisted_sibling["refresh_token"] == "sibling-concurrent-refresh"
+
+
+def test_d3_credential_pinned_add_persists_new_entry_and_preserves_sibling(
+    tmp_path, monkeypatch
+):
+    target = _d3_codex_entry("pinned-id", "PINNED", 0)
+    sibling = _d3_codex_entry("sibling-id", "SIBLING", 1)
+    pool = _load_d3_codex_pool(
+        tmp_path,
+        monkeypatch,
+        [target, sibling],
+        "HERMES_CREDENTIAL_PIN_OPENAI_CODEX_ID=pinned-id\n",
+    )
+
+    from agent.credential_pool import PooledCredential
+    from hermes_cli.auth import write_credential_pool
+
+    concurrent_rows = [entry.to_dict() for entry in pool.entries()]
+    concurrent_sibling = next(
+        entry for entry in concurrent_rows if entry["id"] == "sibling-id"
+    )
+    concurrent_sibling["access_token"] = "sibling-concurrent-access"
+    concurrent_sibling["refresh_token"] = "sibling-concurrent-refresh"
+    write_credential_pool("openai-codex", concurrent_rows)
+
+    added = pool.add_entry(
+        PooledCredential.from_dict(
+            "openai-codex",
+            {
+                "id": "new-id",
+                "label": "NEW",
+                "auth_type": "oauth",
+                "source": "manual:device_code",
+                "access_token": "new-access",
+                "refresh_token": "new-refresh",
+            },
+        )
+    )
+    assert added.id == "new-id"
+
+    payload = json.loads((tmp_path / "hermes" / "auth.json").read_text())
+    entries = payload["credential_pool"]["openai-codex"]
+    assert {entry["id"] for entry in entries} == {"pinned-id", "sibling-id", "new-id"}
+    persisted_sibling = next(entry for entry in entries if entry["id"] == "sibling-id")
+    assert persisted_sibling["access_token"] == "sibling-concurrent-access"
+    assert persisted_sibling["refresh_token"] == "sibling-concurrent-refresh"
+
+
+def test_d3_credential_pinned_add_uses_latest_disk_priority(tmp_path, monkeypatch):
+    target = _d3_codex_entry("pinned-id", "PINNED", 0)
+    sibling = _d3_codex_entry("sibling-id", "SIBLING", 1)
+    pool = _load_d3_codex_pool(
+        tmp_path,
+        monkeypatch,
+        [target, sibling],
+        "HERMES_CREDENTIAL_PIN_OPENAI_CODEX_ID=pinned-id\n",
+    )
+
+    from agent.credential_pool import PooledCredential
+    from hermes_cli.auth import write_credential_pool
+
+    concurrent = _d3_codex_entry("concurrent-id", "CONCURRENT", 2)
+    write_credential_pool("openai-codex", [target, sibling, concurrent])
+
+    added = pool.add_entry(
+        PooledCredential.from_dict(
+            "openai-codex",
+            {
+                "id": "new-id",
+                "label": "NEW",
+                "auth_type": "oauth",
+                "source": "manual:device_code",
+                "access_token": "new-access",
+                "refresh_token": "new-refresh",
+            },
+        )
+    )
+
+    payload = json.loads((tmp_path / "hermes" / "auth.json").read_text())
+    entries = payload["credential_pool"]["openai-codex"]
+    assert [entry["priority"] for entry in entries] == [0, 1, 2, 3]
+    assert added.priority == 3
+
+
+def test_d3_credential_pinned_reset_statuses_persists_all_rows(tmp_path, monkeypatch):
+    target = _d3_codex_entry("pinned-id", "PINNED", 0)
+    sibling = _d3_codex_entry("sibling-id", "SIBLING", 1)
+    for entry in (target, sibling):
+        entry["last_status"] = "rate_limited"
+        entry["last_status_at"] = 123.0
+        entry["last_error_code"] = "rate_limit_exceeded"
+        entry["last_error_reason"] = "rate_limit_exceeded"
+        entry["last_error_message"] = "limited"
+        entry["last_error_reset_at"] = 456.0
+    pool = _load_d3_codex_pool(
+        tmp_path,
+        monkeypatch,
+        [target, sibling],
+        "HERMES_CREDENTIAL_PIN_OPENAI_CODEX_ID=pinned-id\n",
+    )
+
+    assert pool.reset_statuses() == 2
+
+    payload = json.loads((tmp_path / "hermes" / "auth.json").read_text())
+    entries = payload["credential_pool"]["openai-codex"]
+    assert {entry["id"] for entry in entries} == {"pinned-id", "sibling-id"}
+    for entry in entries:
+        assert not any(
+            entry.get(key)
+            for key in (
+                "last_status",
+                "last_status_at",
+                "last_error_code",
+                "last_error_reason",
+                "last_error_message",
+                "last_error_reset_at",
+            )
+        )
+
+
+def test_d3_credential_pinned_reset_failure_keeps_memory_unchanged(
+    tmp_path, monkeypatch
+):
+    target = _d3_codex_entry("pinned-id", "PINNED", 0, status="exhausted")
+    target["last_error_code"] = "429"
+    sibling = _d3_codex_entry("sibling-id", "SIBLING", 1, status="dead")
+    sibling["last_error_reason"] = "invalid_grant"
+    pool = _load_d3_codex_pool(
+        tmp_path,
+        monkeypatch,
+        [target, sibling],
+        "HERMES_CREDENTIAL_PIN_OPENAI_CODEX_ID=pinned-id\n",
+    )
+
+    from hermes_cli.auth import AuthError
+
+    def fail_reset():
+        raise AuthError("write failed", code="codex_pool_write_failed")
+
+    monkeypatch.setattr(
+        "agent.credential_pool.auth_mod._reset_codex_pool_statuses_atomic",
+        fail_reset,
+    )
+
+    with pytest.raises(AuthError) as excinfo:
+        pool.reset_statuses()
+
+    assert excinfo.value.code == "codex_pool_write_failed"
+    entries = pool.entries()
+    assert [entry.last_status for entry in entries] == ["exhausted", "dead"]
+    assert entries[0].last_error_code == "429"
+    assert entries[1].last_error_reason == "invalid_grant"
+
+
+def test_d3_credential_pinned_reset_reads_latest_disk_statuses(tmp_path, monkeypatch):
+    target = _d3_codex_entry("pinned-id", "PINNED", 0)
+    pool = _load_d3_codex_pool(
+        tmp_path,
+        monkeypatch,
+        [target],
+        "HERMES_CREDENTIAL_PIN_OPENAI_CODEX_ID=pinned-id\n",
+    )
+
+    from hermes_cli.auth import write_credential_pool
+
+    exhausted_sibling = _d3_codex_entry("exhausted-id", "EXHAUSTED", 1)
+    exhausted_sibling["last_status"] = "exhausted"
+    exhausted_sibling["last_error_code"] = "429"
+    reason_only_sibling = _d3_codex_entry("reason-id", "REASON", 2)
+    reason_only_sibling["last_error_reason"] = "invalid_grant"
+    reason_only_sibling["last_error_message"] = "refresh failed"
+    reason_only_sibling["last_error_reset_at"] = 789.0
+    write_credential_pool(
+        "openai-codex",
+        [target, exhausted_sibling, reason_only_sibling],
+    )
+
+    assert pool.reset_statuses() == 2
+
+    payload = json.loads((tmp_path / "hermes" / "auth.json").read_text())
+    entries = payload["credential_pool"]["openai-codex"]
+    assert {entry["id"] for entry in entries} == {
+        "pinned-id",
+        "exhausted-id",
+        "reason-id",
+    }
+    for entry in entries:
+        assert not any(
+            entry.get(key)
+            for key in (
+                "last_status",
+                "last_status_at",
+                "last_error_code",
+                "last_error_reason",
+                "last_error_message",
+                "last_error_reset_at",
+            )
+        )
+
+
+def test_d3_credential_pinned_reset_reconciles_latest_disk_before_followup_write(
+    tmp_path, monkeypatch
+):
+    target = _d3_codex_entry("pinned-id", "PINNED", 0, status="exhausted")
+    pool = _load_d3_codex_pool(
+        tmp_path,
+        monkeypatch,
+        [target],
+        "HERMES_CREDENTIAL_PIN_OPENAI_CODEX_ID=pinned-id\n",
+    )
+
+    from hermes_cli.auth import write_credential_pool
+
+    latest_target = dict(target)
+    latest_target["access_token"] = "latest-target-access"
+    latest_target["refresh_token"] = "latest-target-refresh"
+    latest_sibling = _d3_codex_entry("latest-id", "LATEST", 1)
+    write_credential_pool("openai-codex", [latest_target, latest_sibling])
+
+    assert pool.reset_statuses() == 1
+    assert [entry.id for entry in pool.entries()] == ["pinned-id", "latest-id"]
+    assert pool.entries()[0].access_token == "latest-target-access"
+    assert pool.entries()[0].refresh_token == "latest-target-refresh"
+
+    pool._mark_exhausted(pool.entries()[0], 429)
+    payload = json.loads((tmp_path / "hermes" / "auth.json").read_text())
+    persisted_target = next(
+        entry
+        for entry in payload["credential_pool"]["openai-codex"]
+        if entry["id"] == "pinned-id"
+    )
+    assert persisted_target["access_token"] == "latest-target-access"
+    assert persisted_target["refresh_token"] == "latest-target-refresh"
+
+
+def test_d3_credential_pinned_status_write_merges_latest_disk_tokens(
+    tmp_path, monkeypatch
+):
+    target = _d3_codex_entry("pinned-id", "PINNED", 0)
+    pool = _load_d3_codex_pool(
+        tmp_path,
+        monkeypatch,
+        [target],
+        "HERMES_CREDENTIAL_PIN_OPENAI_CODEX_ID=pinned-id\n",
+    )
+
+    from hermes_cli.auth import write_credential_pool
+
+    latest_target = dict(target)
+    latest_target["access_token"] = "latest-status-access"
+    latest_target["refresh_token"] = "latest-status-refresh"
+    write_credential_pool("openai-codex", [latest_target])
+
+    updated = pool._mark_exhausted(pool.entries()[0], 429)
+
+    assert updated.last_status == "exhausted"
+    assert updated.access_token == "latest-status-access"
+    assert updated.refresh_token == "latest-status-refresh"
+    assert pool.entries()[0] == updated
+    payload = json.loads((tmp_path / "hermes" / "auth.json").read_text())
+    persisted = payload["credential_pool"]["openai-codex"][0]
+    assert persisted["access_token"] == "latest-status-access"
+    assert persisted["refresh_token"] == "latest-status-refresh"
+    assert persisted["last_status"] == "exhausted"
+
+
+def test_d3_credential_pinned_codex_sync_failure_keeps_memory_and_disk_atomic(
+    tmp_path, monkeypatch
+):
+    hermes_home = tmp_path / "hermes"
+    hermes_home.mkdir()
+    monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+    monkeypatch.setattr("hermes_cli.auth._import_codex_cli_tokens", lambda: None)
+    target = _d3_codex_entry("pinned-id", "PINNED", 0)
+    target["source"] = "device_code"
+    _write_auth_store(
+        tmp_path,
+        {
+            "version": 1,
+            "providers": {
+                "openai-codex": {
+                    "tokens": {
+                        "access_token": target["access_token"],
+                        "refresh_token": target["refresh_token"],
+                    }
+                }
+            },
+            "credential_pool": {"openai-codex": [target]},
+        },
+    )
+    (hermes_home / ".env").write_text(
+        "HERMES_CREDENTIAL_PIN_OPENAI_CODEX_ID=pinned-id\n"
+    )
+    from agent.credential_pool import load_pool
+
+    pool = load_pool("openai-codex")
+    before_memory = pool.entries()
+    auth_path = hermes_home / "auth.json"
+    payload = json.loads(auth_path.read_text())
+    payload["providers"]["openai-codex"]["tokens"] = {
+        "access_token": "canonical-new-access",
+        "refresh_token": "canonical-new-refresh",
+    }
+    auth_path.write_text(json.dumps(payload))
+    before_disk = auth_path.read_text()
+
+    from hermes_cli.auth import AuthError
+    import agent.credential_pool as credential_pool_module
+
+    def reject_atomic_sync(_credential_id):
+        raise AuthError(
+            "synthetic exact save failure",
+            provider="openai-codex",
+            code="codex_target_credential_changed",
+            relogin_required=False,
+        )
+
+    monkeypatch.setattr(
+        credential_pool_module.auth_mod,
+        "_sync_codex_pool_credential_from_provider_exact",
+        reject_atomic_sync,
+    )
+
+    for _attempt in range(2):
+        returned = pool._sync_codex_entry_from_auth_store(pool.entries()[0])
+        assert returned == before_memory[0]
+        assert pool.entries() == before_memory
+        assert auth_path.read_text() == before_disk
+
+
+def test_d3_credential_pinned_codex_sync_reconciles_authoritative_siblings(
+    tmp_path, monkeypatch
+):
+    hermes_home = tmp_path / "hermes"
+    hermes_home.mkdir()
+    monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+    monkeypatch.setattr("hermes_cli.auth._import_codex_cli_tokens", lambda: None)
+    target = _d3_codex_entry("pinned-id", "PINNED", 0)
+    target["source"] = "device_code"
+    sibling = _d3_codex_entry("sibling-id", "SIBLING", 1)
+    _write_auth_store(
+        tmp_path,
+        {
+            "version": 1,
+            "providers": {
+                "openai-codex": {
+                    "tokens": {
+                        "access_token": target["access_token"],
+                        "refresh_token": target["refresh_token"],
+                    }
+                }
+            },
+            "credential_pool": {"openai-codex": [target, sibling]},
+        },
+    )
+    (hermes_home / ".env").write_text(
+        "HERMES_CREDENTIAL_PIN_OPENAI_CODEX_ID=pinned-id\n"
+    )
+    from agent.credential_pool import load_pool
+
+    pool = load_pool("openai-codex")
+    auth_path = hermes_home / "auth.json"
+    payload = json.loads(auth_path.read_text())
+    payload["providers"]["openai-codex"]["tokens"] = {
+        "access_token": "canonical-new-access",
+        "refresh_token": "canonical-new-refresh",
+    }
+    persisted_sibling = next(
+        row
+        for row in payload["credential_pool"]["openai-codex"]
+        if row["id"] == "sibling-id"
+    )
+    persisted_sibling["access_token"] = "sibling-concurrent-access"
+    persisted_sibling["refresh_token"] = "sibling-concurrent-refresh"
+    persisted_sibling["last_status"] = "exhausted"
+    auth_path.write_text(json.dumps(payload))
+
+    synced = pool._sync_codex_entry_from_auth_store(pool.entries()[0])
+
+    assert synced.access_token == "canonical-new-access"
+    assert synced.refresh_token == "canonical-new-refresh"
+    live_rows = {entry.id: entry for entry in pool.entries()}
+    assert live_rows["sibling-id"].access_token == "sibling-concurrent-access"
+    assert live_rows["sibling-id"].refresh_token == "sibling-concurrent-refresh"
+    assert live_rows["sibling-id"].last_status == "exhausted"
+    disk_rows = {
+        row["id"]: row
+        for row in json.loads(auth_path.read_text())["credential_pool"]["openai-codex"]
+    }
+    assert list(live_rows) == list(disk_rows)
+    for entry_id, live in live_rows.items():
+        assert live.access_token == disk_rows[entry_id].get("access_token")
+        assert live.refresh_token == disk_rows[entry_id].get("refresh_token")
+        assert live.last_status == disk_rows[entry_id].get("last_status")
+
+
+def test_d3_credential_pinned_codex_sync_uses_single_auth_store_transaction(
+    tmp_path, monkeypatch
+):
+    hermes_home = tmp_path / "hermes"
+    hermes_home.mkdir()
+    monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+    monkeypatch.setattr("hermes_cli.auth._import_codex_cli_tokens", lambda: None)
+    target = _d3_codex_entry("pinned-id", "PINNED", 0)
+    target["source"] = "device_code"
+    _write_auth_store(
+        tmp_path,
+        {
+            "version": 1,
+            "providers": {
+                "openai-codex": {
+                    "tokens": {
+                        "access_token": "canonical-latest-access",
+                        "refresh_token": "canonical-latest-refresh",
+                    }
+                }
+            },
+            "credential_pool": {"openai-codex": [target]},
+        },
+    )
+    (hermes_home / ".env").write_text(
+        "HERMES_CREDENTIAL_PIN_OPENAI_CODEX_ID=pinned-id\n"
+    )
+    from agent.credential_pool import load_pool
+
+    pool = load_pool("openai-codex")
+    before = pool.entries()[0]
+
+    def reject_split_lock_commit(_payload):
+        raise AssertionError("canonical sync must not use split-lock exact replacement")
+
+    monkeypatch.setattr(
+        "agent.credential_pool.auth_mod._replace_codex_pool_credential_exact",
+        reject_split_lock_commit,
+    )
+
+    synced = pool._sync_codex_entry_from_auth_store(before)
+
+    assert synced.access_token == "canonical-latest-access"
+    assert synced.refresh_token == "canonical-latest-refresh"
+    assert pool.entries()[0] == synced
+
+
+def test_d3_credential_pinned_codex_refresh_rejects_ambiguous_identity_atomically(
+    tmp_path, monkeypatch
+):
+    hermes_home = tmp_path / "hermes"
+    hermes_home.mkdir()
+    monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+    monkeypatch.setattr("hermes_cli.auth._import_codex_cli_tokens", lambda: None)
+    target = _d3_codex_entry("pinned-id", "PINNED", 0)
+    target["source"] = "device_code"
+    sibling = _d3_codex_entry("sibling-id", "SIBLING", 1)
+    _write_auth_store(
+        tmp_path,
+        {
+            "version": 1,
+            "providers": {
+                "openai-codex": {
+                    "tokens": {
+                        "access_token": target["access_token"],
+                        "refresh_token": target["refresh_token"],
+                    }
+                }
+            },
+            "credential_pool": {"openai-codex": [target, sibling]},
+        },
+    )
+    (hermes_home / ".env").write_text(
+        "HERMES_CREDENTIAL_PIN_OPENAI_CODEX_ID=pinned-id\n"
+    )
+    from agent.credential_pool import load_pool
+    from hermes_cli.auth import AuthError
+    import agent.credential_pool as credential_pool_module
+
+    pool = load_pool("openai-codex")
+    pool._current_id = "pinned-id"
+    before_memory = pool.entries()
+    auth_path = hermes_home / "auth.json"
+    payload = json.loads(auth_path.read_text())
+    payload["credential_pool"]["openai-codex"].append(dict(target))
+    auth_path.write_text(json.dumps(payload))
+    before_disk = auth_path.read_text()
+
+    def must_not_refresh(*_args, **_kwargs):
+        raise AssertionError("refresh must not start after identity rejection")
+
+    monkeypatch.setattr(
+        credential_pool_module.auth_mod,
+        "refresh_codex_oauth_pure",
+        must_not_refresh,
+    )
+    with pytest.raises(AuthError) as excinfo:
+        pool._refresh_entry_impl(pool.entries()[0], force=True)
+
+    assert excinfo.value.code == "codex_target_credential_changed"
+    assert pool.entries() == before_memory
+    assert pool._current_id == "pinned-id"
+    assert auth_path.read_text() == before_disk
+
+
+def test_d3_credential_pinned_codex_sync_clears_failure_reason(
+    tmp_path, monkeypatch
+):
+    hermes_home = tmp_path / "hermes"
+    hermes_home.mkdir()
+    monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+    monkeypatch.setattr("hermes_cli.auth._import_codex_cli_tokens", lambda: None)
+    target = _d3_codex_entry("pinned-id", "PINNED", 0)
+    target.update(
+        {
+            "source": "device_code",
+            "last_status": "exhausted",
+            "last_error_code": 429,
+            "failure_reason": "billing",
+        }
+    )
+    _write_auth_store(
+        tmp_path,
+        {
+            "version": 1,
+            "providers": {
+                "openai-codex": {
+                    "tokens": {
+                        "access_token": "canonical-access-current",
+                        "refresh_token": "canonical-refresh-current",
+                    }
+                }
+            },
+            "credential_pool": {"openai-codex": [target]},
+        },
+    )
+    (hermes_home / ".env").write_text(
+        "HERMES_CREDENTIAL_PIN_OPENAI_CODEX_ID=pinned-id\n"
+    )
+    from agent.credential_pool import load_pool
+
+    pool = load_pool("openai-codex")
+    synced = pool._sync_codex_entry_from_auth_store(pool.entries()[0])
+    persisted = json.loads((hermes_home / "auth.json").read_text())[
+        "credential_pool"
+    ]["openai-codex"][0]
+
+    assert synced.last_status is None
+    assert "failure_reason" not in persisted
+
+
+def test_d3_codex_sync_rejects_ineligible_canonical_target(tmp_path, monkeypatch):
+    hermes_home = tmp_path / "hermes"
+    hermes_home.mkdir()
+    monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+    target = _d3_codex_entry("pinned-id", "PINNED", 0)
+    target.update({"source": "manual:device_code", "auth_type": "api_key"})
+    _write_auth_store(
+        tmp_path,
+        {
+            "version": 1,
+            "providers": {
+                "openai-codex": {
+                    "tokens": {
+                        "access_token": "canonical-new-access",
+                        "refresh_token": "canonical-new-refresh",
+                    }
+                }
+            },
+            "credential_pool": {"openai-codex": [target]},
+        },
+    )
+    from hermes_cli.auth import (
+        AuthError,
+        _sync_codex_pool_credential_from_provider_exact,
+    )
+
+    auth_path = hermes_home / "auth.json"
+    before = auth_path.read_text()
+    with pytest.raises(AuthError) as excinfo:
+        _sync_codex_pool_credential_from_provider_exact("pinned-id")
+    assert excinfo.value.code == "codex_target_credential_changed"
+    assert auth_path.read_text() == before
+
+
+def test_d3_codex_quarantine_rejects_distinct_canonical_sibling(
+    tmp_path, monkeypatch
+):
+    hermes_home = tmp_path / "hermes"
+    hermes_home.mkdir()
+    monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+    target = _d3_codex_entry("pinned-id", "PINNED", 0)
+    target["source"] = "device_code"
+    sibling = _d3_codex_entry("canonical-sibling", "SIBLING", 1)
+    sibling["source"] = "device_code"
+    _write_auth_store(
+        tmp_path,
+        {
+            "version": 1,
+            "providers": {
+                "openai-codex": {
+                    "tokens": {
+                        "access_token": target["access_token"],
+                        "refresh_token": target["refresh_token"],
+                    }
+                }
+            },
+            "credential_pool": {"openai-codex": [target, sibling]},
+        },
+    )
+    from hermes_cli.auth import AuthError, _quarantine_codex_pool_credential_exact
+
+    auth_path = hermes_home / "auth.json"
+    before = auth_path.read_text()
+    with pytest.raises(AuthError) as excinfo:
+        _quarantine_codex_pool_credential_exact(
+            "pinned-id",
+            target["access_token"],
+            target["refresh_token"],
+            {},
+        )
+    assert excinfo.value.code == "codex_target_credential_changed"
+    assert auth_path.read_text() == before
+
+
+def test_d3_codex_quarantine_preserves_access_only_provider_rotation(
+    tmp_path, monkeypatch
+):
+    hermes_home = tmp_path / "hermes"
+    hermes_home.mkdir()
+    monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+    target = _d3_codex_entry("pinned-id", "PINNED", 0)
+    target["source"] = "device_code"
+    old_access = target["access_token"]
+    old_refresh = target["refresh_token"]
+    _write_auth_store(
+        tmp_path,
+        {
+            "version": 1,
+            "providers": {
+                "openai-codex": {
+                    "tokens": {"access_token": "canonical-new-access"}
+                }
+            },
+            "credential_pool": {"openai-codex": [target]},
+        },
+    )
+    from hermes_cli.auth import (
+        _quarantine_codex_pool_credential_exact,
+        _sync_codex_pool_credential_from_provider_exact,
+    )
+
+    synced = _sync_codex_pool_credential_from_provider_exact("pinned-id")
+    assert synced[0]["access_token"] == "canonical-new-access"
+    rows, quarantined = _quarantine_codex_pool_credential_exact(
+        "pinned-id", old_access, old_refresh, {}
+    )
+    persisted = json.loads((hermes_home / "auth.json").read_text())
+    assert quarantined is False
+    assert rows[0]["id"] == "pinned-id"
+    assert persisted["providers"]["openai-codex"]["tokens"][
+        "access_token"
+    ] == "canonical-new-access"
+
+
+def test_d3_codex_quarantine_updates_global_fallback_source(tmp_path, monkeypatch):
+    import hermes_cli.auth as auth_module
+
+    profile_path = tmp_path / "profile-auth.json"
+    global_path = tmp_path / "global-auth.json"
+    target = _d3_codex_entry("pinned-id", "PINNED", 0)
+    target["source"] = "device_code"
+    profile_path.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "providers": {},
+                "credential_pool": {"openai-codex": [target]},
+            }
+        )
+    )
+    global_path.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "providers": {
+                    "openai-codex": {
+                        "tokens": {
+                            "access_token": target["access_token"],
+                            "refresh_token": target["refresh_token"],
+                        }
+                    }
+                },
+            }
+        )
+    )
+    monkeypatch.setattr(auth_module, "_auth_file_path", lambda: profile_path)
+    monkeypatch.setattr(auth_module, "_global_auth_file_path", lambda: global_path)
+
+    rows, quarantined = auth_module._quarantine_codex_pool_credential_exact(
+        "pinned-id",
+        target["access_token"],
+        target["refresh_token"],
+        {"reason": "synthetic-terminal"},
+    )
+
+    profile = json.loads(profile_path.read_text())
+    root = json.loads(global_path.read_text())
+    assert quarantined is True
+    assert rows == []
+    assert profile["credential_pool"]["openai-codex"] == []
+    assert "access_token" not in root["providers"]["openai-codex"]["tokens"]
+    assert "refresh_token" not in root["providers"]["openai-codex"]["tokens"]
+
+
+def test_d3_codex_quarantine_global_source_failure_restores_profile_pool(
+    tmp_path, monkeypatch
+):
+    import hermes_cli.auth as auth_module
+
+    profile_path = tmp_path / "profile-auth.json"
+    global_path = tmp_path / "global-auth.json"
+    target = _d3_codex_entry("pinned-id", "PINNED", 0)
+    target["source"] = "device_code"
+    profile_payload = {
+        "version": 1,
+        "providers": {},
+        "credential_pool": {"openai-codex": [target]},
+    }
+    global_payload = {
+        "version": 1,
+        "providers": {
+            "openai-codex": {
+                "tokens": {
+                    "access_token": target["access_token"],
+                    "refresh_token": target["refresh_token"],
+                }
+            }
+        },
+    }
+    profile_path.write_text(json.dumps(profile_payload))
+    global_path.write_text(json.dumps(global_payload))
+    monkeypatch.setattr(auth_module, "_auth_file_path", lambda: profile_path)
+    monkeypatch.setattr(auth_module, "_global_auth_file_path", lambda: global_path)
+
+    def reject_source_save(*_args, **_kwargs):
+        raise OSError("source save failed")
+
+    monkeypatch.setattr(
+        auth_module,
+        "_save_provider_state_to_source",
+        reject_source_save,
+    )
+
+    with pytest.raises(OSError, match="source save failed"):
+        auth_module._quarantine_codex_pool_credential_exact(
+            "pinned-id",
+            target["access_token"],
+            target["refresh_token"],
+            {"reason": "synthetic-terminal"},
+        )
+
+    assert json.loads(profile_path.read_text()) == profile_payload
+    assert json.loads(global_path.read_text()) == global_payload
+
+
+def test_d3_codex_quarantine_post_commit_source_failure_restores_both_stores(
+    tmp_path, monkeypatch
+):
+    import hermes_cli.auth as auth_module
+
+    profile_path = tmp_path / "profile-auth.json"
+    global_path = tmp_path / "global-auth.json"
+    target = _d3_codex_entry("pinned-id", "PINNED", 0)
+    target["source"] = "device_code"
+    profile_payload = {
+        "version": 1,
+        "providers": {},
+        "credential_pool": {"openai-codex": [target]},
+    }
+    global_payload = {
+        "version": 1,
+        "providers": {
+            "openai-codex": {
+                "tokens": {
+                    "access_token": target["access_token"],
+                    "refresh_token": target["refresh_token"],
+                }
+            }
+        },
+    }
+    profile_path.write_text(json.dumps(profile_payload))
+    global_path.write_text(json.dumps(global_payload))
+    profile_before = profile_path.read_bytes()
+    global_before = global_path.read_bytes()
+    monkeypatch.setattr(auth_module, "_auth_file_path", lambda: profile_path)
+    monkeypatch.setattr(auth_module, "_global_auth_file_path", lambda: global_path)
+    real_source_save = auth_module._save_provider_state_to_source
+
+    def commit_then_raise(*args, **kwargs):
+        real_source_save(*args, **kwargs)
+        raise OSError("post-commit source save failed")
+
+    monkeypatch.setattr(
+        auth_module,
+        "_save_provider_state_to_source",
+        commit_then_raise,
+    )
+
+    with pytest.raises(OSError, match="post-commit source save failed"):
+        auth_module._quarantine_codex_pool_credential_exact(
+            "pinned-id",
+            target["access_token"],
+            target["refresh_token"],
+            {"reason": "synthetic-terminal"},
+        )
+
+    assert profile_path.read_bytes() == profile_before
+    assert global_path.read_bytes() == global_before
+
+
+def test_d3_codex_quarantine_post_commit_active_failure_restores_both_stores(
+    tmp_path, monkeypatch
+):
+    import hermes_cli.auth as auth_module
+
+    profile_path = tmp_path / "profile-auth.json"
+    global_path = tmp_path / "global-auth.json"
+    target = _d3_codex_entry("pinned-id", "PINNED", 0)
+    target["source"] = "device_code"
+    profile_payload = {
+        "version": 1,
+        "providers": {},
+        "credential_pool": {"openai-codex": [target]},
+    }
+    global_payload = {
+        "version": 1,
+        "providers": {
+            "openai-codex": {
+                "tokens": {
+                    "access_token": target["access_token"],
+                    "refresh_token": target["refresh_token"],
+                }
+            }
+        },
+    }
+    profile_path.write_text(json.dumps(profile_payload))
+    global_path.write_text(json.dumps(global_payload))
+    profile_before = profile_path.read_bytes()
+    global_before = global_path.read_bytes()
+    monkeypatch.setattr(auth_module, "_auth_file_path", lambda: profile_path)
+    monkeypatch.setattr(auth_module, "_global_auth_file_path", lambda: global_path)
+    real_active_save = auth_module._save_auth_store
+
+    def commit_then_raise(store, target_path=None):
+        result = real_active_save(store, target_path=target_path)
+        if target_path is None:
+            raise OSError("post-commit active save failed")
+        return result
+
+    monkeypatch.setattr(auth_module, "_save_auth_store", commit_then_raise)
+
+    with pytest.raises(OSError, match="post-commit active save failed"):
+        auth_module._quarantine_codex_pool_credential_exact(
+            "pinned-id",
+            target["access_token"],
+            target["refresh_token"],
+            {"reason": "synthetic-terminal"},
+        )
+
+    assert profile_path.read_bytes() == profile_before
+    assert global_path.read_bytes() == global_before
+
+
+@pytest.mark.parametrize("rollback_target", ["source", "active"])
+def test_d3_codex_quarantine_rollback_failure_preserves_operation_error(
+    tmp_path, monkeypatch, caplog, rollback_target
+):
+    import hermes_cli.auth as auth_module
+
+    profile_path = tmp_path / "profile-auth.json"
+    global_path = tmp_path / "global-auth.json"
+    target = _d3_codex_entry("pinned-id", "PINNED", 0)
+    target["source"] = "device_code"
+    profile_payload = {
+        "version": 1,
+        "providers": {},
+        "credential_pool": {"openai-codex": [target]},
+    }
+    global_payload = {
+        "version": 1,
+        "providers": {
+            "openai-codex": {
+                "tokens": {
+                    "access_token": target["access_token"],
+                    "refresh_token": target["refresh_token"],
+                }
+            }
+        },
+    }
+    profile_path.write_text(json.dumps(profile_payload))
+    global_path.write_text(json.dumps(global_payload))
+    profile_before = profile_path.read_bytes()
+    global_before = global_path.read_bytes()
+    monkeypatch.setattr(auth_module, "_auth_file_path", lambda: profile_path)
+    monkeypatch.setattr(auth_module, "_global_auth_file_path", lambda: global_path)
+    real_source_save = auth_module._save_provider_state_to_source
+    real_restore = auth_module._restore_auth_store_bytes
+
+    def commit_then_raise(*args, **kwargs):
+        real_source_save(*args, **kwargs)
+        raise OSError("post-commit source save failed")
+
+    def fail_selected_rollback(path, payload):
+        if (rollback_target == "source" and path == global_path) or (
+            rollback_target == "active" and path == profile_path
+        ):
+            raise OSError(f"{rollback_target} rollback failed")
+        real_restore(path, payload)
+
+    monkeypatch.setattr(
+        auth_module, "_save_provider_state_to_source", commit_then_raise
+    )
+    monkeypatch.setattr(
+        auth_module, "_restore_auth_store_bytes", fail_selected_rollback
+    )
+
+    with caplog.at_level("CRITICAL"), pytest.raises(
+        OSError, match="post-commit source save failed"
+    ) as exc_info:
+        auth_module._quarantine_codex_pool_credential_exact(
+            "pinned-id",
+            target["access_token"],
+            target["refresh_token"],
+            {"reason": "synthetic-terminal"},
+        )
+
+    assert (profile_path.read_bytes() == profile_before) is (
+        rollback_target == "source"
+    )
+    assert (global_path.read_bytes() == global_before) is (
+        rollback_target == "active"
+    )
+    assert any(
+        f"{rollback_target} rollback failed" in note
+        for note in exc_info.value.__notes__
+    )
+    assert "credential quarantine rollback failed" in caplog.text
+    assert str(profile_path) in caplog.text
+    assert str(global_path) in caplog.text
+
+
+def test_d3_restore_auth_store_bytes_fsyncs_file_and_parent_directory(
+    tmp_path, monkeypatch
+):
+    import hermes_cli.auth as auth_module
+
+    target_path = tmp_path / "auth.json"
+    target_path.write_bytes(b"old")
+    observed = []
+    real_fsync = auth_module.os.fsync
+
+    def record_fsync(fd):
+        observed.append(stat.S_ISDIR(auth_module.os.fstat(fd).st_mode))
+        real_fsync(fd)
+
+    monkeypatch.setattr(auth_module.os, "fsync", record_fsync)
+
+    auth_module._restore_auth_store_bytes(target_path, b"restored")
+
+    assert target_path.read_bytes() == b"restored"
+    assert observed == [False, True]
+
+
+@pytest.mark.parametrize("failed_restore", ["source", "active"])
+def test_d3_codex_quarantine_restore_directory_fsync_failure_is_diagnosed(
+    tmp_path, monkeypatch, caplog, failed_restore
+):
+    import hermes_cli.auth as auth_module
+
+    profile_path = tmp_path / "profile-auth.json"
+    global_path = tmp_path / "global-auth.json"
+    target = _d3_codex_entry("pinned-id", "PINNED", 0)
+    target["source"] = "device_code"
+    profile_path.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "providers": {},
+                "credential_pool": {"openai-codex": [target]},
+            }
+        )
+    )
+    global_path.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "providers": {
+                    "openai-codex": {
+                        "tokens": {
+                            "access_token": target["access_token"],
+                            "refresh_token": target["refresh_token"],
+                        }
+                    }
+                },
+            }
+        )
+    )
+    monkeypatch.setattr(auth_module, "_auth_file_path", lambda: profile_path)
+    monkeypatch.setattr(auth_module, "_global_auth_file_path", lambda: global_path)
+    real_source_save = auth_module._save_provider_state_to_source
+    real_fsync = auth_module.os.fsync
+    directory_fsyncs = 0
+
+    def commit_then_raise(*args, **kwargs):
+        real_source_save(*args, **kwargs)
+        raise OSError("post-commit source save failed")
+
+    def fail_selected_directory_fsync(fd):
+        nonlocal directory_fsyncs
+        if stat.S_ISDIR(auth_module.os.fstat(fd).st_mode):
+            directory_fsyncs += 1
+            failed_index = 3 if failed_restore == "source" else 4
+            if directory_fsyncs == failed_index:
+                raise OSError(f"{failed_restore} restore directory fsync failed")
+        real_fsync(fd)
+
+    monkeypatch.setattr(
+        auth_module, "_save_provider_state_to_source", commit_then_raise
+    )
+    monkeypatch.setattr(auth_module.os, "fsync", fail_selected_directory_fsync)
+
+    with caplog.at_level("CRITICAL"), pytest.raises(
+        OSError, match="post-commit source save failed"
+    ) as exc_info:
+        auth_module._quarantine_codex_pool_credential_exact(
+            "pinned-id",
+            target["access_token"],
+            target["refresh_token"],
+            {"reason": "synthetic-terminal"},
+        )
+
+    assert directory_fsyncs == 4
+    assert any(
+        f"{failed_restore} restore directory fsync failed" in note
+        for note in exc_info.value.__notes__
+    )
+    assert "credential quarantine rollback failed" in caplog.text
+
+
+def test_d3_pinned_codex_refresh_source_commit_failure_restores_both_stores(
+    tmp_path, monkeypatch
+):
+    import hermes_cli.auth as auth_module
+
+    target = _d3_codex_entry("pinned-id", "PINNED", 0)
+    target["source"] = "device_code"
+    pool = _load_d3_codex_pool(
+        tmp_path,
+        monkeypatch,
+        [target],
+        "HERMES_CREDENTIAL_PIN_OPENAI_CODEX_ID=pinned-id\n",
+    )
+    profile_path = tmp_path / "hermes" / "auth.json"
+    global_path = tmp_path / "global-auth.json"
+    global_path.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "providers": {
+                    "openai-codex": {
+                        "tokens": {
+                            "access_token": target["access_token"],
+                            "refresh_token": target["refresh_token"],
+                        }
+                    }
+                },
+            }
+        )
+    )
+    monkeypatch.setattr(auth_module, "_global_auth_file_path", lambda: global_path)
+    profile_before = profile_path.read_bytes()
+    global_before = global_path.read_bytes()
+    previous = pool.entries()[0]
+    updated_payload = previous.to_dict()
+    updated_payload["access_token"] = "new-access"
+    updated_payload["refresh_token"] = "new-refresh"
+    updated = type(previous).from_dict("openai-codex", updated_payload)
+    pool._current_id = previous.id
+    real_source_save = auth_module._save_provider_state_to_source
+
+    def commit_then_raise(*args, **kwargs):
+        real_source_save(*args, **kwargs)
+        raise OSError("post-commit refresh source save failed")
+
+    monkeypatch.setattr(
+        auth_module, "_save_provider_state_to_source", commit_then_raise
+    )
+
+    with pytest.raises(OSError, match="post-commit refresh source save failed"):
+        pool._commit_credential_update(previous, updated)
+
+    assert profile_path.read_bytes() == profile_before
+    assert global_path.read_bytes() == global_before
+    assert pool.entries()[0].access_token == previous.access_token
+    assert pool.entries()[0].refresh_token == previous.refresh_token
+    assert pool._current_id == previous.id
+
+
+def test_d3_pinned_codex_refresh_global_success_preserves_active_providers(
+    tmp_path, monkeypatch
+):
+    import hermes_cli.auth as auth_module
+
+    target = _d3_codex_entry("pinned-id", "PINNED", 0)
+    target["source"] = "device_code"
+    pool = _load_d3_codex_pool(
+        tmp_path,
+        monkeypatch,
+        [target],
+        "HERMES_CREDENTIAL_PIN_OPENAI_CODEX_ID=pinned-id\n",
+    )
+    profile_path = tmp_path / "hermes" / "auth.json"
+    profile_payload = json.loads(profile_path.read_text())
+    profile_payload["active_provider"] = "profile-provider"
+    profile_payload["providers"] = {
+        "profile-provider": {"metadata": "profile-preserved"}
+    }
+    profile_path.write_text(json.dumps(profile_payload))
+    global_path = tmp_path / "global-auth.json"
+    global_path.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "active_provider": "global-provider",
+                "providers": {
+                    "global-provider": {"metadata": "global-preserved"},
+                    "openai-codex": {
+                        "tokens": {
+                            "access_token": target["access_token"],
+                            "refresh_token": target["refresh_token"],
+                        },
+                        "last_refresh": 1.0,
+                    },
+                },
+            }
+        )
+    )
+    monkeypatch.setattr(auth_module, "_global_auth_file_path", lambda: global_path)
+    previous = pool.entries()[0]
+    updated_payload = previous.to_dict()
+    updated_payload.update(
+        access_token="new-access",
+        refresh_token="new-refresh",
+        last_refresh=2.0,
+    )
+    updated = type(previous).from_dict("openai-codex", updated_payload)
+
+    committed = pool._commit_credential_update(previous, updated)
+
+    persisted_profile = json.loads(profile_path.read_text())
+    persisted_global = json.loads(global_path.read_text())
+    assert committed.access_token == "new-access"
+    assert persisted_profile["active_provider"] == "profile-provider"
+    assert persisted_profile["providers"] == {
+        "profile-provider": {"metadata": "profile-preserved"}
+    }
+    assert persisted_global["active_provider"] == "global-provider"
+    assert persisted_global["providers"]["global-provider"] == {
+        "metadata": "global-preserved"
+    }
+    assert persisted_global["providers"]["openai-codex"] == {
+        "tokens": {
+            "access_token": "new-access",
+            "refresh_token": "new-refresh",
+        },
+        "last_refresh": 2.0,
+    }
+
+
+def test_d3_pinned_codex_refresh_active_commit_failure_restores_exact_store(
+    tmp_path, monkeypatch
+):
+    import hermes_cli.auth as auth_module
+
+    target = _d3_codex_entry("pinned-id", "PINNED", 0)
+    target["source"] = "device_code"
+    pool = _load_d3_codex_pool(
+        tmp_path,
+        monkeypatch,
+        [target],
+        "HERMES_CREDENTIAL_PIN_OPENAI_CODEX_ID=pinned-id\n",
+    )
+    profile_path = tmp_path / "hermes" / "auth.json"
+    profile_payload = json.loads(profile_path.read_text())
+    profile_payload["providers"] = {
+        "openai-codex": {
+            "tokens": {
+                "access_token": target["access_token"],
+                "refresh_token": target["refresh_token"],
+            },
+            "last_refresh": 1.0,
+        }
+    }
+    profile_path.write_text(json.dumps(profile_payload))
+    profile_before = profile_path.read_bytes()
+    monkeypatch.setattr(auth_module, "_global_auth_file_path", lambda: None)
+    previous = pool.entries()[0]
+    updated_payload = previous.to_dict()
+    updated_payload.update(
+        access_token="new-access",
+        refresh_token="new-refresh",
+        last_refresh=2.0,
+    )
+    updated = type(previous).from_dict("openai-codex", updated_payload)
+    pool._current_id = previous.id
+    real_active_save = auth_module._save_auth_store
+
+    def commit_then_raise(*args, **kwargs):
+        real_active_save(*args, **kwargs)
+        raise OSError("post-commit active refresh save failed")
+
+    monkeypatch.setattr(auth_module, "_save_auth_store", commit_then_raise)
+
+    with pytest.raises(OSError, match="post-commit active refresh save failed"):
+        pool._commit_credential_update(previous, updated)
+
+    assert profile_path.read_bytes() == profile_before
+    assert pool.entries()[0].access_token == previous.access_token
+    assert pool.entries()[0].refresh_token == previous.refresh_token
+    assert pool._current_id == previous.id
+
+
+def test_d3_pinned_codex_refresh_active_success_persists_provider_metadata(
+    tmp_path, monkeypatch
+):
+    import hermes_cli.auth as auth_module
+
+    target = _d3_codex_entry("pinned-id", "PINNED", 0)
+    target["source"] = "device_code"
+    pool = _load_d3_codex_pool(
+        tmp_path,
+        monkeypatch,
+        [target],
+        "HERMES_CREDENTIAL_PIN_OPENAI_CODEX_ID=pinned-id\n",
+    )
+    profile_path = tmp_path / "hermes" / "auth.json"
+    profile_payload = json.loads(profile_path.read_text())
+    profile_payload["providers"] = {
+        "openai-codex": {
+            "tokens": {
+                "access_token": target["access_token"],
+                "refresh_token": target["refresh_token"],
+            },
+            "last_refresh": 1.0,
+        }
+    }
+    profile_path.write_text(json.dumps(profile_payload))
+    monkeypatch.setattr(auth_module, "_global_auth_file_path", lambda: None)
+    previous = pool.entries()[0]
+    updated_payload = previous.to_dict()
+    updated_payload.update(
+        access_token="new-access",
+        refresh_token="new-refresh",
+        last_refresh=2.0,
+    )
+    updated = type(previous).from_dict("openai-codex", updated_payload)
+
+    committed = pool._commit_credential_update(previous, updated)
+
+    persisted = json.loads(profile_path.read_text())
+    persisted_row = persisted["credential_pool"]["openai-codex"][0]
+    persisted_provider = persisted["providers"]["openai-codex"]
+    assert committed.access_token == "new-access"
+    assert persisted_row["access_token"] == "new-access"
+    assert persisted_row["refresh_token"] == "new-refresh"
+    assert persisted_row["last_refresh"] == 2.0
+    assert persisted_provider["tokens"] == {
+        "access_token": "new-access",
+        "refresh_token": "new-refresh",
+    }
+    assert persisted_provider["last_refresh"] == 2.0
+
+
+@pytest.mark.parametrize("operation", ["sync", "quarantine"])
+def test_d3_codex_global_source_disappearance_fails_closed(
+    tmp_path, monkeypatch, operation
+):
+    import hermes_cli.auth as auth_module
+
+    profile_path = tmp_path / "profile-auth.json"
+    global_path = tmp_path / "global-auth.json"
+    target = _d3_codex_entry("pinned-id", "PINNED", 0)
+    target["source"] = "device_code"
+    profile_payload = {
+        "version": 1,
+        "providers": {},
+        "credential_pool": {"openai-codex": [target]},
+    }
+    global_payload = {"version": 1, "providers": {}}
+    profile_path.write_text(json.dumps(profile_payload))
+    global_path.write_text(json.dumps(global_payload))
+    profile_before = profile_path.read_bytes()
+    global_before = global_path.read_bytes()
+    monkeypatch.setattr(auth_module, "_auth_file_path", lambda: profile_path)
+    monkeypatch.setattr(auth_module, "_global_auth_file_path", lambda: global_path)
+    monkeypatch.setattr(
+        auth_module,
+        "_load_provider_state_with_source",
+        lambda _store, _provider: (
+            {
+                "tokens": {
+                    "access_token": target["access_token"],
+                    "refresh_token": target["refresh_token"],
+                }
+            },
+            global_path,
+        ),
+    )
+
+    with pytest.raises(
+        auth_module.AuthError,
+        match="provider source changed",
+    ) as exc_info:
+        if operation == "sync":
+            auth_module._sync_codex_pool_credential_from_provider_exact(
+                "pinned-id"
+            )
+        else:
+            auth_module._quarantine_codex_pool_credential_exact(
+                "pinned-id",
+                target["access_token"],
+                target["refresh_token"],
+                {"reason": "synthetic-terminal"},
+            )
+
+    assert exc_info.value.code == "codex_target_credential_changed"
+    assert profile_path.read_bytes() == profile_before
+    assert global_path.read_bytes() == global_before
+
+
+def test_d3_credential_pinned_remove_preserves_latest_disk_siblings(
+    tmp_path, monkeypatch
+):
+    target = _d3_codex_entry("pinned-id", "PINNED", 0)
+    removed = _d3_codex_entry("remove-id", "REMOVE", 1)
+    sibling = _d3_codex_entry("sibling-id", "SIBLING", 2)
+    stale_deleted = _d3_codex_entry("stale-id", "STALE", 3)
+    pool = _load_d3_codex_pool(
+        tmp_path,
+        monkeypatch,
+        [target, removed, sibling, stale_deleted],
+        "HERMES_CREDENTIAL_PIN_OPENAI_CODEX_ID=pinned-id\n",
+    )
+
+    from hermes_cli.auth import write_credential_pool
+
+    target["access_token"] = "target-concurrent-access"
+    target["refresh_token"] = "target-concurrent-refresh"
+    sibling["access_token"] = "sibling-concurrent-access"
+    sibling["refresh_token"] = "sibling-concurrent-refresh"
+    write_credential_pool(
+        "openai-codex",
+        [target, removed, sibling],
+        removed_ids=["stale-id"],
+    )
+
+    deleted = pool.remove_index(2)
+    assert deleted is not None and deleted.id == "remove-id"
+
+    payload = json.loads((tmp_path / "hermes" / "auth.json").read_text())
+    entries = payload["credential_pool"]["openai-codex"]
+    assert {entry["id"] for entry in entries} == {"pinned-id", "sibling-id"}
+    persisted_sibling = next(entry for entry in entries if entry["id"] == "sibling-id")
+    assert persisted_sibling["access_token"] == "sibling-concurrent-access"
+    assert persisted_sibling["refresh_token"] == "sibling-concurrent-refresh"
+    assert [entry.id for entry in pool.entries()] == ["pinned-id", "sibling-id"]
+    assert pool.entries()[0].access_token == "target-concurrent-access"
+    assert pool.entries()[1].access_token == "sibling-concurrent-access"
+
+    pool._mark_exhausted(pool.entries()[0], 429)
+    payload = json.loads((tmp_path / "hermes" / "auth.json").read_text())
+    persisted_target = next(
+        entry
+        for entry in payload["credential_pool"]["openai-codex"]
+        if entry["id"] == "pinned-id"
+    )
+    assert persisted_target["access_token"] == "target-concurrent-access"
+    assert persisted_target["refresh_token"] == "target-concurrent-refresh"
+
+
+def test_d3_credential_pinned_remove_failure_keeps_memory_and_disk_atomic(
+    tmp_path, monkeypatch
+):
+    pinned = _d3_codex_entry("pinned-id", "PINNED", 0)
+    target = _d3_codex_entry("remove-id", "REMOVE", 1)
+    sibling = _d3_codex_entry("sibling-id", "SIBLING", 2)
+    pool = _load_d3_codex_pool(
+        tmp_path,
+        monkeypatch,
+        [pinned, target, sibling],
+        "HERMES_CREDENTIAL_PIN_OPENAI_CODEX_ID=pinned-id\n",
+    )
+
+    auth_path = tmp_path / "hermes" / "auth.json"
+    payload = json.loads(auth_path.read_text())
+    duplicate = dict(payload["credential_pool"]["openai-codex"][1])
+    duplicate["label"] = "DUPLICATE"
+    payload["credential_pool"]["openai-codex"].append(duplicate)
+    auth_path.write_text(json.dumps(payload))
+
+    from hermes_cli.auth import AuthError
+
+    for _attempt in range(2):
+        with pytest.raises(AuthError) as excinfo:
+            pool.remove_index(2)
+
+        assert excinfo.value.code == "codex_target_credential_changed"
+        assert [entry.id for entry in pool.entries()] == [
+            "pinned-id",
+            "remove-id",
+            "sibling-id",
+        ]
+        assert [entry.priority for entry in pool.entries()] == [0, 1, 2]
+        persisted = json.loads(auth_path.read_text())["credential_pool"][
+            "openai-codex"
+        ]
+        assert [entry["id"] for entry in persisted].count("remove-id") == 2
+
+
+def test_d3_credential_pinned_cooldown_clear_reconciles_latest_disk(
+    tmp_path, monkeypatch
+):
+    target = _d3_codex_entry("pinned-id", "PINNED", 0, status="exhausted")
+    target["last_status_at"] = 1.0
+    target["last_error_reset_at"] = 1.0
+    sibling = _d3_codex_entry("sibling-id", "SIBLING", 1)
+    pool = _load_d3_codex_pool(
+        tmp_path,
+        monkeypatch,
+        [target, sibling],
+        "HERMES_CREDENTIAL_PIN_OPENAI_CODEX_ID=pinned-id\n",
+    )
+
+    from hermes_cli.auth import write_credential_pool
+
+    target["access_token"] = "target-concurrent-access"
+    target["refresh_token"] = "target-concurrent-refresh"
+    sibling["access_token"] = "sibling-concurrent-access"
+    sibling["refresh_token"] = "sibling-concurrent-refresh"
+    sibling["last_status"] = "exhausted"
+    sibling["last_error_code"] = "429"
+    write_credential_pool("openai-codex", [target, sibling])
+    monkeypatch.setattr(pool, "_sync_codex_entry_from_auth_store", lambda entry: entry)
+
+    selected = pool.select()
+    assert selected is not None and selected.id == "pinned-id"
+    assert selected.access_token == "target-concurrent-access"
+    assert selected.refresh_token == "target-concurrent-refresh"
+    assert selected.last_status == "ok"
+
+    payload = json.loads((tmp_path / "hermes" / "auth.json").read_text())
+    entries = payload["credential_pool"]["openai-codex"]
+    assert [entry.id for entry in pool.entries()] == [
+        entry["id"] for entry in entries
+    ]
+    persisted_target = next(entry for entry in entries if entry["id"] == "pinned-id")
+    assert persisted_target["access_token"] == "target-concurrent-access"
+    assert persisted_target["refresh_token"] == "target-concurrent-refresh"
+    assert persisted_target["last_status"] == "ok"
+    persisted_sibling = next(entry for entry in entries if entry["id"] == "sibling-id")
+    assert persisted_sibling["access_token"] == "sibling-concurrent-access"
+    assert persisted_sibling["refresh_token"] == "sibling-concurrent-refresh"
+    assert persisted_sibling["last_status"] == "exhausted"
+    assert persisted_sibling["last_error_code"] == "429"
+
+
+def test_d3_credential_pinned_cooldown_clear_failure_keeps_memory_and_disk_atomic(
+    tmp_path, monkeypatch
+):
+    target = _d3_codex_entry("pinned-id", "PINNED", 0, status="exhausted")
+    target["last_status_at"] = 1.0
+    target["last_error_reset_at"] = 1.0
+    pool = _load_d3_codex_pool(
+        tmp_path,
+        monkeypatch,
+        [target],
+        "HERMES_CREDENTIAL_PIN_OPENAI_CODEX_ID=pinned-id\n",
+    )
+    auth_path = tmp_path / "hermes" / "auth.json"
+    before_memory = pool.entries()
+    before_disk = auth_path.read_text()
+
+    from hermes_cli.auth import AuthError
+    import agent.credential_pool as credential_pool_module
+
+    def reject_status_merge(_payload):
+        raise AuthError(
+            "synthetic merge failure",
+            provider="openai-codex",
+            code="codex_target_credential_changed",
+            relogin_required=False,
+        )
+
+    monkeypatch.setattr(
+        credential_pool_module.auth_mod,
+        "_merge_codex_pool_credential_status_exact",
+        reject_status_merge,
+    )
+
+    for _attempt in range(2):
+        with pytest.raises(AuthError) as excinfo:
+            pool.select()
+        assert excinfo.value.code == "codex_target_credential_changed"
+        assert pool.entries() == before_memory
+        assert auth_path.read_text() == before_disk
+
+
+def test_d3_credential_pinned_aged_dead_prune_rejects_duplicate_disk_target(
+    tmp_path, monkeypatch
+):
+    target = _d3_codex_entry("pinned-id", "PINNED", 0, status="dead")
+    target["last_status_at"] = 1.0
+    pool = _load_d3_codex_pool(
+        tmp_path,
+        monkeypatch,
+        [target],
+        "HERMES_CREDENTIAL_PIN_OPENAI_CODEX_ID=pinned-id\n",
+    )
+
+    auth_path = tmp_path / "hermes" / "auth.json"
+    payload = json.loads(auth_path.read_text())
+    duplicate = dict(payload["credential_pool"]["openai-codex"][0])
+    duplicate["label"] = "DUPLICATE"
+    payload["credential_pool"]["openai-codex"].append(duplicate)
+    auth_path.write_text(json.dumps(payload))
+
+    from hermes_cli.auth import AuthError
+
+    for _attempt in range(2):
+        with pytest.raises(AuthError) as excinfo:
+            pool.select()
+
+        assert excinfo.value.code == "codex_target_credential_changed"
+        assert [entry.id for entry in pool.entries()] == ["pinned-id"]
+
+
+def test_d3_credential_pinned_aged_dead_prune_reconciles_latest_disk(
+    tmp_path, monkeypatch
+):
+    target = _d3_codex_entry("pinned-id", "PINNED", 0, status="dead")
+    target["last_status_at"] = 1.0
+    stale_sibling = _d3_codex_entry("stale-id", "STALE", 1)
+    pool = _load_d3_codex_pool(
+        tmp_path,
+        monkeypatch,
+        [target, stale_sibling],
+        "HERMES_CREDENTIAL_PIN_OPENAI_CODEX_ID=pinned-id\n",
+    )
+
+    from hermes_cli.auth import write_credential_pool
+
+    latest_sibling = _d3_codex_entry("latest-id", "LATEST", 1)
+    latest_sibling["access_token"] = "latest-sibling-access"
+    write_credential_pool(
+        "openai-codex",
+        [target, latest_sibling],
+        removed_ids=["stale-id"],
+    )
+
+    assert pool.select() is None
+    assert [entry.id for entry in pool.entries()] == ["latest-id"]
+    assert pool.entries()[0].access_token == "latest-sibling-access"
